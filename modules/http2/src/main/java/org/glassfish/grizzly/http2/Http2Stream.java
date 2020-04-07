@@ -495,13 +495,28 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
     
     void onInputClosed() {
         if (completeFinalizationCounterUpdater.incrementAndGet(this) == 2) {
+            closedStateSwitch();
             closeStream();
         }
     }
 
     void onOutputClosed() {
         if (completeFinalizationCounterUpdater.incrementAndGet(this) == 2) {
+            closedStateSwitch();
             closeStream();
+        }
+    }
+
+    private void closedStateSwitch() {
+        synchronized (this) {
+            switch (state) {
+                case OPEN:
+                    state = State.HALF_CLOSED_LOCAL;
+                    break;
+                case HALF_CLOSED_REMOTE:
+                    state = State.CLOSED;
+                    break;
+            }
         }
     }
 

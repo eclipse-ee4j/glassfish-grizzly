@@ -1165,14 +1165,11 @@ public class Http2Session {
             if (!isCloseSession) {
                 if (checkCount++ > http2Configuration.getCleanFrequencyCheck() && streamsMap.size() > streamsHighWaterMark) {
                     checkCount = 0;
-                    int maxCount = Float.valueOf(streamsHighWaterMark * http2Configuration.getCleanPercentage()).intValue();
-                    int count = 0;
-                    for (final Iterator<Map.Entry<Integer,Http2Stream>> streamIds = streamsMap.entrySet().iterator(); (streamIds.hasNext() && count < maxCount);) {
-                        final Map.Entry<Integer,Http2Stream> entry = streamIds.next();
+                    for (final Iterator<Map.Entry<Integer, Http2Stream>> streamIds = streamsMap.entrySet().iterator(); streamIds.hasNext(); ) {
+                        final Map.Entry<Integer, Http2Stream> entry = streamIds.next();
                         if (entry.getValue().isClosed()) {
                             streamIds.remove();
                         }
-                        count++;
                     }
                 }
             }
