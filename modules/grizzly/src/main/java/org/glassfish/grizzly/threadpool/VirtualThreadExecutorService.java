@@ -8,6 +8,8 @@ import java.util.Objects;
 import java.util.concurrent.AbstractExecutorService;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
@@ -21,9 +23,10 @@ public class VirtualThreadExecutorService extends AbstractExecutorService implem
     private static final Logger logger = Grizzly.logger(VirtualThreadExecutorService.class);
 
     private final ExecutorService internalExecutorService;
+    private Semaphore poolSemaphore;
 
     public static VirtualThreadExecutorService createInstance() {
-        return createInstance(ThreadPoolConfig.defaultConfig().setPoolName("Grizzly-virt-"));
+        return createInstance(ThreadPoolConfig.defaultConfig().setMaxPoolSize(-1).setPoolName("Grizzly-virt-"));
     }
 
     public static VirtualThreadExecutorService createInstance(ThreadPoolConfig cfg) {
@@ -33,28 +36,30 @@ public class VirtualThreadExecutorService extends AbstractExecutorService implem
 
     protected VirtualThreadExecutorService(ThreadPoolConfig cfg) {
         internalExecutorService = Executors.newThreadPerTaskExecutor(getThreadFactory(cfg));
+        if (cfg.getMaxPoolSize() > 0) {
+            poolSemaphore = new Semaphore(cfg.getMaxPoolSize());
+        } else {
+            poolSemaphore = new Semaphore(Integer.MAX_VALUE);
+        }
     }
 
     private ThreadFactory getThreadFactory(ThreadPoolConfig threadPoolConfig) {
 
         var prefix = threadPoolConfig.getPoolName() + "-";
-        
+
         // virtual threads factory
         final ThreadFactory factory = Thread.ofVirtual()
                 .name(prefix, 0L)
                 .uncaughtExceptionHandler(this)
                 .factory();
 
-        return new ThreadFactory() {
-            @Override
-            public Thread newThread(Runnable r) {
-                Thread thread = factory.newThread(r);
-                final ClassLoader initial = threadPoolConfig.getInitialClassLoader();
-                if (initial != null) {
-                    thread.setContextClassLoader(initial);
-                }
-                return thread;
+        return r -> {
+            Thread thread = factory.newThread(r);
+            final ClassLoader initial = threadPoolConfig.getInitialClassLoader();
+            if (initial != null) {
+                thread.setContextClassLoader(initial);
             }
+            return thread;
         };
     }
 
@@ -85,7 +90,17 @@ public class VirtualThreadExecutorService extends AbstractExecutorService implem
 
     @Override
     public void execute(Runnable command) {
-        internalExecutorService.execute(command);
+        if (poolSemaphore.tryAcquire()) {
+            internalExecutorService.execute(() -> {
+                try {
+                    command.run();
+                } finally {
+                    poolSemaphore.release();
+                }
+            });
+        } else {
+            throw new RejectedExecutionException("Too Many Concurrent Requests");
+        }
     }
 
     @Override

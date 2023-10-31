@@ -25,23 +25,15 @@ jobs:
       MAVEN_VERSION: 3.9.12
     strategy:
       matrix:
-<<<<<<< HEAD
         java_version: [ 21 ]
-=======
-        java_version: [ 21-ea ]
->>>>>>> ea8aa6a (Add VirtualThreadExecutorService for virtual threads)
 
     steps:
     - name: Checkout for build
       uses: actions/checkout@v6
     - name: Set up JDK
-<<<<<<< HEAD
       uses: actions/setup-java@v5
-=======
-      uses: actions/setup-java@v3
->>>>>>> ea8aa6a (Add VirtualThreadExecutorService for virtual threads)
       with:
-        distribution: 'zulu'
+        distribution: 'temurin'
         java-version: ${{ matrix.java_version }}
     - name: Install Maven
       run: |
@@ -64,23 +56,15 @@ jobs:
       MAVEN_VERSION: 3.9.12
     strategy:
       matrix:
-<<<<<<< HEAD
         java_version: [ 21 ]
-=======
-        java_version: [ 21-ea ]
->>>>>>> ea8aa6a (Add VirtualThreadExecutorService for virtual threads)
 
     steps:
     - name: Checkout for build
       uses: actions/checkout@v6
     - name: Set up JDK
-<<<<<<< HEAD
       uses: actions/setup-java@v5
-=======
-      uses: actions/setup-java@v3
->>>>>>> ea8aa6a (Add VirtualThreadExecutorService for virtual threads)
       with:
-        distribution: 'zulu'
+        distribution: 'temurin'
         java-version: ${{ matrix.java_version }}
     - name: Install Maven
       run: |
