@@ -23,7 +23,8 @@ public class VirtualThreadExecutorService extends AbstractExecutorService implem
     private static final Logger logger = Grizzly.logger(VirtualThreadExecutorService.class);
 
     private final ExecutorService internalExecutorService;
-    private Semaphore poolSemaphore;
+    private final Semaphore poolSemaphore;
+    private final Semaphore queueSemaphore;
 
     public static VirtualThreadExecutorService createInstance() {
         return createInstance(ThreadPoolConfig.defaultConfig().setMaxPoolSize(-1).setPoolName("Grizzly-virt-"));
@@ -36,11 +37,18 @@ public class VirtualThreadExecutorService extends AbstractExecutorService implem
 
     protected VirtualThreadExecutorService(ThreadPoolConfig cfg) {
         internalExecutorService = Executors.newThreadPerTaskExecutor(getThreadFactory(cfg));
-        if (cfg.getMaxPoolSize() > 0) {
-            poolSemaphore = new Semaphore(cfg.getMaxPoolSize());
+
+        int poolSizeLimit = cfg.getMaxPoolSize() > 0 ? cfg.getMaxPoolSize() : Integer.MAX_VALUE;
+        int queueLimit = cfg.getQueueLimit() >= 0 ? cfg.getQueueLimit() : Integer.MAX_VALUE;
+        // Check for integer overflow
+        long totalLimit = (long) poolSizeLimit + (long) queueLimit;
+        if (totalLimit > Integer.MAX_VALUE) {
+            // Handle the overflow case
+            queueSemaphore = new Semaphore(Integer.MAX_VALUE, true);
         } else {
-            poolSemaphore = new Semaphore(Integer.MAX_VALUE);
+            queueSemaphore = new Semaphore((int) totalLimit, true);
         }
+        poolSemaphore = new Semaphore(poolSizeLimit, true);
     }
 
     private ThreadFactory getThreadFactory(ThreadPoolConfig threadPoolConfig) {
@@ -90,17 +98,24 @@ public class VirtualThreadExecutorService extends AbstractExecutorService implem
 
     @Override
     public void execute(Runnable command) {
-        if (poolSemaphore.tryAcquire()) {
-            internalExecutorService.execute(() -> {
+        if (!queueSemaphore.tryAcquire()) {
+            throw new RejectedExecutionException("Too Many Concurrent Requests");
+        }
+
+        internalExecutorService.execute(() -> {
+            try {
+                poolSemaphore.acquire();
                 try {
                     command.run();
                 } finally {
                     poolSemaphore.release();
                 }
-            });
-        } else {
-            throw new RejectedExecutionException("Too Many Concurrent Requests");
-        }
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            } finally {
+                queueSemaphore.release();
+            }
+        });
     }
 
     @Override

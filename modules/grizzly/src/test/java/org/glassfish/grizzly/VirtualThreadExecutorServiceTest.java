@@ -29,14 +29,18 @@ public class VirtualThreadExecutorServiceTest extends GrizzlyTestCase {
     }
 
     public void testQueueLimit() throws Exception {
-        int poolSize = 10;
-        ThreadPoolConfig config = ThreadPoolConfig.defaultConfig().setMaxPoolSize(poolSize);
+        int maxPoolSize = 20;
+        int queueLimit = 10;
+        int queue = maxPoolSize + queueLimit;
+        ThreadPoolConfig config = ThreadPoolConfig.defaultConfig()
+                .setMaxPoolSize(maxPoolSize)
+                .setQueueLimit(queueLimit);
         VirtualThreadExecutorService r = VirtualThreadExecutorService.createInstance(config);
 
-        CyclicBarrier start = new CyclicBarrier(poolSize + 1);
-        CyclicBarrier hold = new CyclicBarrier(poolSize + 1);
+        CyclicBarrier start = new CyclicBarrier(maxPoolSize + 1);
+        CyclicBarrier hold = new CyclicBarrier(maxPoolSize + 1);
         AtomicInteger result = new AtomicInteger();
-        for (int i = 0; i < poolSize; i++) {
+        for (int i = 0; i < maxPoolSize; i++) {
             int taskId = i;
             r.execute(() -> {
                 try {
@@ -44,22 +48,33 @@ public class VirtualThreadExecutorServiceTest extends GrizzlyTestCase {
                     start.await();
                     hold.await();
                     result.getAndIncrement();
+                    System.out.println("task " + taskId + " is completed");
                 } catch (Exception e) {
                 }
             });
         }
         start.await();
+        for (int i = maxPoolSize; i < queue; i++) {
+            int taskId = i;
+            r.execute(() -> {
+                try {
+                    result.getAndIncrement();
+                    System.out.println("task " + taskId + " is completed");
+                } catch (Exception e) {
+                }
+            });
+        }
         // Too Many Concurrent Requests
         Assert.assertThrows(RejectedExecutionException.class, () -> r.execute(() -> System.out.println("cannot be executed")));
         hold.await();
         while (true) {
-            if (result.intValue() == poolSize) {
+            if (result.intValue() == queue) {
                 System.out.println("All tasks have been completed.");
                 break;
             }
         }
         // The executor can accept new tasks
-        doTest(r, poolSize);
+        doTest(r, queue);
     }
 
     private void doTest(VirtualThreadExecutorService r, int tasks) throws Exception {
