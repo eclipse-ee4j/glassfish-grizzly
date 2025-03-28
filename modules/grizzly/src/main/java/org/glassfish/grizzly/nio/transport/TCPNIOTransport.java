@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -22,6 +22,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.net.StandardSocketOptions;
 import java.nio.channels.ClosedByInterruptException;
 import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
@@ -713,6 +714,14 @@ public final class TCPNIOTransport extends NIOTransport implements AsyncQueueEna
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(reuseAddress), e);
                 }
+                if (tcpNioTransport.isReusePortAvailable()) {
+                    final boolean reusePort = tcpNioTransport.isReusePort();
+                    try {
+                        socket.setOption(StandardSocketOptions.SO_REUSEPORT, reusePort);
+                    } catch (Throwable t) {
+                        LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort), t);
+                    }
+                }
             } else { // ServerSocketChannel
                 final ServerSocketChannel serverSocketChannel = (ServerSocketChannel) channel;
                 final ServerSocket serverSocket = serverSocketChannel.socket();
@@ -723,6 +732,14 @@ public final class TCPNIOTransport extends NIOTransport implements AsyncQueueEna
                     serverSocket.setReuseAddress(tcpNioTransport.isReuseAddress());
                 } catch (IOException e) {
                     LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(tcpNioTransport.isReuseAddress()), e);
+                }
+                if (tcpNioTransport.isReusePortAvailable()) {
+                    final boolean reusePort = tcpNioTransport.isReusePort();
+                    try {
+                        serverSocket.setOption(StandardSocketOptions.SO_REUSEPORT, reusePort);
+                    } catch (Throwable t) {
+                        LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort), t);
+                    }
                 }
             }
         }

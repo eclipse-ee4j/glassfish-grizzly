@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2011, 2025 Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2018 Payara Services Ltd.
  *
  * This program and the accompanying materials are made available under the
@@ -62,6 +62,7 @@ public abstract class NIOTransportBuilder<T extends NIOTransportBuilder> {
     protected int clientSocketSoTimeout = NIOTransport.DEFAULT_CLIENT_SOCKET_SO_TIMEOUT;
     protected int connectionTimeout = NIOTransport.DEFAULT_CONNECTION_TIMEOUT;
     protected boolean reuseAddress = NIOTransport.DEFAULT_REUSE_ADDRESS;
+    protected boolean reusePort = NIOTransport.DEFAULT_REUSE_PORT;
     protected int maxPendingBytesPerConnection = AsyncQueueWriter.AUTO_SIZE;
     protected boolean optimizedForMultiplexing = NIOTransport.DEFAULT_OPTIMIZED_FOR_MULTIPLEXING;
 
@@ -505,6 +506,28 @@ public abstract class NIOTransportBuilder<T extends NIOTransportBuilder> {
     }
 
     /**
+     * Whether both same address and same port may be reused for multiple sockets
+     *
+     * @return SO_REUSEPORT
+     * @see <a href="http://man7.org/linux/man-pages/man7/socket.7.html">Socket man page</a>
+     */
+    public boolean isReusePort() {
+        return reusePort;
+    }
+
+    /**
+     * Sets whether both same address and same port may be reused for multiple sockets
+     *
+     * @param reusePort SO_REUSEPORT
+     * @return this <code>TCPNIOTransportBuilder</code>
+     * @see <a href="http://man7.org/linux/man-pages/man7/socket.7.html">Socket man page</a>
+     */
+    public T setReusePort(boolean reusePort) {
+        this.reusePort = reusePort;
+        return getThis();
+    }
+
+    /**
      * Max asynchronous write queue size in bytes
      * 
      * @return the value is per connection, not transport total.
@@ -572,6 +595,7 @@ public abstract class NIOTransportBuilder<T extends NIOTransportBuilder> {
         transport.setReadBufferSize(readBufferSize);
         transport.setWriteBufferSize(writeBufferSize);
         transport.setReuseAddress(reuseAddress);
+        transport.setReusePort(reusePort);
         transport.setOptimizedForMultiplexing(isOptimizedForMultiplexing());
         transport.getAsyncQueueIO().getWriter().setMaxPendingBytesPerConnection(maxPendingBytesPerConnection);
         return transport;

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -17,6 +17,8 @@
 package org.glassfish.grizzly.nio;
 
 import java.io.IOException;
+import java.net.Socket;
+import java.net.StandardSocketOptions;
 import java.nio.channels.SelectableChannel;
 import java.nio.channels.spi.SelectorProvider;
 import java.util.HashSet;
@@ -26,6 +28,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.Lock;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -51,6 +54,7 @@ import org.glassfish.grizzly.threadpool.AbstractThreadPool;
 import org.glassfish.grizzly.threadpool.GrizzlyExecutorService;
 import org.glassfish.grizzly.threadpool.ThreadPoolConfig;
 import org.glassfish.grizzly.utils.Futures;
+import org.glassfish.grizzly.utils.Holder;
 
 /**
  *
@@ -62,12 +66,25 @@ public abstract class NIOTransport extends AbstractTransport
     public static final int DEFAULT_SERVER_SOCKET_SO_TIMEOUT = 0;
 
     public static final boolean DEFAULT_REUSE_ADDRESS = true;
+    public static final boolean DEFAULT_REUSE_PORT = false;
     public static final int DEFAULT_CLIENT_SOCKET_SO_TIMEOUT = 0;
     public static final int DEFAULT_CONNECTION_TIMEOUT = SocketConnectorHandler.DEFAULT_CONNECTION_TIMEOUT;
     public static final int DEFAULT_SELECTOR_RUNNER_COUNT = -1;
     public static final boolean DEFAULT_OPTIMIZED_FOR_MULTIPLEXING = false;
 
     private static final Logger LOGGER = Grizzly.logger(NIOTransport.class);
+
+    private static final Holder<Boolean> REUSEPORT_AVAILABLE_HOLDER = Holder.lazyHolder(new Supplier<Boolean>() {
+        @Override
+        public Boolean get() {
+            try {
+                return new Socket().supportedOptions().contains(StandardSocketOptions.SO_REUSEPORT);
+            } catch (Throwable t) {
+                LOGGER.log(Level.INFO, LogMessages.INFO_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(), t);
+                return false;
+            }
+        }
+    });
 
     protected SelectorHandler selectorHandler;
     protected SelectionKeyHandler selectionKeyHandler;
@@ -79,6 +96,10 @@ public abstract class NIOTransport extends AbstractTransport
      * The socket reuseAddress
      */
     boolean reuseAddress = DEFAULT_REUSE_ADDRESS;
+    /**
+     * The socket reusePort
+     */
+    boolean reusePort = DEFAULT_REUSE_PORT;
     /**
      * The socket time out
      */
@@ -652,6 +673,22 @@ public abstract class NIOTransport extends AbstractTransport
     public void setReuseAddress(final boolean reuseAddress) {
         this.reuseAddress = reuseAddress;
         notifyProbesConfigChanged(this);
+    }
+
+    public boolean isReusePort() {
+        return reusePort;
+    }
+
+    public void setReusePort(final boolean reusePort) {
+        this.reusePort = reusePort;
+        notifyProbesConfigChanged(this);
+    }
+
+    /**
+     * Tells whether SO_REUSEPORT is supported.
+     */
+    public boolean isReusePortAvailable() {
+        return REUSEPORT_AVAILABLE_HOLDER.get();
     }
 
     public int getClientSocketSoTimeout() {

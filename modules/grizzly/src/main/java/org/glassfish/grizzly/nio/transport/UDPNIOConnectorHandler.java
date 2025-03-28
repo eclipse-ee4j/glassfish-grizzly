@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -19,9 +19,11 @@ package org.glassfish.grizzly.nio.transport;
 import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.SocketAddress;
+import java.net.StandardSocketOptions;
 import java.nio.channels.DatagramChannel;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.glassfish.grizzly.AbstractSocketConnectorHandler;
@@ -35,6 +37,7 @@ import org.glassfish.grizzly.IOEvent;
 import org.glassfish.grizzly.IOEventLifeCycleListener;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.impl.ReadyFutureImpl;
+import org.glassfish.grizzly.localization.LogMessages;
 import org.glassfish.grizzly.nio.NIOChannelDistributor;
 import org.glassfish.grizzly.nio.RegisterChannelResult;
 import org.glassfish.grizzly.utils.Futures;
@@ -49,12 +52,14 @@ public class UDPNIOConnectorHandler extends AbstractSocketConnectorHandler {
     private static final Logger LOGGER = Grizzly.logger(UDPNIOConnectorHandler.class);
 
     protected boolean isReuseAddress;
+    protected boolean isReusePort;
     protected volatile long connectionTimeoutMillis = DEFAULT_CONNECTION_TIMEOUT;
 
     protected UDPNIOConnectorHandler(UDPNIOTransport transport) {
         super(transport);
         connectionTimeoutMillis = transport.getConnectionTimeout();
         isReuseAddress = transport.isReuseAddress();
+        isReusePort = transport.isReusePort();
     }
 
     /**
@@ -102,6 +107,15 @@ public class UDPNIOConnectorHandler extends AbstractSocketConnectorHandler {
             final boolean reuseAddr = isReuseAddress;
             if (reuseAddr != nioTransport.isReuseAddress()) {
                 socket.setReuseAddress(reuseAddr);
+            }
+
+            final boolean reusePort = isReusePort;
+            if (reusePort != nioTransport.isReusePort() && nioTransport.isReusePortAvailable()) {
+                try {
+                    socket.setOption(StandardSocketOptions.SO_REUSEPORT, reusePort);
+                } catch (Throwable t) {
+                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort), t);
+                }
             }
 
             socket.bind(localAddress);
@@ -161,6 +175,14 @@ public class UDPNIOConnectorHandler extends AbstractSocketConnectorHandler {
 
     public void setReuseAddress(boolean isReuseAddress) {
         this.isReuseAddress = isReuseAddress;
+    }
+
+    public boolean isReusePort() {
+        return isReusePort;
+    }
+
+    public void setReusePort(boolean isReusePort) {
+        this.isReusePort = isReusePort;
     }
 
     public long getSyncConnectTimeout(final TimeUnit timeUnit) {
@@ -281,6 +303,7 @@ public class UDPNIOConnectorHandler extends AbstractSocketConnectorHandler {
     public static class Builder extends AbstractSocketConnectorHandler.Builder<Builder> {
         private UDPNIOTransport transport;
         private Boolean reuseAddress;
+        private Boolean reusePort;
         private Long timeout;
         private TimeUnit timeoutTimeunit;
 
@@ -289,6 +312,9 @@ public class UDPNIOConnectorHandler extends AbstractSocketConnectorHandler {
             UDPNIOConnectorHandler handler = (UDPNIOConnectorHandler) super.build();
             if (reuseAddress != null) {
                 handler.setReuseAddress(reuseAddress);
+            }
+            if (reusePort != null) {
+                handler.setReusePort(reusePort);
             }
             if (timeout != null) {
                 handler.setSyncConnectTimeout(timeout, timeoutTimeunit);
@@ -303,6 +329,11 @@ public class UDPNIOConnectorHandler extends AbstractSocketConnectorHandler {
 
         public Builder setReuseAddress(final boolean reuseAddress) {
             this.reuseAddress = reuseAddress;
+            return this;
+        }
+
+        public Builder setReusePort(final boolean reusePort) {
+            this.reusePort = reusePort;
             return this;
         }
 
