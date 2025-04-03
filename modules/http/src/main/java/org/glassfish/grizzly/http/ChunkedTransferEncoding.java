@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2024 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -48,6 +48,9 @@ public final class ChunkedTransferEncoding implements TransferEncoding {
     private static final int CHUNK_LENGTH_PARSED_STATE = 3;
     private static final byte[] LAST_CHUNK_CRLF_BYTES = "0\r\n".getBytes(ASCII_CHARSET);
     private static final int[] DEC = HexUtils.getDecBytes();
+
+    public static final String STRICT_CHUNKED_TRANSFER_CODING_LINE_TERMINATOR_RFC_9112 = "org.glassfish.grizzly.http.STRICT_CHUNKED_TRANSFER_CODING_LINE_TERMINATOR_RFC_9112";
+    private static final boolean isStrictChunkedTransferCodingLineTerminatorSet = Boolean.parseBoolean(System.getProperty(STRICT_CHUNKED_TRANSFER_CODING_LINE_TERMINATOR_RFC_9112));
 
     private final int maxHeadersSize;
 
@@ -247,6 +250,12 @@ public final class ChunkedTransferEncoding implements TransferEncoding {
                             b == Constants.CR || b == Constants.SEMI_COLON) {
                         parsingState.checkpoint = offset;
                     } else if (b == Constants.LF) {
+                        if (isStrictChunkedTransferCodingLineTerminatorSet) {
+                            if (parsingState.checkpoint2 == -1 || // no CR
+                                parsingState.checkpoint2 != parsingState.checkpoint) { // not the previous CR or a repetition of a CR
+                                throw new HttpBrokenContentException("Unexpected HTTP chunk header");
+                            }
+                        }
                         final ContentParsingState contentParsingState = httpPacket.getContentParsingState();
                         contentParsingState.chunkContentStart = offset + 1;
                         contentParsingState.chunkLength = value;
@@ -263,6 +272,11 @@ public final class ChunkedTransferEncoding implements TransferEncoding {
                         }
                     } else {
                         throw new HttpBrokenContentException("Unexpected HTTP chunk header");
+                    }
+                    if (isStrictChunkedTransferCodingLineTerminatorSet) {
+                        if (b == Constants.CR && parsingState.checkpoint2 == -1) { // first CR
+                            parsingState.checkpoint2 = offset;
+                        }
                     }
 
                     offset++;
