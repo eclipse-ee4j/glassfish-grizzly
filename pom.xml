@@ -24,12 +24,12 @@
     <parent>
         <groupId>org.glassfish.grizzly</groupId>
         <artifactId>grizzly-bom</artifactId>
-        <version>4.1.0-SNAPSHOT</version>
+        <version>4.1.0-T20250331C</version>
         <relativePath>boms/bom/pom.xml</relativePath>
     </parent>
 
     <artifactId>grizzly-project</artifactId>
-    <version>4.1.0-SNAPSHOT</version>
+    <version>4.1.0-T20250331C</version>
     <!-- Version must be repeated so versions-maven-plugin:set works correctly -->
     <packaging>pom</packaging>
 
