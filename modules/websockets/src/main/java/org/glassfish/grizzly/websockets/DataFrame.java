@@ -18,6 +18,7 @@ package org.glassfish.grizzly.websockets;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.Objects;
 
 import org.glassfish.grizzly.utils.Charsets;
 
@@ -32,6 +33,7 @@ public class DataFrame {
         return o instanceof DataFrame;
     }
 
+    private static final byte[] EMPTY_ARRAY = new byte[0];
     private String payload;
     private byte[] bytes;
     private final FrameType type;
@@ -97,7 +99,7 @@ public class DataFrame {
     @Override
     public String toString() {
         return new StringBuilder("DataFrame").append("{").append("last=").append(last).append(", type=").append(type.getClass().getSimpleName())
-                .append(", payload='").append(getTextPayload()).append('\'').append(", bytes=").append(Utils.toString(bytes)).append('}').toString();
+                .append(", payload='").append(getTextPayload()).append('\'').append(", bytes=").append(Utils.toString(Objects.requireNonNullElse(getBytes(), EMPTY_ARRAY))).append('}').toString();
     }
 
     public boolean isLast() {
