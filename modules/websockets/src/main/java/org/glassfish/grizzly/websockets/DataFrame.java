@@ -97,7 +97,7 @@ public class DataFrame {
     @Override
     public String toString() {
         return new StringBuilder("DataFrame").append("{").append("last=").append(last).append(", type=").append(type.getClass().getSimpleName())
-                .append(", payload='").append(getTextPayload()).append('\'').append(", bytes=").append(Utils.toString(bytes)).append('}').toString();
+                .append(", payload='").append(getTextPayload()).append('\'').append(", bytes=").append(Utils.toString(getBytes())).append('}').toString();
     }
 
     public boolean isLast() {

@@ -135,6 +135,11 @@ public final class Utils {
 
     public static long toLong(byte[] bytes, int start, int end) {
         long value = 0;
+
+        if (bytes == null) {
+            return value;
+        }
+
         for (int i = start; i < end; i++) {
             value <<= 8;
             value ^= (long) bytes[i] & 0xFF;
@@ -143,11 +148,20 @@ public final class Utils {
     }
 
     public static List<String> toString(byte[] bytes) {
+        if (bytes == null) {
+            return new ArrayList<>();
+        }
+
         return toString(bytes, 0, bytes.length);
     }
 
     public static List<String> toString(byte[] bytes, int start, int end) {
         List<String> list = new ArrayList<>();
+
+        if (bytes == null) {
+            return list;
+        }
+
         for (int i = start; i < end; i++) {
             list.add(Integer.toHexString(bytes[i] & 0xFF).toUpperCase(Locale.US));
         }
