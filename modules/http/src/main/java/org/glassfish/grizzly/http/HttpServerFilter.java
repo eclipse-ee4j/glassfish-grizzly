@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -23,6 +24,7 @@ import static org.glassfish.grizzly.http.util.HttpCodecUtils.skipSpaces;
 import static org.glassfish.grizzly.http.util.HttpCodecUtils.toCheckedByteArray;
 
 import java.io.IOException;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import org.glassfish.grizzly.Buffer;
@@ -149,7 +151,31 @@ public class HttpServerFilter extends HttpCodecFilter {
     @Deprecated
     public HttpServerFilter(boolean chunkingEnabled, int maxHeadersSize, String defaultResponseContentType, KeepAlive keepAlive, DelayedExecutor executor,
             int maxRequestHeaders, int maxResponseHeaders) {
-        super(chunkingEnabled, maxHeadersSize);
+        this(chunkingEnabled, maxHeadersSize, defaultResponseContentType, keepAlive, executor, MimeHeaders.MAX_NUM_HEADERS_DEFAULT,
+             MimeHeaders.MAX_NUM_HEADERS_DEFAULT, null);
+    }
+
+    /**
+     * Constructor, which creates <tt>HttpServerFilter</tt> instance, with the specific max header size and properties parameter.
+     *
+     * @param chunkingEnabled flag indicating whether or not chunking should be allowed or not.
+     * @param maxHeadersSize the maximum size of an inbound HTTP message header.
+     * @param defaultResponseContentType the content type that the response should use if no content had been specified at
+     * the time the response is committed.
+     * @param keepAlive keep-alive configuration for this filter instance.
+     * @param executor {@link DelayedExecutor} for handling keep-alive. If <tt>null</tt> - keep-alive idle connections
+     * should be managed outside HttpServerFilter.
+     * @param maxRequestHeaders maximum number of request headers allowed for a single request.
+     * @param maxResponseHeaders maximum number of response headers allowed for a single response.
+     * @param props the properties to be used by the filter.
+     *
+     * @deprecated Next major release will include builders for filters requiring configuration. Constructors will be
+     * hidden.
+     */
+    @Deprecated
+    public HttpServerFilter(boolean chunkingEnabled, int maxHeadersSize, String defaultResponseContentType, KeepAlive keepAlive, DelayedExecutor executor,
+                            int maxRequestHeaders, int maxResponseHeaders, final Properties props) {
+        super(chunkingEnabled, maxHeadersSize, props);
 
         this.httpRequestInProcessAttr = Grizzly.DEFAULT_ATTRIBUTE_BUILDER.createAttribute(HTTP_SERVER_REQUEST_ATTR_NAME);
         this.keepAliveContextAttr = Grizzly.DEFAULT_ATTRIBUTE_BUILDER.createAttribute("HttpServerFilter.KeepAliveContext");
