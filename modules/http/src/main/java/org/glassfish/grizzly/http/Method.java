@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -109,7 +110,7 @@ public final class Method {
     private Method(final String methodString, final PayloadExpectation payloadExpectation) {
         this.methodString = methodString;
         try {
-            this.methodBytes = methodString.getBytes("US-ASCII");
+            this.methodBytes = methodString != null ? methodString.getBytes("US-ASCII") : null;
         } catch (UnsupportedEncodingException e) {
             // Should never get here
             throw new IllegalStateException(e);

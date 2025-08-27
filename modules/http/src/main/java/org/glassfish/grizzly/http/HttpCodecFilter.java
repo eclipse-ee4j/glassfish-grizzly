@@ -315,7 +315,6 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
      * @param props the properties to be used for configuring the filter.
      */
     public HttpCodecFilter(final boolean chunkingEnabled, final int maxHeadersSize, final Properties props) {
-        // todo props와 system properties 관계. 우선순위, 할당 방식.
         this.maxHeadersSize = maxHeadersSize;
         this.chunkingEnabled = chunkingEnabled;
         final Properties properties = Objects.requireNonNullElse(props, System.getProperties());

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -65,7 +66,8 @@ class HttpResponsePacketImpl extends HttpResponsePacket {
      */
     @Override
     public void recycle() {
-        if (getRequest().isExpectContent()) {
+        final HttpRequestPacket localRequest = getRequest();
+        if (localRequest != null && localRequest.isExpectContent()) {
             return;
         }
         reset();
