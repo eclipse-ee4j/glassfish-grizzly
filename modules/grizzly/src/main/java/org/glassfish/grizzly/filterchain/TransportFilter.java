@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -179,6 +180,19 @@ public class TransportFilter extends BaseFilter {
         }
 
         return null;
+    }
+
+    /**
+     * Delegates exception operation to {@link Transport}'s specific transport filter.
+     */
+    @Override
+    public void exceptionOccurred(FilterChainContext ctx, Throwable error) {
+
+        final Filter transportFilter0 = getTransportFilter0(ctx.getConnection().getTransport());
+
+        if (transportFilter0 != null) {
+            transportFilter0.exceptionOccurred(ctx, error);
+        }
     }
 
     /**

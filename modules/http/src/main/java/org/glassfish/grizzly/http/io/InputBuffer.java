@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -130,7 +131,7 @@ public class InputBuffer {
     /**
      * The {@link ReadHandler} to be notified as content is read.
      */
-    private ReadHandler handler;
+    private volatile ReadHandler handler;
 
     /**
      * The length of the content that must be read before notifying the {@link ReadHandler}.
@@ -182,7 +183,11 @@ public class InputBuffer {
 
             // Check if HttpContent is chunked message trailer w/ headers
             checkHttpTrailer(content);
-            updateInputContentBuffer(content.getContent());
+            try {
+                updateInputContentBuffer(content.getContent());
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
             contentRead = content.isLast();
             if (contentRead) {
                 processTrailers();
@@ -998,18 +1003,18 @@ public class InputBuffer {
     }
 
     private void invokeHandlerOnProperThread(final ReadHandler localHandler, final boolean invokeDataAvailable, final boolean isLast) throws IOException {
-        final Executor executor = getThreadPool();
-
-        if (executor != null) {
-            executor.execute(new Runnable() {
-
-                @Override
-                public void run() {
-                    invokeHandler(localHandler, invokeDataAvailable, isLast);
-                }
-            });
-        } else {
-            invokeHandler(localHandler, invokeDataAvailable, isLast);
+        if (!closed && localHandler != null) {
+            final Executor executor = getThreadPool();
+            if (executor != null) {
+                executor.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        invokeHandler(localHandler, invokeDataAvailable, isLast);
+                    }
+                });
+            } else {
+                invokeHandler(localHandler, invokeDataAvailable, isLast);
+            }
         }
     }
 
@@ -1227,7 +1232,7 @@ public class InputBuffer {
         return producedChars;
     }
 
-    protected void updateInputContentBuffer(final Buffer buffer) {
+    protected void updateInputContentBuffer(final Buffer buffer) throws IOException {
 
         buffer.allowBufferDispose(true);
 
