@@ -153,19 +153,13 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
             // Otherwise cast message to a HttpContent
             final HttpContent httpContent = (HttpContent) message;
             final HttpContext context = httpContent.getHttpHeader().getProcessingState().getHttpContext();
-            Request handlerRequest = httpRequestInProgress.get(context);
+            Request handlerRequest = getRequestInProgress(connection, httpContent, context);
 
-            if (handlerRequest == null || handlerRequest.getRequest() == null) {
+            if (handlerRequest == null) {
                 // It's a new HTTP request
                 final HttpRequestPacket request = (HttpRequestPacket) httpContent.getHttpHeader();
                 final HttpResponsePacket response = request.getResponse();
 
-                if (handlerRequest != null && LOGGER.isLoggable(Level.FINE)) {
-                    LOGGER.log(Level.FINE,
-                               "This request has been recycled. Therefore, the previous request will be ignored and a new one will be processed. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} httpContext={4} previousHandlerRequest={5}",
-                               new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
-                                            request, context, handlerRequest});
-                }
                 handlerRequest = Request.create();
                 handlerRequest.parameters.setLimit(config.getMaxRequestParameters());
                 httpRequestInProgress.set(context, handlerRequest);
@@ -398,7 +392,7 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
             // if content is broken - we're not able to distinguish
             // the end of the message - so stop processing any input data on
             // this connection (connection is being closed by
-            // {@link org.glassfish.grizzly.http.HttpServerFilter#handleEvent(...)})
+            // {@link org.glassfish.grizzly.http.HttpServerFilter#handleEvent(...)}
             final NextAction suspendNextAction = ctx.getSuspendAction();
             ctx.completeAndRecycle();
             return suspendNextAction;
@@ -427,6 +421,42 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
     private boolean checkMaxPostSize(final long requestContentLength) {
         final long maxPostSize = config.getMaxPostSize();
         return requestContentLength <= 0 || maxPostSize < 0 || maxPostSize >= requestContentLength;
+    }
+
+    /**
+     * Retrieves the suspended HTTP request in progress associated with the given http context.
+     * <p>
+     * If there is no request in progress, or if the response has already been committed and its output buffer is closed,
+     * or if the request has been recycled, this method returns {@code null}.
+     * Otherwise, it returns the suspended {@link Request} instance.
+     */
+    private Request getRequestInProgress(final Connection connection, final HttpContent httpContent,
+                                         final HttpContext context) {
+        final Request handlerRequest = httpRequestInProgress.get(context);
+        if (handlerRequest == null) {
+            return null;
+        }
+        // If the response has already been last committed - We expect that the previous request and response will be finished and recycled soon.
+        if (handlerRequest.getResponse().getOutputBuffer().isClosed()) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE,
+                           "The response associated with this request has already been last committed. Therefore, the previous request will be ignored and a new one will be processed. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} httpContext={4} previousHandlerRequest={5}",
+                           new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
+                                        httpContent.getHttpHeader(), context, handlerRequest});
+            }
+            return null;
+        }
+        final HttpRequestPacket httpRequestPacket = handlerRequest.getRequest();
+        if (httpRequestPacket == null) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE,
+                           "This request has been recycled. Therefore, the previous request will be ignored and a new one will be processed. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} httpContext={4} previousHandlerRequest={5}",
+                           new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
+                                        httpContent.getHttpHeader(), context, handlerRequest});
+            }
+            return null;
+        }
+        return handlerRequest;
     }
 
     /**
