@@ -153,7 +153,7 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
             // Otherwise cast message to a HttpContent
             final HttpContent httpContent = (HttpContent) message;
             final HttpContext context = httpContent.getHttpHeader().getProcessingState().getHttpContext();
-            Request handlerRequest = getRequestInProgress(connection, httpContent, context);
+            Request handlerRequest = httpRequestInProgress.get(context);
 
             if (handlerRequest == null) {
                 // It's a new HTTP request
@@ -164,10 +164,9 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
                 handlerRequest.parameters.setLimit(config.getMaxRequestParameters());
                 httpRequestInProgress.set(context, handlerRequest);
                 if (LOGGER.isLoggable(Level.FINEST)) {
-                    LOGGER.log(Level.FINEST,
-                               "httpRequestInProgress has been set. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} httpContext={4} handlerRequest={5}",
-                               new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
-                                            request, context, handlerRequest});
+                    LOGGER.log(Level.FINEST, "[{0}][S] {1} {2} {3} {4}",
+                               new Object[]{Thread.currentThread().getName(), httpRequestInProgress,
+                                            connection.getPeerAddress(), request.getRequestURI(), handlerRequest});
                 }
                 final Response handlerResponse = handlerRequest.getResponse();
 
@@ -225,12 +224,19 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
             } else {
                 // We're working with suspended HTTP request
                 if (LOGGER.isLoggable(Level.FINEST)) {
-                    LOGGER.log(Level.FINEST,
-                               "Working with suspended HTTP request. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} handlerRequest.getRequest={4} isEquals={5} httpContext={6} handlerRequest={7}",
-                               new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
-                                            httpContent.getHttpHeader(), handlerRequest.getRequest(),
-                                            httpContent.getHttpHeader() == handlerRequest.getRequest(), context,
-                                            handlerRequest});
+                    final boolean isEquals = httpContent.getHttpHeader() == handlerRequest.getRequest();
+                    if (isEquals) {
+                        LOGGER.log(Level.FINEST,
+                                   "Working with suspended HTTP request. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} isEquals={4} httpContext={5} handlerRequest={6}",
+                                   new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
+                                                httpContent.getHttpHeader(), isEquals, context, handlerRequest});
+                    } else {
+                        LOGGER.log(Level.FINEST,
+                                   "Working with suspended HTTP request. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} handlerRequest.getRequest={4} isEquals={5} httpContext={6} handlerRequest={7}",
+                                   new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
+                                                httpContent.getHttpHeader(), handlerRequest.getRequest(), isEquals,
+                                                context, handlerRequest});
+                    }
                 }
                 try {
                     ctx.suspend();
@@ -249,14 +255,23 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
                     return action;
                 } catch (IOException e) {
                     if (LOGGER.isLoggable(Level.FINE)) {
-                        LOGGER.log(Level.FINE,
-                                   "Error during working with suspended HTTP request. connection=" + connection +
-                                   " httpContent.isLast=" + httpContent.isLast() + " httpContent.isBroken=" +
-                                   HttpContent.isBroken(httpContent) + " httpContent.getHttpHeader=" +
-                                   httpContent.getHttpHeader() + " handlerRequest.getRequest=" +
-                                   handlerRequest.getRequest() + " isEquals=" +
-                                   (httpContent.getHttpHeader() == handlerRequest.getRequest()) + " httpContext=" +
-                                   context + " handlerRequest=" + handlerRequest, e);
+                        final boolean isEquals = httpContent.getHttpHeader() == handlerRequest.getRequest();
+                        if (isEquals) {
+                            LOGGER.log(Level.FINE,
+                                       "Error during working with suspended HTTP request. connection=" + connection +
+                                       " httpContent.isLast=" + httpContent.isLast() + " httpContent.isBroken=" +
+                                       HttpContent.isBroken(httpContent) + " httpContent.getHttpHeader=" +
+                                       httpContent.getHttpHeader() + " isEquals=" + isEquals + " httpContext=" +
+                                       context + " handlerRequest=" + handlerRequest, e);
+                        } else {
+                            LOGGER.log(Level.FINE,
+                                       "Error during working with suspended HTTP request. connection=" + connection +
+                                       " httpContent.isLast=" + httpContent.isLast() + " httpContent.isBroken=" +
+                                       HttpContent.isBroken(httpContent) + " httpContent.getHttpHeader=" +
+                                       httpContent.getHttpHeader() + " handlerRequest.getRequest=" +
+                                       handlerRequest.getRequest() + " isEquals=" + isEquals + " httpContext=" +
+                                       context + " handlerRequest=" + handlerRequest, e);
+                        }
                     }
                     final ReadHandler handler = handlerRequest.getInputBuffer().getReadHandler();
                     if (handler != null) {
@@ -364,13 +379,9 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
 
         final Request removedHandlerRequest = httpRequestInProgress.remove(context);
         if (LOGGER.isLoggable(Level.FINEST)) {
-            LOGGER.log(Level.FINEST,
-                       "httpRequestInProgress has been removed. connection={0} request.getRequest={1} removedHandlerRequest.getRequest={2} isEquals={3} httpContext={4} removedHandlerRequest={5}",
-                       new Object[]{connection, request.getRequest(),
-                                    removedHandlerRequest != null ? removedHandlerRequest.getRequest() : "N/A",
-                                    removedHandlerRequest != null &&
-                                    request.getRequest() == removedHandlerRequest.getRequest(), context,
-                                    removedHandlerRequest});
+            LOGGER.log(Level.FINEST, "[{0}][R] {1} {2} {3} {4}",
+                       new Object[]{Thread.currentThread().getName(), httpRequestInProgress,
+                                    connection.getPeerAddress(), request.getRequestURI(), removedHandlerRequest});
         }
         response.finish();
         request.onAfterService();
@@ -392,7 +403,7 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
             // if content is broken - we're not able to distinguish
             // the end of the message - so stop processing any input data on
             // this connection (connection is being closed by
-            // {@link org.glassfish.grizzly.http.HttpServerFilter#handleEvent(...)}
+            // {@link org.glassfish.grizzly.http.HttpServerFilter#handleEvent(...)})
             final NextAction suspendNextAction = ctx.getSuspendAction();
             ctx.completeAndRecycle();
             return suspendNextAction;
@@ -421,42 +432,6 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
     private boolean checkMaxPostSize(final long requestContentLength) {
         final long maxPostSize = config.getMaxPostSize();
         return requestContentLength <= 0 || maxPostSize < 0 || maxPostSize >= requestContentLength;
-    }
-
-    /**
-     * Retrieves the suspended HTTP request in progress associated with the given http context.
-     * <p>
-     * If there is no request in progress, or if the response has already been committed and its output buffer is closed,
-     * or if the request has been recycled, this method returns {@code null}.
-     * Otherwise, it returns the suspended {@link Request} instance.
-     */
-    private Request getRequestInProgress(final Connection connection, final HttpContent httpContent,
-                                         final HttpContext context) {
-        final Request handlerRequest = httpRequestInProgress.get(context);
-        if (handlerRequest == null) {
-            return null;
-        }
-        // If the response has already been last committed - We expect that the previous request and response will be finished and recycled soon.
-        if (handlerRequest.getResponse().getOutputBuffer().isClosed()) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.log(Level.FINE,
-                           "The response associated with this request has already been last committed. Therefore, the previous request will be ignored and a new one will be processed. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} httpContext={4} previousHandlerRequest={5}",
-                           new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
-                                        httpContent.getHttpHeader(), context, handlerRequest});
-            }
-            return null;
-        }
-        final HttpRequestPacket httpRequestPacket = handlerRequest.getRequest();
-        if (httpRequestPacket == null) {
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.log(Level.FINE,
-                           "This request has been recycled. Therefore, the previous request will be ignored and a new one will be processed. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} httpContext={4} previousHandlerRequest={5}",
-                           new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
-                                        httpContent.getHttpHeader(), context, handlerRequest});
-            }
-            return null;
-        }
-        return handlerRequest;
     }
 
     /**
