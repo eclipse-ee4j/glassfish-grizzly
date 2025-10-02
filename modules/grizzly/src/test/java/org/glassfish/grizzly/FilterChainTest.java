@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -26,6 +27,7 @@ import java.security.SecureRandom;
 import java.util.Arrays;
 import java.util.Random;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.TimeoutException;
@@ -474,6 +476,52 @@ public class FilterChainTest extends TestCase {
                 connection.closeSilently();
             }
 
+            transport.shutdownNow();
+        }
+    }
+
+    public void testThrowChain() throws Exception {
+        final CountDownLatch latch = new CountDownLatch(1);
+        final FilterChainBuilder filterChainBuilder = FilterChainBuilder.stateless();
+        filterChainBuilder.add(new TransportFilter()).add(new StringFilter());
+        filterChainBuilder.add(new BaseFilter() {
+            @Override
+            public void exceptionOccurred(FilterChainContext ctx, Throwable error) {
+                latch.countDown();
+            }
+        });
+        filterChainBuilder.add(new BaseFilter() {
+            @Override
+            public NextAction handleRead(FilterChainContext ctx) throws IOException {
+                // FilterChainContext's fail() should notify the filters about the error via exceptionOccurred()
+                ctx.fail(new IOException("Test exception"));
+                return ctx.getStopAction();
+            }
+        });
+        final TCPNIOTransport transport = TCPNIOTransportBuilder.newInstance().build();
+        transport.setProcessor(filterChainBuilder.build());
+        Connection connection = null;
+        try {
+            Thread.sleep(5);
+            transport.bind(PORT);
+            transport.start();
+
+            final FilterChain clientFilterChain = FilterChainBuilder.stateless().add(new TransportFilter()).add(new StringFilter()).build();
+            final SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(transport).processor(clientFilterChain).build();
+            final Future<Connection> future = connectorHandler.connect("localhost", PORT);
+            connection = future.get(10, SECONDS);
+            assertNotNull(connection);
+            connection.write("test\n");
+
+            // Give some time for the exception to be processed
+            Thread.sleep(500);
+            assertTrue(latch.await(1, SECONDS));
+            // TransportFilter's exceptionOccurred() will close the connection
+            assertFalse(connection.isOpen());
+        } finally {
+            if (connection != null) {
+                connection.closeSilently();
+            }
             transport.shutdownNow();
         }
     }
