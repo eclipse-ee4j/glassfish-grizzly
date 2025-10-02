@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -32,7 +33,7 @@ import org.glassfish.grizzly.http.io.NIOReader;
  */
 final class NIOReaderImpl extends NIOReader implements Cacheable {
 
-    private InputBuffer inputBuffer;
+    private volatile InputBuffer inputBuffer;
 
     // ----------------------------------------------------- Methods from Reader
 
@@ -41,6 +42,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public int read(final CharBuffer target) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         return inputBuffer.read(target);
     }
 
@@ -49,6 +53,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public int read() throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         return inputBuffer.readChar();
     }
 
@@ -57,6 +64,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public int read(final char[] cbuf) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         return inputBuffer.read(cbuf, 0, cbuf.length);
     }
 
@@ -65,6 +75,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public long skip(final long n) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         return inputBuffer.skip(n);
     }
 
@@ -91,6 +104,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public void mark(int readAheadLimit) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         inputBuffer.mark(readAheadLimit);
     }
 
@@ -99,6 +115,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public void reset() throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         inputBuffer.reset();
     }
 
@@ -107,6 +126,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public int read(final char[] cbuf, final int off, final int len) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         return inputBuffer.read(cbuf, off, len);
     }
 
@@ -115,6 +137,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public void close() throws IOException {
+        if (!initialized()) {
+            return;
+        }
         inputBuffer.close();
     }
 
@@ -125,6 +150,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public void notifyAvailable(final ReadHandler handler) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         inputBuffer.notifyAvailable(handler);
     }
 
@@ -133,6 +161,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public void notifyAvailable(final ReadHandler handler, final int size) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         inputBuffer.notifyAvailable(handler, size);
     }
 
@@ -141,6 +172,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public boolean isFinished() {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return inputBuffer.isFinished();
     }
 
@@ -149,6 +183,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
      */
     @Override
     public int readyData() {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return inputBuffer.availableChar();
     }
 
@@ -178,5 +215,9 @@ final class NIOReaderImpl extends NIOReader implements Cacheable {
 
         this.inputBuffer = inputBuffer;
 
+    }
+
+    private boolean initialized() {
+        return inputBuffer != null;
     }
 }
