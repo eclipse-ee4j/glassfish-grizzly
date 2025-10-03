@@ -349,12 +349,8 @@ public class HttpSemanticsTest extends TestCase {
 
         ExpectedResult result = new ExpectedResult();
         result.setProtocol("HTTP/1.1");
-        result.setStatusCode(200);
+        result.setStatusCode(400);
         result.addHeader("Connection", "close");
-        result.addHeader("!Transfer-Encoding", "chunked");
-        result.addHeader("!Content-Length", "0");
-        result.setStatusMessage("ok");
-        result.appendContent("Hello World");
         doTest(new ClientFilter(request, result), new BaseFilter() {
             @Override
             public NextAction handleRead(FilterChainContext ctx) throws IOException {
