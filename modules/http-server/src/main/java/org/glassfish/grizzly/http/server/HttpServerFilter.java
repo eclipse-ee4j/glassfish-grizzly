@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -162,6 +163,11 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
                 handlerRequest = Request.create();
                 handlerRequest.parameters.setLimit(config.getMaxRequestParameters());
                 httpRequestInProgress.set(context, handlerRequest);
+                if (LOGGER.isLoggable(Level.FINEST)) {
+                    LOGGER.log(Level.FINEST, "[{0}][S] {1} {2} {3} {4}",
+                               new Object[]{Thread.currentThread().getName(), httpRequestInProgress,
+                                            connection.getPeerAddress(), request.getRequestURI(), handlerRequest});
+                }
                 final Response handlerResponse = handlerRequest.getResponse();
 
                 handlerRequest.initialize(request, ctx, this);
@@ -217,6 +223,21 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
                 }
             } else {
                 // We're working with suspended HTTP request
+                if (LOGGER.isLoggable(Level.FINEST)) {
+                    final boolean isEquals = httpContent.getHttpHeader() == handlerRequest.getRequest();
+                    if (isEquals) {
+                        LOGGER.log(Level.FINEST,
+                                   "Working with suspended HTTP request. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} isEquals={4} httpContext={5} handlerRequest={6}",
+                                   new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
+                                                httpContent.getHttpHeader(), isEquals, context, handlerRequest});
+                    } else {
+                        LOGGER.log(Level.FINEST,
+                                   "Working with suspended HTTP request. connection={0} httpContent.isLast={1} httpContent.isBroken={2} httpContent.getHttpHeader={3} handlerRequest.getRequest={4} isEquals={5} httpContext={6} handlerRequest={7}",
+                                   new Object[]{connection, httpContent.isLast(), HttpContent.isBroken(httpContent),
+                                                httpContent.getHttpHeader(), handlerRequest.getRequest(), isEquals,
+                                                context, handlerRequest});
+                    }
+                }
                 try {
                     ctx.suspend();
                     final NextAction action = ctx.getSuspendAction();
@@ -232,6 +253,33 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
                     }
 
                     return action;
+                } catch (IOException e) {
+                    if (LOGGER.isLoggable(Level.FINE)) {
+                        final boolean isEquals = httpContent.getHttpHeader() == handlerRequest.getRequest();
+                        if (isEquals) {
+                            LOGGER.log(Level.FINE,
+                                       "Error during working with suspended HTTP request. connection=" + connection +
+                                       " httpContent.isLast=" + httpContent.isLast() + " httpContent.isBroken=" +
+                                       HttpContent.isBroken(httpContent) + " httpContent.getHttpHeader=" +
+                                       httpContent.getHttpHeader() + " isEquals=" + isEquals + " httpContext=" +
+                                       context + " handlerRequest=" + handlerRequest, e);
+                        } else {
+                            LOGGER.log(Level.FINE,
+                                       "Error during working with suspended HTTP request. connection=" + connection +
+                                       " httpContent.isLast=" + httpContent.isLast() + " httpContent.isBroken=" +
+                                       HttpContent.isBroken(httpContent) + " httpContent.getHttpHeader=" +
+                                       httpContent.getHttpHeader() + " handlerRequest.getRequest=" +
+                                       handlerRequest.getRequest() + " isEquals=" + isEquals + " httpContext=" +
+                                       context + " handlerRequest=" + handlerRequest, e);
+                        }
+                    }
+                    final ReadHandler handler = handlerRequest.getInputBuffer().getReadHandler();
+                    if (handler != null) {
+                        handler.onError(e);
+                    }
+                    // The connection will be closed during the previous filter's exceptionOccurred() process.
+                    ctx.fail(e);
+                    return ctx.getSuspendAction();
                 } finally {
                     httpContent.recycle();
                 }
@@ -329,7 +377,12 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
             request.getRequest().setIgnoreContentModifiers(false);
         }
 
-        httpRequestInProgress.remove(context);
+        final Request removedHandlerRequest = httpRequestInProgress.remove(context);
+        if (LOGGER.isLoggable(Level.FINEST)) {
+            LOGGER.log(Level.FINEST, "[{0}][R] {1} {2} {3} {4}",
+                       new Object[]{Thread.currentThread().getName(), httpRequestInProgress,
+                                    connection.getPeerAddress(), request.getRequestURI(), removedHandlerRequest});
+        }
         response.finish();
         request.onAfterService();
 
@@ -350,7 +403,7 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
             // if content is broken - we're not able to distinguish
             // the end of the message - so stop processing any input data on
             // this connection (connection is being closed by
-            // {@link org.glassfish.grizzly.http.HttpServerFilter#handleEvent(...)}
+            // {@link org.glassfish.grizzly.http.HttpServerFilter#handleEvent(...)})
             final NextAction suspendNextAction = ctx.getSuspendAction();
             ctx.completeAndRecycle();
             return suspendNextAction;

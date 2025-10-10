@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -32,7 +33,7 @@ import org.glassfish.grizzly.http.io.OutputBuffer;
  */
 class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
 
-    private OutputBuffer outputBuffer;
+    private volatile OutputBuffer outputBuffer;
 
     // ----------------------------------------------- Methods from OutputStream
 
@@ -41,6 +42,9 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
      */
     @Override
     public void write(final int b) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.writeByte(b);
     }
 
@@ -49,6 +53,9 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
      */
     @Override
     public void write(final byte[] b) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.write(b);
     }
 
@@ -57,6 +64,9 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
      */
     @Override
     public void write(final byte[] b, final int off, final int len) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.write(b, off, len);
     }
 
@@ -65,6 +75,9 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
      */
     @Override
     public void flush() throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.flush();
     }
 
@@ -73,6 +86,9 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
      */
     @Override
     public void close() throws IOException {
+        if (!initialized()) {
+            return;
+        }
         outputBuffer.close();
     }
 
@@ -86,6 +102,9 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
     @Deprecated
     @Override
     public boolean canWrite(final int length) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return outputBuffer.canWrite();
     }
 
@@ -94,6 +113,9 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
      */
     @Override
     public boolean canWrite() {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return outputBuffer.canWrite();
     }
 
@@ -106,6 +128,9 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
     @Deprecated
     @Override
     public void notifyCanWrite(final WriteHandler handler, final int length) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         outputBuffer.notifyCanWrite(handler);
     }
 
@@ -114,6 +139,9 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
      */
     @Override
     public void notifyCanWrite(final WriteHandler handler) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         outputBuffer.notifyCanWrite(handler);
     }
 
@@ -124,6 +152,9 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
      */
     @Override
     public void write(final Buffer buffer) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.writeBuffer(buffer);
     }
 
@@ -144,4 +175,7 @@ class NIOOutputStreamImpl extends NIOOutputStream implements Cacheable {
 
     }
 
+    private boolean initialized() {
+        return outputBuffer != null;
+    }
 }
