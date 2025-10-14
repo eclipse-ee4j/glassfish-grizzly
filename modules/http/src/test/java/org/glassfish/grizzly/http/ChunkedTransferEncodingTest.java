@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -20,6 +21,8 @@ import org.glassfish.grizzly.Grizzly;
 import org.glassfish.grizzly.http.util.MimeHeaders;
 import org.junit.After;
 import org.junit.Before;
+
+import java.security.SecureRandom;
 import java.util.Queue;
 import org.junit.runners.Parameterized;
 import org.junit.runner.RunWith;
@@ -65,7 +68,17 @@ import static org.junit.Assert.*;
  */
 @RunWith(Parameterized.class)
 public class ChunkedTransferEncodingTest {
-    public static final int PORT = 19007;
+    public static final int PORT = PORT();
+
+    static int PORT() {
+        try {
+            int port = 19007 + SecureRandom.getInstanceStrong().nextInt(1000);
+            System.out.println("Using port: " + port);
+            return port;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     private final String eol;
     private final boolean isChunkWhenParsing;

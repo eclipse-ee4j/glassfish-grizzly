@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -39,6 +40,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.Reader;
 import java.nio.CharBuffer;
+import java.security.SecureRandom;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedTransferQueue;
@@ -68,7 +70,17 @@ import org.junit.Test;
 @SuppressWarnings("Duplicates")
 public class HttpInputStreamsTest {
 
-    private static final int PORT = 8003;
+    private static final int PORT = PORT();
+
+    static int PORT() {
+        try {
+            int port = 8003 + SecureRandom.getInstanceStrong().nextInt(1000);
+            System.out.println("Using port: " + port);
+            return port;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
 
     // ----------------------------------------------------- Binary Test Methods
@@ -1016,6 +1028,7 @@ public class HttpInputStreamsTest {
                 new SimpleResponseHttpHandler(reader, testResultQueue), "/*");
 
         try {
+            Thread.sleep(5);
             server.start();
             runClient(new RequestBuilder() {
                 @Override
@@ -1295,6 +1308,7 @@ public class HttpInputStreamsTest {
         sconfig.addHttpHandler(new SimpleResponseHttpHandler(strategy, testResultQueue), "/*");
 
         try {
+            Thread.sleep(5);
             server.start();
             runClient(requestBuilder, testResultQueue, chunkSize, count);
         } finally {

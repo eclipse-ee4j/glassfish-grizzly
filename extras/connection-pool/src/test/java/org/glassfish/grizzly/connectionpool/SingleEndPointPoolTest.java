@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -19,6 +20,7 @@ package org.glassfish.grizzly.connectionpool;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.security.SecureRandom;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -51,7 +53,17 @@ import static org.junit.Assert.*;
  * @author Alexey Stashok
  */
 public class SingleEndPointPoolTest {
-    private static final int PORT = 18333;
+    private static final int PORT = PORT();
+
+    static int PORT() {
+        try {
+            int port = 18333 + SecureRandom.getInstanceStrong().nextInt(1000);
+            System.out.println("Using port: " + port);
+            return port;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
     
     private final Set<Connection> serverSideConnections =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -79,7 +91,12 @@ public class SingleEndPointPoolTest {
         
         transport = TCPNIOTransportBuilder.newInstance().build();
         transport.setProcessor(filterChain);
-        
+
+        try {
+            Thread.sleep(10);
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
         transport.bind(PORT);
         transport.start();
     }

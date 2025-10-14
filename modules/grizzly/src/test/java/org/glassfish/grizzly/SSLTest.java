@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2009, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -96,7 +97,17 @@ public class SSLTest {
 
     private final static Logger logger = Grizzly.logger(SSLTest.class);
     
-    public static final int PORT = 7779;
+    public static final int PORT = PORT();
+
+    static int PORT() {
+        try {
+            int port = 7779 + SecureRandom.getInstanceStrong().nextInt(1000);
+            System.out.println("Using port: " + port);
+            return port;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     private final boolean isLazySslInit;
     private final MemoryManager manager;
@@ -283,6 +294,7 @@ public class SSLTest {
         cTransport.setMemoryManager(manager);
 
         try {
+            Thread.sleep(5);
             transport.bind(PORT);
             transport.start();
 
@@ -415,6 +427,7 @@ public class SSLTest {
         transport.setMemoryManager(manager);
 
         try {
+            Thread.sleep(5);
             transport.bind(PORT);
             transport.start();
 
@@ -493,6 +506,7 @@ public class SSLTest {
         SSLStreamWriter writer = null;
 
         try {
+            Thread.sleep(5);
             transport.bind(PORT);
             transport.start();
 
@@ -616,6 +630,7 @@ public class SSLTest {
         final MemoryManager mm = transport.getMemoryManager();
 
         try {
+            Thread.sleep(5);
             transport.bind(PORT);
             transport.start();
 
@@ -708,6 +723,7 @@ public class SSLTest {
         final MemoryManager mm = transport.getMemoryManager();
 
         try {
+            Thread.sleep(5);
             transport.bind(PORT);
             transport.start();
 

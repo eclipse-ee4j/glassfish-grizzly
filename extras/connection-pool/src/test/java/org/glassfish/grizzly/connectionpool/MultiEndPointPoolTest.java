@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -19,6 +20,7 @@ package org.glassfish.grizzly.connectionpool;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.security.SecureRandom;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -46,8 +48,18 @@ import static org.junit.Assert.*;
  * @author Alexey Stashok
  */
 public class MultiEndPointPoolTest {
-    private static final int PORT = 18334;
-    private static final int NUMBER_OF_PORTS_TO_BIND = 3;
+    private static final int PORT = PORT();
+    private static int NUMBER_OF_PORTS_TO_BIND = 3;
+
+    static int PORT() {
+        try {
+            int port = 18334 + SecureRandom.getInstanceStrong().nextInt(1000);
+            System.out.println("Using port: " + port);
+            return port;
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
     
     private final Set<Connection> serverSideConnections =
             Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -55,7 +67,7 @@ public class MultiEndPointPoolTest {
     private TCPNIOTransport transport;
     
     @Before
-    public void init() throws IOException {
+    public void init() throws Exception {
         final FilterChain filterChain = FilterChainBuilder.stateless()
                 .add(new TransportFilter())
                 .add(new BaseFilter() {
@@ -77,9 +89,11 @@ public class MultiEndPointPoolTest {
         transport.setProcessor(filterChain);
         
         for (int i = 0; i < NUMBER_OF_PORTS_TO_BIND; i++) {
+            Thread.sleep(10);
             transport.bind(PORT + i);
         }
-        
+
+        Thread.sleep(10);
         transport.start();
     }
     
