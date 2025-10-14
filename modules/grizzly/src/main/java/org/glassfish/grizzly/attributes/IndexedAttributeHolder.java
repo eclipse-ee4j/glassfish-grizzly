@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -56,7 +57,16 @@ public final class IndexedAttributeHolder implements AttributeHolder {
         
         indexedAttributeAccessor = new IndexedAttributeAccessorImpl();
     }
-    
+
+    public IndexedAttributeHolder(final AttributeBuilder attributeBuilder, final int initialCapacity) {
+        this.attributeBuilder = (DefaultAttributeBuilder) attributeBuilder;
+        final int snapshotSize = Math.max(4, initialCapacity);
+        final int[] i2v = new int[snapshotSize];
+        Arrays.fill(i2v, -1);
+        state = new Snapshot(new Object[snapshotSize], i2v, 0);
+        indexedAttributeAccessor = new IndexedAttributeAccessorImpl();
+    }
+
     /**
      * {@inheritDoc}
      */
@@ -77,7 +87,7 @@ public final class IndexedAttributeHolder implements AttributeHolder {
                     attribute.index(), initializer);
         }
         
-        return initializer != null ? initializer : null;
+        return initializer != null ? initializer.evaluate() : null;
     }
         
     /**
