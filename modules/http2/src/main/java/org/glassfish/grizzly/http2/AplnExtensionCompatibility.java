@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -31,7 +32,6 @@ class AplnExtensionCompatibility {
 
     private static AplnExtensionCompatibility INSTANCE;
 
-    private final boolean alpnExtensionGrizzly;
     private final boolean protocolSelectorSetterInApi;
     private final boolean protocolSelectorSetterInImpl;
 
@@ -44,12 +44,7 @@ class AplnExtensionCompatibility {
 
 
     public boolean isAlpnExtensionAvailable() {
-        return isAlpnExtensionGrizzly() || isProtocolSelectorSetterInApi() || isProtocolSelectorSetterInImpl();
-    }
-
-
-    public boolean isAlpnExtensionGrizzly() {
-        return alpnExtensionGrizzly;
+        return isProtocolSelectorSetterInApi() || isProtocolSelectorSetterInImpl();
     }
 
 
@@ -84,20 +79,8 @@ class AplnExtensionCompatibility {
 
 
     private AplnExtensionCompatibility() {
-        this.alpnExtensionGrizzly = isClassAvailableOnBootstrapClasspath("sun.security.ssl.GrizzlyNPN");
         this.protocolSelectorSetterInApi = isHandshakeSetterInApi();
         this.protocolSelectorSetterInImpl = isHandshakeSetterInImpl();
-    }
-
-
-    private static boolean isClassAvailableOnBootstrapClasspath(final String className) {
-        try {
-            ClassLoader.getSystemClassLoader().loadClass(className);
-            return true;
-        } catch (final ClassNotFoundException e) {
-            LOG.config("The class with the name '" + className + "' is not available on the bootstrap classpath.");
-            return false;
-        }
     }
 
 
@@ -122,7 +105,6 @@ class AplnExtensionCompatibility {
 
     private static boolean isHandshakeSetterInApi() {
         try {
-            // new grizzly bootstrap versions implement this method.
             SSLEngine.class.getMethod(METHOD_NAME, BiFunction.class);
             return true;
         } catch (final NoSuchMethodException e) {
@@ -137,7 +119,6 @@ class AplnExtensionCompatibility {
     @Override
     public String toString() {
         return super.toString() + "ALPN available: " + isAlpnExtensionAvailable()
-            + ", ALPN is Grizzly: " + isAlpnExtensionGrizzly()
             + ", setHandshakeApplicationProtocolSelector in API: " + isProtocolSelectorSetterInApi()
             + ", setHandshakeApplicationProtocolSelector in impl: " + isProtocolSelectorSetterInImpl();
     }

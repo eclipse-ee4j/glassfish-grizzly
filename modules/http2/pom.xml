@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2025 Contributors to the Eclipse Foundation.
     Copyright (c) 2015, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -128,36 +128,4 @@
             </plugin>
         </plugins>
     </reporting>
-
-    <profiles>
-        <!-- Compatibility tests with other implementations of ALPN. New JDK implementations have their own. -->
-        <profile>
-            <id>openjsse</id>
-            <properties>
-                <bootClasspath>-Xbootclasspath/p:${settings.localRepository}/org/openjsse/openjsse/${openjsse.version}/openjsse-${openjsse.version}.jar</bootClasspath>
-            </properties>
-            <dependencies>
-                <dependency>
-                    <groupId>org.openjsse</groupId>
-                    <artifactId>openjsse</artifactId>
-                    <version>${openjsse.version}</version>
-                    <scope>provided</scope>
-                </dependency>
-            </dependencies>
-        </profile>
-        <profile>
-            <id>npn</id>
-            <properties>
-                <bootClasspath>-Xbootclasspath/p:${settings.localRepository}/org/glassfish/grizzly/grizzly-npn-bootstrap/${grizzly.npn.bootstrap.version}/grizzly-npn-bootstrap-${grizzly.npn.bootstrap.version}.jar</bootClasspath>
-            </properties>
-            <dependencies>
-                <dependency>
-                    <groupId>org.glassfish.grizzly</groupId>
-                    <artifactId>grizzly-npn-bootstrap</artifactId>
-                    <version>${grizzly.npn.bootstrap.version}</version>
-                    <scope>provided</scope>
-                </dependency>
-            </dependencies>
-        </profile>
-    </profiles>
 </project>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021, 2023 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2025 Contributors to the Eclipse Foundation.
     Copyright (c) 2007, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -125,8 +125,6 @@
         <cobertura.version>2.4</cobertura.version>
         <gmbal.version>4.0.0</gmbal.version>
         <grizzly.npn.api.version>2.0.0</grizzly.npn.api.version>
-        <grizzly.npn.bootstrap.version>2.0.0</grizzly.npn.bootstrap.version>
-        <openjsse.version>1.1.5</openjsse.version>
         <osgi.version>4.2.0</osgi.version>
         <release.arguments></release.arguments>
     </properties>
