@@ -123,7 +123,7 @@
         <servlet-version>6.1.0</servlet-version>
         <maven-plugin.version>1.0.0</maven-plugin.version>
         <cobertura.version>2.4</cobertura.version>
-        <gmbal.version>4.0.0</gmbal.version>
+        <gmbal.version>4.1.0</gmbal.version>
         <grizzly.npn.api.version>2.0.0</grizzly.npn.api.version>
         <osgi.version>4.2.0</osgi.version>
         <release.arguments></release.arguments>
@@ -134,7 +134,7 @@
             <dependency>
                 <groupId>org.glassfish.gmbal</groupId>
                 <artifactId>gmbal</artifactId>
-                <version>4.0.3</version>
+                <version>${gmbal.version}</version>
             </dependency>
             <dependency>
                 <groupId>jakarta.servlet</groupId>

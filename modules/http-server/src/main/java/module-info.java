@@ -37,17 +37,4 @@ module org.glassfish.grizzly.http.server {
     requires java.logging;
     requires org.glassfish.grizzly.http;
     requires org.glassfish.grizzly;
-    
-    requires static gmbal;
-    requires static org.glassfish.external.management.api;
-    requires static pfl.basic.tools;
-    requires static pfl.dynamic;
-    requires static pfl.basic;
-    requires static pfl.tf;
-    requires static pfl.tf.tools;
-    requires static org.objectweb.asm;
-    requires static org.objectweb.asm.util;
-    requires static org.objectweb.asm.tree;
-    requires static org.objectweb.asm.tree.analysis;
-    requires static org.objectweb.asm.commons;
 }
