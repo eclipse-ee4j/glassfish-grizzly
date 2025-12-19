@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -16,18 +17,12 @@
 
 package org.glassfish.grizzly.connectionpool;
 
-import static java.util.Collections.newSetFromMap;
-import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.ServerSocket;
 import java.net.SocketAddress;
-import java.security.SecureRandom;
+import java.util.ArrayDeque;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -47,24 +42,21 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import static java.util.Collections.newSetFromMap;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+
 /**
  * The {@link MultiEndpointPool} tests.
- * 
+ *
  * @author Alexey Stashok
  */
 public class MultiEndPointPoolTest {
-    private static int PORT = PORT();
-    private static int NUMBER_OF_PORTS_TO_BIND = 3;
-
-    static int PORT() {
-        try {
-            int port = 18334 + SecureRandom.getInstanceStrong().nextInt(1000);
-            System.out.println("Using port: " + port);
-            return port;
-        } catch (Exception e) {
-            throw new IllegalStateException(e);
-        }
-    }
+    private static final Integer[] PORTS = getFreePorts(3);
 
     private Set<Connection<?>> serverSideConnections = newSetFromMap(new ConcurrentHashMap<>());
 
@@ -72,7 +64,7 @@ public class MultiEndPointPoolTest {
 
     @Before
     public void init() throws Exception {
-        FilterChain filterChain = 
+        FilterChain filterChain =
             FilterChainBuilder.stateless()
                               .add(new TransportFilter())
                               .add(new BaseFilter() {
@@ -93,19 +85,15 @@ public class MultiEndPointPoolTest {
         transport = TCPNIOTransportBuilder.newInstance().build();
         transport.setProcessor(filterChain);
 
-        for (int i = 0; i < NUMBER_OF_PORTS_TO_BIND; i++) {
-            Thread.sleep(10);
-            transport.bind(PORT + i);
+        for (Integer port : PORTS) {
+            transport.bind(port);
         }
-
-        Thread.sleep(10);
         transport.start();
     }
 
     @After
     public void tearDown() throws IOException {
         serverSideConnections.clear();
-
         if (transport != null) {
             transport.shutdownNow();
         }
@@ -119,8 +107,9 @@ public class MultiEndPointPoolTest {
                              .maxConnectionsPerEndpoint(3).maxConnectionsTotal(15)
                              .keepAliveTimeout(-1, SECONDS)
                              .build();
-        
-        Endpoint<SocketAddress> key1 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORT), localAddress, transport);
+
+        Endpoint<SocketAddress> key1 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORTS[0]),
+            localAddress, transport);
         try {
             Connection<?> c1 = pool.take(key1).get();
             assertEquals(localAddress, c1.getLocalAddress());
@@ -131,21 +120,20 @@ public class MultiEndPointPoolTest {
 
     @Test
     public void testBasicPollRelease() throws Exception {
-        MultiEndpointPool<SocketAddress> pool = 
+        MultiEndpointPool<SocketAddress> pool =
             MultiEndpointPool.builder(SocketAddress.class)
                              .maxConnectionsPerEndpoint(3)
                              .maxConnectionsTotal(15)
                              .keepAliveTimeout(-1, SECONDS).build();
 
         try {
-
-            Endpoint<SocketAddress> key1 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORT), transport);
-            Endpoint<SocketAddress> key2 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORT + 1), transport);
+            Endpoint<SocketAddress> key1 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORTS[0]), transport);
+            Endpoint<SocketAddress> key2 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORTS[1]), transport);
 
             Connection<?> c11 = pool.take(key1).get();
             assertNotNull(c11);
             assertEquals(1, pool.size());
-            
+
             Connection<?> c12 = pool.take(key1).get();
             assertNotNull(c12);
             assertEquals(2, pool.size());
@@ -153,7 +141,7 @@ public class MultiEndPointPoolTest {
             Connection<?> c21 = pool.take(key2).get();
             assertNotNull(c21);
             assertEquals(3, pool.size());
-            
+
             Connection<?> c22 = pool.take(key2).get();
             assertNotNull(c22);
             assertEquals(4, pool.size());
@@ -210,13 +198,13 @@ public class MultiEndPointPoolTest {
                              .build();
 
         try {
-            Endpoint<SocketAddress> key1 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORT), transport);
-            Endpoint<SocketAddress> key2 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORT + 1), transport);
+            Endpoint<SocketAddress> key1 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORTS[0]), transport);
+            Endpoint<SocketAddress> key2 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORTS[1]), transport);
 
             Connection<?> c11 = pool.take(key1).get();
             assertNotNull(c11);
             assertEquals(1, pool.size());
-            
+
             Connection<?> c12 = pool.take(key1).get();
             assertNotNull(c12);
             assertEquals(2, pool.size());
@@ -264,7 +252,7 @@ public class MultiEndPointPoolTest {
     public void testSingleEndpointClose() throws Exception {
         int maxConnectionsPerEndpoint = 4;
 
-        MultiEndpointPool<SocketAddress> pool = 
+        MultiEndpointPool<SocketAddress> pool =
             MultiEndpointPool.builder(SocketAddress.class)
                              .maxConnectionsPerEndpoint(maxConnectionsPerEndpoint)
                              .maxConnectionsTotal(maxConnectionsPerEndpoint * 2)
@@ -272,8 +260,8 @@ public class MultiEndPointPoolTest {
                              .build();
 
         try {
-            Endpoint<SocketAddress> key1 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORT), transport);
-            Endpoint<SocketAddress> key2 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORT + 1), transport);
+            Endpoint<SocketAddress> key1 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORTS[0]), transport);
+            Endpoint<SocketAddress> key2 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORTS[1]), transport);
 
             Connection<?>[] e1Connections = new Connection[maxConnectionsPerEndpoint];
             Connection<?>[] e2Connections = new Connection[maxConnectionsPerEndpoint];
@@ -330,7 +318,7 @@ public class MultiEndPointPoolTest {
                              .build();
 
         try {
-            Endpoint<SocketAddress> key = Endpoint.Factory.create(new InetSocketAddress("localhost", PORT), transport);
+            Endpoint<SocketAddress> key = Endpoint.Factory.create(new InetSocketAddress("localhost", PORTS[0]), transport);
 
             Connection<?> c1 = pool.take(key).get();
             assertNotNull(c1);
@@ -367,12 +355,12 @@ public class MultiEndPointPoolTest {
 
     @Test
     public void testEndpointPoolCustomizer() throws Exception {
-        Endpoint<SocketAddress> key1 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORT), transport);
-        Endpoint<SocketAddress> key2 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORT + 1), transport);
+        Endpoint<SocketAddress> key1 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORTS[0]), transport);
+        Endpoint<SocketAddress> key2 = Endpoint.Factory.create(new InetSocketAddress("localhost", PORTS[1]), transport);
 
         int maxConnectionsPerEndpoint = 2;
 
-        MultiEndpointPool<SocketAddress> pool = 
+        MultiEndpointPool<SocketAddress> pool =
             MultiEndpointPool.builder(SocketAddress.class)
                              .maxConnectionsPerEndpoint(maxConnectionsPerEndpoint)
                              .maxConnectionsTotal(maxConnectionsPerEndpoint * 2)
@@ -406,6 +394,52 @@ public class MultiEndPointPoolTest {
             assertEquals(1, pool.getOpenConnectionsCount());
         } finally {
             pool.close();
+        }
+    }
+
+    /**
+     * Tries to allocate a free local ports, avoids duplicates.
+     *
+     * @param count count of free ports to find.
+     * @return a modifiable queue of free local port numbers.
+     * @throws IllegalStateException if it fails for 20 times
+     */
+    private static Integer[] getFreePorts(int count) throws IllegalStateException {
+        final ArrayDeque<Integer> generatedPorts = new ArrayDeque<>(count);
+        final Set<Integer> excludedPorts = new HashSet<>();
+        for (int i = 0; i < count; i++) {
+            int port = getFreePort(excludedPorts);
+            generatedPorts.add(port);
+            // Avoid duplicates
+            excludedPorts.add(port);
+        }
+        return generatedPorts.toArray(Integer[]::new);
+    }
+
+    /**
+     * Tries to allocate a free local port.
+     *
+     * @param excluded ports to avoid
+     * @return a free local port number.
+     * @throws IllegalStateException if it fails for 20 times
+     */
+    private static int getFreePort(Set<Integer> excluded) throws IllegalStateException {
+        int counter = 0;
+        while (true) {
+            counter++;
+            try (ServerSocket socket = new ServerSocket(0)) {
+                final int port = socket.getLocalPort();
+                socket.setSoTimeout(1);
+                if (excluded.contains(port) && counter >= 20) {
+                    throw new IllegalStateException("Cannot open random port, tried 20 times. Port " + port
+                        + " is excluded and we were not able to find another.");
+                }
+                return port;
+            } catch (IOException e) {
+                if (counter >= 20) {
+                    throw new IllegalStateException("Cannot open random port, tried 20 times.", e);
+                }
+            }
         }
     }
 }
