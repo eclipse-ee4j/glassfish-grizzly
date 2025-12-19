@@ -29,8 +29,8 @@
     </parent>
 
     <artifactId>grizzly-project</artifactId>
-    <version>4.1.0-SNAPSHOT</version>
     <!-- Version must be repeated so versions-maven-plugin:set works correctly -->
+    <version>4.1.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>grizzly-project</name>
@@ -125,7 +125,7 @@
         <cobertura.version>2.4</cobertura.version>
         <gmbal.version>4.1.0</gmbal.version>
         <grizzly.npn.api.version>2.0.0</grizzly.npn.api.version>
-        <osgi.version>4.2.0</osgi.version>
+        <osgi.version>8.0.0</osgi.version>
         <release.arguments></release.arguments>
     </properties>
 
@@ -148,19 +148,9 @@
             </dependency>
             <dependency>
                 <groupId>org.osgi</groupId>
-                <artifactId>org.osgi.core</artifactId>
-                <version>6.0.0</version>
+                <artifactId>osgi.core</artifactId>
+                <version>${osgi.version}</version>
                 <scope>provided</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.osgi</groupId>
-                <artifactId>org.osgi.compendium</artifactId>
-                <version>5.0.0</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.felix</groupId>
-                <artifactId>org.osgi.foundation</artifactId>
-                <version>1.2.0</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -207,6 +197,11 @@
                             <_runee>JavaSE-17</_runee>
                         </instructions>
                     </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>build-helper-maven-plugin</artifactId>
+                    <version>3.6.1</version>
                 </plugin>
             </plugins>
         </pluginManagement>
