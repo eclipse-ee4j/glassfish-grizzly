@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -30,16 +31,14 @@ final class AlpnServerNegotiatorImpl extends AlpnNegotiatorBase implements AlpnS
     private final static Logger LOGGER = Grizzly.logger(AlpnServerNegotiatorImpl.class);
 
     private final Http2BaseFilter filter;
-    // ---------------------------------------------------- Constructors
 
     public AlpnServerNegotiatorImpl(final Http2ServerFilter http2HandlerFilter) {
         this.filter = http2HandlerFilter;
     }
 
-    // ------------------------------- Methods from ServerSideNegotiator
     @Override
     public String selectProtocol(SSLEngine sslEngine, String[] clientProtocols) {
-        final Connection connection = AlpnSupport.getConnection(sslEngine);
+        final Connection<?> connection = AlpnSupport.getConnection(sslEngine);
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.log(Level.FINE, "Alpn selectProtocol. Connection={0} sslEngine={1} clientProtocols={2}",
                     new Object[] { connection, sslEngine, Arrays.toString(clientProtocols) });
@@ -62,7 +61,7 @@ final class AlpnServerNegotiatorImpl extends AlpnNegotiatorBase implements AlpnS
         return null;
     }
 
-    private void configureHttp2(final Connection connection, final String supportedProtocol) {
+    private void configureHttp2(final Connection<?> connection, final String supportedProtocol) {
         if (HTTP2.equals(supportedProtocol)) {
             // If HTTP2 is supported - initialize HTTP2 connection
             // Create HTTP2 connection and bind it to the Grizzly connection
@@ -78,5 +77,4 @@ final class AlpnServerNegotiatorImpl extends AlpnNegotiatorBase implements AlpnS
 //            http2Session.sendPreface();
         }
     }
-
-} // END ProtocolNegotiator
+}

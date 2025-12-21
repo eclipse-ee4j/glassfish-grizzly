@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -104,7 +105,8 @@ public class Http2AddOn implements AddOn {
             return;
         }
         final SSLBaseFilter sslFilter = (SSLBaseFilter) builder.get(idx);
-        AlpnSupport.getInstance().configure(sslFilter);
-        AlpnSupport.getInstance().setServerSideNegotiator(transport, new AlpnServerNegotiatorImpl(http2Filter));
+        AlpnSupport alpnSupport = AlpnSupport.getInstance();
+        alpnSupport.configure(sslFilter);
+        alpnSupport.setServerSideNegotiator(transport, new AlpnServerNegotiatorImpl(http2Filter));
     }
 }
