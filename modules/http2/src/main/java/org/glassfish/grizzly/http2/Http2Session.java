@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates and others.
  * All rights reserved.
  *
@@ -17,11 +18,6 @@
 
 package org.glassfish.grizzly.http2;
 
-import static org.glassfish.grizzly.http2.Http2BaseFilter.PRI_PAYLOAD;
-import static org.glassfish.grizzly.http2.frames.SettingsFrame.SETTINGS_INITIAL_WINDOW_SIZE;
-import static org.glassfish.grizzly.http2.frames.SettingsFrame.SETTINGS_MAX_CONCURRENT_STREAMS;
-import static org.glassfish.grizzly.http2.frames.SettingsFrame.SETTINGS_MAX_HEADER_LIST_SIZE;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -30,7 +26,6 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
-import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -78,6 +73,11 @@ import org.glassfish.grizzly.memory.MemoryManager;
 import org.glassfish.grizzly.ssl.SSLBaseFilter;
 import org.glassfish.grizzly.utils.Futures;
 import org.glassfish.grizzly.utils.Holder;
+
+import static org.glassfish.grizzly.http2.Http2BaseFilter.PRI_PAYLOAD;
+import static org.glassfish.grizzly.http2.frames.SettingsFrame.SETTINGS_INITIAL_WINDOW_SIZE;
+import static org.glassfish.grizzly.http2.frames.SettingsFrame.SETTINGS_MAX_CONCURRENT_STREAMS;
+import static org.glassfish.grizzly.http2.frames.SettingsFrame.SETTINGS_MAX_HEADER_LIST_SIZE;
 
 /**
  * The HTTP2 session abstraction.
@@ -461,7 +461,7 @@ public class Http2Session {
 
     /**
      * Sets the default maximum number of concurrent streams allowed for this session by our side.
-     * 
+     *
      * @param localMaxConcurrentStreams max number of streams locally allowed
      */
     public void setLocalMaxConcurrentStreams(int localMaxConcurrentStreams) {
@@ -948,7 +948,7 @@ public class Http2Session {
     /**
      * Method is not thread-safe, it is expected that it will be called within {@link #getNewClientStreamLock()} lock scope.
      * The caller code is responsible for obtaining and releasing the mentioned {@link #getNewClientStreamLock()} lock.
-     * 
+     *
      * @param request the request that initiated the stream
      * @param streamId the ID of this new stream
      * @param parentStreamId the parent stream
@@ -1030,7 +1030,7 @@ public class Http2Session {
     /**
      * Initializes HTTP2 communication (if not initialized before) by forming HTTP2 connection and stream
      * {@link FilterChain}s.
-     * 
+     *
      * @param context the current {@link FilterChainContext}
      * @param isUpStream flag denoting the direction of the chain
      */
