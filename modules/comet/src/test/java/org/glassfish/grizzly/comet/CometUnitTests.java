@@ -211,7 +211,7 @@ public class CometUnitTests /* extends TestCase */ {
                     if (b == -1) {
 //                        fail("server closed connection");
                     } else {
-//                        fail("client did not recieve expected message, got:'" + b + "'");
+//                        fail("client did not receive expected message, got:'" + b + "'");
                     }
                 }
                 if (!reuse) {

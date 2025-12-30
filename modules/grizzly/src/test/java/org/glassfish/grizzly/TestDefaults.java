@@ -21,6 +21,7 @@ import static junit.framework.Assert.assertEquals;
 import java.io.IOException;
 import java.nio.channels.SelectionKey;
 
+import java.util.function.Supplier;
 import org.glassfish.grizzly.attributes.Attribute;
 import org.glassfish.grizzly.attributes.AttributeBuilder;
 import org.glassfish.grizzly.attributes.AttributeHolder;
@@ -28,7 +29,6 @@ import org.glassfish.grizzly.memory.MemoryManager;
 import org.glassfish.grizzly.monitoring.MonitoringConfig;
 import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.nio.SelectionKeyHandler;
-import org.glassfish.grizzly.utils.NullaryFunction;
 import org.junit.BeforeClass;
 import org.junit.Test;
 
@@ -144,12 +144,7 @@ public class TestDefaults {
         }
 
         @Override
-        public <T> Attribute<T> createAttribute(String name, NullaryFunction<T> initializer) {
-            return null;
-        }
-
-        @Override
-        public <T> Attribute<T> createAttribute(String name, org.glassfish.grizzly.attributes.NullaryFunction<T> initializer) {
+        public <T> Attribute<T> createAttribute(String name, Supplier<T> initializer) {
             return null;
         }
 

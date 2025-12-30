@@ -44,7 +44,7 @@ public class FilterChainProcessorSelector implements ProcessorSelector {
      * otherwise.
      *
      * @param ioEvent {@link IOEvent} to process.
-     * @param connection {@link Connection}, where {@link IOEvent} occured.
+     * @param connection {@link Connection}, where {@link IOEvent} occurred.
      *
      * @return {@link FilterChain} instance, if it's interested in processing passed {@link IOEvent}, or <tt>null</tt>
      * otherwise.

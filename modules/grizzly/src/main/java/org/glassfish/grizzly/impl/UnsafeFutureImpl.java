@@ -156,7 +156,7 @@ public final class UnsafeFutureImpl<R> implements FutureImpl<R> {
     }
 
     /**
-     * Notify about the failure, occured during asynchronous operation execution.
+     * Notify about the failure, occurred during asynchronous operation execution.
      *
      * @param failure
      */

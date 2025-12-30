@@ -21,7 +21,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
-import org.glassfish.grizzly.utils.NullaryFunction;
+import java.util.function.Supplier;
 
 /**
  * A non thread-safe {@link AttributeHolder} implementation.
@@ -57,7 +57,7 @@ final class UnsafeAttributeHolder implements AttributeHolder {
     }
 
     @Override
-    public Object getAttribute(final String name, final NullaryFunction initializer) {
+    public Object getAttribute(final String name, final Supplier initializer) {
 
         if (!isSet && initializer == null) {
             return null;
@@ -68,7 +68,7 @@ final class UnsafeAttributeHolder implements AttributeHolder {
             return indexedAttributeAccessor.getAttribute(attribute, initializer);
         }
 
-        return initializer != null ? initializer.evaluate() : null;
+        return initializer != null ? initializer.get() : null;
     }
 
     @Override
@@ -238,7 +238,7 @@ final class UnsafeAttributeHolder implements AttributeHolder {
         }
 
         @Override
-        public Object getAttribute(final int index, final NullaryFunction initializer) {
+        public Object getAttribute(final int index, final Supplier initializer) {
             if (!isSet && initializer == null) {
                 return null;
             }
@@ -256,14 +256,14 @@ final class UnsafeAttributeHolder implements AttributeHolder {
             return removeAttribute(attributeBuilder.getAttributeByIndex(index));
         }
 
-        private Object getAttribute(final Attribute attribute, final NullaryFunction initializer) {
+        private Object getAttribute(final Attribute attribute, final Supplier initializer) {
             final int idx = attribute.index();
 
             final Holder h = holderByIdx(idx);
 
             if (h != null) {
                 if (h.value == null && initializer != null) {
-                    h.value = initializer.evaluate();
+                    h.value = initializer.get();
                 }
 
                 return h.value;
@@ -272,7 +272,7 @@ final class UnsafeAttributeHolder implements AttributeHolder {
             Object value = valueMap != null ? MapperAccessor.getValue(UnsafeAttributeHolder.this, idx) : null;
 
             if (value == null && initializer != null) {
-                value = initializer.evaluate();
+                value = initializer.get();
                 setAttribute(attribute, value);
             }
 

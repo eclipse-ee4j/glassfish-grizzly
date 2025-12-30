@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -21,7 +22,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.glassfish.grizzly.utils.NullaryFunction;
+import java.util.function.Supplier;
 
 /**
  * Default {@link AttributeBuilder} implementation.
@@ -63,7 +64,7 @@ public class DefaultAttributeBuilder implements AttributeBuilder {
      */
     @Override
     @SuppressWarnings("unchecked")
-    public synchronized <T> Attribute<T> createAttribute(final String name, final NullaryFunction<T> initializer) {
+    public synchronized <T> Attribute<T> createAttribute(final String name, final Supplier<T> initializer) {
         Attribute<T> attribute = name2Attribute.get(name);
         if (attribute == null) {
             attribute = new Attribute<>(this, name, attributes.size(), initializer);
@@ -75,19 +76,8 @@ public class DefaultAttributeBuilder implements AttributeBuilder {
     }
 
     @Override
-    public <T> Attribute<T> createAttribute(final String name, final org.glassfish.grizzly.attributes.NullaryFunction<T> initializer) {
-        return createAttribute(name, initializer == null ? null : new NullaryFunction<T>() {
-
-            @Override
-            public T evaluate() {
-                return initializer.evaluate();
-            }
-        });
-    }
-
-    @Override
     public AttributeHolder createSafeAttributeHolder() {
-        return new IndexedAttributeHolder(this);
+        return new IndexedMapAttributeHolder(this);
     }
 
     @Override

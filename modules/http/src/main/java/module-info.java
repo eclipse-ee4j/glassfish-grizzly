@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018 Payara Services Ltd.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -13,23 +14,16 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  */
+module org.glassfish.grizzly.http {
+    
+    exports org.glassfish.grizzly.http;
+    exports org.glassfish.grizzly.http.io;
+    exports org.glassfish.grizzly.http.util;
+    
+    opens org.glassfish.grizzly.http;
+    opens org.glassfish.grizzly.http.io;
+    opens org.glassfish.grizzly.http.util;
 
-package org.glassfish.grizzly.utils;
-
-/**
- * General initializer interface.
- *
- * It might be useful abstraction, which helps to create and initialize certain values lazily.
- *
- * @see org.glassfish.grizzly.attributes.Attribute
- * @see org.glassfish.grizzly.attributes.AttributeHolder
- * @see org.glassfish.grizzly.utils.Holder
- *
- * @author Ken Cavanaugh
- */
-public interface NullaryFunction<T> {
-    /**
-     * Initializes and returns the value.
-     */
-    T evaluate();
+    requires java.logging;
+    requires org.glassfish.grizzly;
 }

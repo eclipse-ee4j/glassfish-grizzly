@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -26,6 +27,7 @@ import static org.junit.Assert.fail;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.util.Arrays;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
@@ -1319,6 +1321,348 @@ public class NIOOutputSinksTest {
             clientTransport.shutdownNow();
             server.shutdownNow();
         }
+    }
+
+    @Test
+    public void testAbnormalOutputStreamCloseAfterResume() throws Exception {
+        HttpServer server = new HttpServer();
+        NetworkListener listener = new NetworkListener("Grizzly", DEFAULT_NETWORK_HOST, PORT);
+        int LENGTH = 256000;
+        int MAX_LENGTH = LENGTH * 2;
+        listener.setMaxPendingBytes(MAX_LENGTH);
+        server.addListener(listener);
+        FutureImpl<Integer> parseResult = SafeFutureImpl.create();
+        FilterChainBuilder filterChainBuilder = FilterChainBuilder.stateless();
+        filterChainBuilder.add(new TransportFilter());
+        filterChainBuilder.add(new HttpClientFilter());
+        filterChainBuilder.add(new BaseFilter() {
+
+            private int bytesRead;
+
+            @Override
+            public NextAction handleConnect(FilterChainContext ctx) throws IOException {
+                // Build the HttpRequestPacket, which will be sent to a server
+                // We construct HTTP request version 1.1 and specifying the URL of the
+                // resource we want to download
+                HttpRequestPacket httpRequest =
+                        HttpRequestPacket.builder()
+                                         .method("GET")
+                                         .uri("/path")
+                                         .protocol(HTTP_1_1)
+                                         .header("Host", "localhost:" + PORT)
+                                         .build();
+
+                // Write the request asynchronously
+                ctx.write(httpRequest);
+
+                // Return the stop action, which means we don't expect next filter to process
+                // connect event
+                return ctx.getStopAction();
+            }
+
+            @Override
+            public NextAction handleRead(FilterChainContext ctx) throws IOException {
+                HttpContent message = ctx.getMessage();
+                Buffer b = message.getContent();
+                int remaining = b.remaining();
+
+                StringBuilder sb = new StringBuilder(remaining);
+
+                if (b.hasRemaining()) {
+                    sb.append(b.toStringContent());
+                    try {
+                        check(sb, bytesRead % LENGTH, remaining);
+                    } catch (Exception e) {
+                        parseResult.failure(e);
+                    }
+
+                    bytesRead += remaining;
+                }
+
+                if (message.isLast()) {
+                    parseResult.result(bytesRead);
+                }
+                return ctx.getStopAction();
+            }
+        });
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        TCPNIOTransport clientTransport = TCPNIOTransportBuilder.newInstance().build();
+        clientTransport.setProcessor(filterChainBuilder.build());
+        AtomicInteger writeCounter = new AtomicInteger();
+        AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+        HttpHandler ga = new HttpHandler() {
+
+            @Override
+            public void service(Request request, Response response) throws Exception {
+
+                clientTransport.pause();
+                response.setContentType("text/plain");
+                NIOOutputStream out = response.getNIOOutputStream();
+
+                while (out.canWrite()) {
+                    byte[] b = new byte[LENGTH];
+                    fill(b);
+                    writeCounter.addAndGet(b.length);
+                    out.write(b);
+                    out.flush();
+                }
+                response.suspend();
+
+                Connection c = request.getContext().getConnection();
+                TaskQueue tqueue = ((NIOConnection) c).getAsyncWriteQueue();
+
+                out.notifyCanWrite(new WriteHandler() {
+                    @Override
+                    public void onWritePossible() {
+                        System.out.println("onWritePossible");
+                        callbackInvoked.compareAndSet(false, true);
+                        clientTransport.pause();
+
+                        assertTrue(tqueue.spaceInBytes() < MAX_LENGTH);
+
+                        try {
+                            clientTransport.resume();
+
+                            byte[] b = new byte[LENGTH];
+                            fill(b);
+                            writeCounter.addAndGet(b.length);
+                            out.write(b);
+                            out.flush();
+                        } catch (IOException ioe) {
+                            ioe.printStackTrace();
+                        }
+                        response.resume();
+
+                        // After a brief wait for the resume and response to be finished,
+                        // the output will be closed as a post-processing.
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                        // Close the output after the resume is called.
+                        // This is not normal usage, but we need to make sure
+                        try {
+                            out.close();
+                        } catch (IOException ioe) {
+                            ioe.printStackTrace();
+                        }
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onError(Throwable t) {
+                        t.printStackTrace();
+                        response.resume();
+                        throw new RuntimeException(t);
+                    }
+                });
+                clientTransport.resume();
+            }
+        };
+
+        server.getServerConfiguration().addHttpHandler(ga, "/path");
+
+        try {
+            Thread.sleep(5);
+            server.start();
+            clientTransport.start();
+
+            Future<Connection> connectFuture = clientTransport.connect("localhost", PORT);
+            Connection connection = null;
+            try {
+                connection = connectFuture.get(10, SECONDS);
+                int length = parseResult.get(10, SECONDS);
+                assertEquals(writeCounter.get(), length);
+                assertTrue(callbackInvoked.get());
+                // Wait until the output close is invoked and handler is finished.
+                assertTrue(latch.await(3, SECONDS));
+            } finally {
+                LOGGER.log(Level.INFO, "Written {0}", writeCounter);
+                // Close the client connection
+                if (connection != null) {
+                    connection.closeSilently();
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+            fail();
+        } finally {
+            clientTransport.shutdownNow();
+            server.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testAbnormalWriterCloseAfterResume() throws Exception {
+
+        HttpServer server = new HttpServer();
+        NetworkListener listener = new NetworkListener("Grizzly", DEFAULT_NETWORK_HOST, PORT);
+        int LENGTH = 256000;
+        int MAX_LENGTH = LENGTH * 2;
+        listener.setMaxPendingBytes(MAX_LENGTH);
+        server.addListener(listener);
+        FutureImpl<Integer> parseResult = SafeFutureImpl.create();
+        FilterChainBuilder filterChainBuilder = FilterChainBuilder.stateless();
+        filterChainBuilder.add(new TransportFilter());
+        filterChainBuilder.add(new HttpClientFilter());
+        filterChainBuilder.add(new BaseFilter() {
+
+            private int bytesRead;
+
+            @Override
+            public NextAction handleConnect(FilterChainContext ctx) throws IOException {
+                // Build the HttpRequestPacket, which will be sent to a server
+                // We construct HTTP request version 1.1 and specifying the URL of the
+                // resource we want to download
+                HttpRequestPacket httpRequest = HttpRequestPacket.builder().method("GET").uri("/path").protocol(HTTP_1_1)
+                                                                 .header("Host", "localhost:" + PORT).build();
+
+                // Write the request asynchronously
+                ctx.write(httpRequest);
+
+                // Return the stop action, which means we don't expect next filter to process
+                // connect event
+                return ctx.getStopAction();
+            }
+
+            @Override
+            public NextAction handleRead(FilterChainContext ctx) throws IOException {
+                HttpContent message = ctx.getMessage();
+                Buffer b = message.getContent();
+                int remaining = b.remaining();
+
+                StringBuilder sb = new StringBuilder(remaining);
+
+                if (b.hasRemaining()) {
+                    sb.append(b.toStringContent());
+                    try {
+                        check(sb, bytesRead % LENGTH, remaining);
+                    } catch (Exception e) {
+                        parseResult.failure(e);
+                    }
+
+                    bytesRead += remaining;
+                }
+
+                if (message.isLast()) {
+                    parseResult.result(bytesRead);
+                }
+                return ctx.getStopAction();
+            }
+        });
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        TCPNIOTransport clientTransport = TCPNIOTransportBuilder.newInstance().build();
+        clientTransport.setProcessor(filterChainBuilder.build());
+        AtomicInteger writeCounter = new AtomicInteger();
+        AtomicBoolean callbackInvoked = new AtomicBoolean(false);
+        HttpHandler ga = new HttpHandler() {
+
+            @Override
+            public void service(Request request, Response response) throws Exception {
+                clientTransport.pause();
+
+                response.setContentType("text/plain");
+                NIOWriter out = response.getNIOWriter();
+                Connection c = request.getContext().getConnection();
+                TaskQueue tqueue = ((NIOConnection) c).getAsyncWriteQueue();
+
+                while (out.canWrite()) {
+                    char[] data = new char[LENGTH];
+                    fill(data);
+                    writeCounter.addAndGet(data.length);
+                    out.write(data);
+                    out.flush();
+                }
+
+                response.suspend();
+                notifyCanWrite(out, tqueue, response);
+
+                clientTransport.resume();
+            }
+
+            private void notifyCanWrite(NIOWriter out, TaskQueue tqueue, Response response) {
+
+                out.notifyCanWrite(new WriteHandler() {
+
+                    @Override
+                    public void onWritePossible() {
+                        callbackInvoked.compareAndSet(false, true);
+                        clientTransport.pause();
+                        assertTrue(tqueue.spaceInBytes() < MAX_LENGTH);
+                        clientTransport.resume();
+                        try {
+                            char[] c = new char[LENGTH];
+                            fill(c);
+                            writeCounter.addAndGet(c.length);
+                            out.write(c);
+                            out.flush();
+                        } catch (IOException ioe) {
+                            ioe.printStackTrace();
+                        }
+                        response.resume();
+
+                        // After a brief wait for the resume and response to be finished,
+                        // the output will be closed as a post-processing.
+                        try {
+                            Thread.sleep(1000);
+                        } catch (InterruptedException e) {
+                            throw new RuntimeException(e);
+                        }
+                        // Close the output after the resume is called.
+                        // This is not normal usage, but we need to make sure
+                        try {
+                            out.close();
+                        } catch (IOException ioe) {
+                            ioe.printStackTrace();
+                        }
+                        latch.countDown();
+                    }
+
+                    @Override
+                    public void onError(Throwable t) {
+                        t.printStackTrace();
+                        response.resume();
+                        throw new RuntimeException(t);
+                    }
+                });
+            }
+
+        };
+
+        server.getServerConfiguration().addHttpHandler(ga, "/path");
+
+        try {
+            Thread.sleep(5);
+            server.start();
+            clientTransport.start();
+
+            Future<Connection> connectFuture = clientTransport.connect("localhost", PORT);
+            Connection connection = null;
+            try {
+                connection = connectFuture.get(10, SECONDS);
+                int length = parseResult.get(10, SECONDS);
+                assertEquals(writeCounter.get(), length);
+                assertTrue(callbackInvoked.get());
+                // Wait until the output close is invoked and handler is finished.
+                assertTrue(latch.await(3, SECONDS));
+            } finally {
+                // Close the client connection
+                if (connection != null) {
+                    connection.closeSilently();
+                }
+            }
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            fail();
+        } finally {
+            clientTransport.shutdownNow();
+            server.shutdownNow();
+        }
+
     }
 
     private static void fill(byte[] array) {

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -446,9 +447,9 @@ public final class Parameters {
             }
 
             if (nameEnd <= nameStart) {
-                if (LOGGER.isLoggable(Level.INFO)) {
+                if (LOGGER.isLoggable(Level.FINE)) {
                     if (valueEnd < nameStart) {
-                        LOGGER.info(LogMessages.INFO_GRIZZLY_HTTP_PARAMETERS_INVALID_CHUNK(nameStart, nameEnd, null));
+                        LOGGER.fine(LogMessages.FINE_GRIZZLY_HTTP_PARAMETERS_INVALID_CHUNK(nameStart, nameEnd, null));
                     }
                 }
                 continue;

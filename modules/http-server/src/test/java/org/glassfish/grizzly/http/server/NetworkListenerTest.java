@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -23,6 +24,7 @@ import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
@@ -241,7 +243,15 @@ public class NetworkListenerTest {
             Future<HttpServer> gracefulFuture = server.shutdown(1, TimeUnit.SECONDS);
 
             final BufferedReader reader = new BufferedReader(new InputStreamReader(c.getInputStream(), Charsets.UTF8_CHARSET));
-            final String content = reader.readLine();
+            String content;
+            try {
+                // this should result in null in older JDKs(~ JDK 23) or IOException on newer JDKs(JDK 24 GA ~) as the grace period expires
+                content = reader.readLine();
+            } catch (IOException e) {
+                // starting with JDK-24-GA, when EOF is encountered during BufferedReader#readLine() execution,
+                // "java.io.IOException: Premature EOF" is thrown instead of returning null
+                content = null;
+            }
             assertNull(content);
 
             assertNotNull(gracefulFuture.get(5, TimeUnit.SECONDS));

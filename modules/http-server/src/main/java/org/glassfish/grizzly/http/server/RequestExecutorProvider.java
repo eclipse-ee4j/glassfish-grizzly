@@ -54,7 +54,7 @@ public interface RequestExecutorProvider {
      * The {@link RequestExecutorProvider} implementation, which checks if the current {@link Thread} is a service
      * {@link Thread} (see {@link Threads#isService()}). If the current {@link Thread} is a service {@link Thread} - the
      * implementation returns a worker thread pool associated with the {@link Request}, or, if the current {@link Thread} is
-     * not a service {@link Thread} - <tt>null</tt> will be return to force the user code to be executed on the current
+     * not a service {@link Thread} - <tt>null</tt> will be returned to force the user code to be executed on the current
      * {@link Thread}.
      */
     class WorkerThreadProvider implements RequestExecutorProvider {

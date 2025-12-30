@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, 2022 Contributors to the Eclipse Foundation
+ * Copyright (c) 2022, 2025 Contributors to the Eclipse Foundation
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -18,10 +18,10 @@
 
 package org.glassfish.grizzly.http.util;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Locale;
-import java.util.TimeZone;
 
 import org.glassfish.grizzly.Buffer;
 
@@ -70,17 +70,10 @@ public final class CookieUtils {
 
     static final String OLD_COOKIE_PATTERN = "EEE, dd-MMM-yyyy HH:mm:ss z";
 
-    public static final ThreadLocal<SimpleDateFormat> OLD_COOKIE_FORMAT = new ThreadLocal<SimpleDateFormat>() {
+    public static final DateTimeFormatter OLD_COOKIE_FORMAT =
+            DateTimeFormatter.ofPattern(OLD_COOKIE_PATTERN, Locale.US).withZone(ZoneId.of("GMT"));
 
-        @Override
-        protected SimpleDateFormat initialValue() {
-            // old cookie pattern format
-            SimpleDateFormat f = new SimpleDateFormat(OLD_COOKIE_PATTERN, Locale.US);
-            f.setTimeZone(TimeZone.getTimeZone("GMT"));
-            return f;
-        }
-    };
-    static final String ancientDate = OLD_COOKIE_FORMAT.get().format(new Date(10000));
+    static final String ancientDate = OLD_COOKIE_FORMAT.format(Instant.ofEpochMilli(10000));
 
     static final String tspecials = ",; ";
     static final String tspecials2 = "()<>@,;:\\\"/[]?={} \t";

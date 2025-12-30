@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2010, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -23,6 +24,7 @@ import static org.glassfish.grizzly.http.util.HttpCodecUtils.skipSpaces;
 import static org.glassfish.grizzly.http.util.HttpCodecUtils.toCheckedByteArray;
 
 import java.io.IOException;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import org.glassfish.grizzly.Buffer;
@@ -37,8 +39,8 @@ import org.glassfish.grizzly.http.Method.PayloadExpectation;
 import org.glassfish.grizzly.http.util.Constants;
 import org.glassfish.grizzly.http.util.ContentType;
 import org.glassfish.grizzly.http.util.DataChunk;
-import org.glassfish.grizzly.http.util.FastHttpDateFormat;
 import org.glassfish.grizzly.http.util.Header;
+import org.glassfish.grizzly.http.util.HttpDateFormat;
 import org.glassfish.grizzly.http.util.HttpStatus;
 import org.glassfish.grizzly.http.util.HttpUtils;
 import org.glassfish.grizzly.http.util.MimeHeaders;
@@ -149,7 +151,31 @@ public class HttpServerFilter extends HttpCodecFilter {
     @Deprecated
     public HttpServerFilter(boolean chunkingEnabled, int maxHeadersSize, String defaultResponseContentType, KeepAlive keepAlive, DelayedExecutor executor,
             int maxRequestHeaders, int maxResponseHeaders) {
-        super(chunkingEnabled, maxHeadersSize);
+        this(chunkingEnabled, maxHeadersSize, defaultResponseContentType, keepAlive, executor, MimeHeaders.MAX_NUM_HEADERS_DEFAULT,
+             MimeHeaders.MAX_NUM_HEADERS_DEFAULT, null);
+    }
+
+    /**
+     * Constructor, which creates <tt>HttpServerFilter</tt> instance, with the specific max header size and properties parameter.
+     *
+     * @param chunkingEnabled flag indicating whether or not chunking should be allowed or not.
+     * @param maxHeadersSize the maximum size of an inbound HTTP message header.
+     * @param defaultResponseContentType the content type that the response should use if no content had been specified at
+     * the time the response is committed.
+     * @param keepAlive keep-alive configuration for this filter instance.
+     * @param executor {@link DelayedExecutor} for handling keep-alive. If <tt>null</tt> - keep-alive idle connections
+     * should be managed outside HttpServerFilter.
+     * @param maxRequestHeaders maximum number of request headers allowed for a single request.
+     * @param maxResponseHeaders maximum number of response headers allowed for a single response.
+     * @param props the properties to be used by the filter.
+     *
+     * @deprecated Next major release will include builders for filters requiring configuration. Constructors will be
+     * hidden.
+     */
+    @Deprecated
+    public HttpServerFilter(boolean chunkingEnabled, int maxHeadersSize, String defaultResponseContentType, KeepAlive keepAlive, DelayedExecutor executor,
+                            int maxRequestHeaders, int maxResponseHeaders, final Properties props) {
+        super(chunkingEnabled, maxHeadersSize, props);
 
         this.httpRequestInProcessAttr = Grizzly.DEFAULT_ATTRIBUTE_BUILDER.createAttribute(HTTP_SERVER_REQUEST_ATTR_NAME);
         this.keepAliveContextAttr = Grizzly.DEFAULT_ATTRIBUTE_BUILDER.createAttribute("HttpServerFilter.KeepAliveContext");
@@ -530,11 +556,11 @@ public class HttpServerFilter extends HttpCodecFilter {
 
         final ServerHttpRequestImpl request = (ServerHttpRequestImpl) httpHeader;
 
-        prepareRequest(request, buffer.hasRemaining());
+        prepareRequest(request, buffer.hasRemaining(), ctx);
         return request.getProcessingState().error;
     }
 
-    private void prepareRequest(final ServerHttpRequestImpl request, final boolean hasReadyContent) {
+    private void prepareRequest(final ServerHttpRequestImpl request, final boolean hasReadyContent, final FilterChainContext ctx) {
 
         final ProcessingState state = request.getProcessingState();
         final HttpResponsePacket response = request.getResponse();
@@ -644,9 +670,12 @@ public class HttpServerFilter extends HttpCodecFilter {
         }
 
         if (request.requiresAcknowledgement()) {
-            // if we have any request content, we can ignore the Expect
-            // request
-            request.requiresAcknowledgement(isHttp11 && !hasReadyContent);
+            if (!isHttp11 || hasReadyContent) {
+                // if we have any request content, we can ignore the Expect request
+                request.requiresAcknowledgement(false);
+            } else if (request.isChunked()) {
+                sendAcknowledgment(request, response, ctx);
+            }
         }
     }
 
@@ -846,7 +875,7 @@ public class HttpServerFilter extends HttpCodecFilter {
         }
 
         if (!response.containsHeader(Header.Date)) {
-            response.getHeaders().addValue(Header.Date).setBytes(FastHttpDateFormat.getCurrentDateBytes());
+            response.getHeaders().addValue(Header.Date).setBytes(HttpDateFormat.getCurrentDateBytes());
         }
 
         final ProcessingState state = response.getProcessingState();
@@ -1064,6 +1093,25 @@ public class HttpServerFilter extends HttpCodecFilter {
     private boolean checkContentLengthRemainder(final HttpRequestPacket httpRequest) {
         return maxPayloadRemainderToSkip < 0 || httpRequest.getContentLength() <= 0
                 || ((HttpPacketParsing) httpRequest).getContentParsingState().chunkRemainder <= maxPayloadRemainderToSkip;
+    }
+
+    // similar to HttpHandler#sendAcknowledgment()
+    private void sendAcknowledgment(final HttpRequestPacket request, final HttpResponsePacket response,
+                                    final FilterChainContext ctx) {
+        if ("100-continue".equalsIgnoreCase(request.getHeader(Header.Expect))) {
+            // 100-continue is intercepted and acknowledged with a response line with the status 100 in Chunked Transfer Coding.
+            // The request processing will continue after acknowledgment of the expectation.
+            response.setStatus(HttpStatus.CONINTUE_100);
+            response.setAcknowledgement(true);
+            final Buffer resBuf = encodeHttpPacket(ctx, response);
+            if (resBuf != null) {
+                HttpProbeNotifier.notifyDataSent(this, ctx.getConnection(), resBuf);
+                ctx.write(resBuf);
+            }
+        } else {
+            response.setStatus(HttpStatus.EXPECTATION_FAILED_417);
+            sendBadRequestResponse(ctx, response);
+        }
     }
 
     // ---------------------------------------------------------- Nested Classes

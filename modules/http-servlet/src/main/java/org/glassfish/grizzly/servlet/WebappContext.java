@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Contributors to the Eclipse Foundation
+ * Copyright (c) 2022, 2025 Contributors to the Eclipse Foundation
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -138,10 +138,6 @@ public class WebappContext implements ServletContext {
 
     /* Server name; used in the Server entity header */
     private volatile String serverInfo = "grizzly/" + Grizzly.getDotedVersion();
-
-    /* Thread local data used during request dispatch */
-    /* TODO: seems like this may cause a leak - when is this ever cleared? */
-    private final ThreadLocal<DispatchData> dispatchData = new ThreadLocal<>();
 
     /* Request dispatcher helper class */
     private DispatcherHelper dispatcherHelper;
@@ -874,14 +870,7 @@ public class WebappContext implements ServletContext {
             return null;
         }
 
-        // Use the thread local URI and mapping data
-        DispatchData dd = dispatchData.get();
-        if (dd == null) {
-            dd = new DispatchData();
-            dispatchData.set(dd);
-        } else {
-            dd.recycle();
-        }
+        final DispatchData dd = new DispatchData();
         DataChunk uriDC = dd.uriDC;
         // Retrieve the thread local mapping data
         MappingData mappingData = dd.mappingData;
@@ -1070,14 +1059,7 @@ public class WebappContext implements ServletContext {
             return null;
         }
 
-        // Use the thread local URI and mapping data
-        DispatchData dd = dispatchData.get();
-        if (dd == null) {
-            dd = new DispatchData();
-            dispatchData.set(dd);
-        } else {
-            dd.recycle();
-        }
+        final DispatchData dd = new DispatchData();
         DataChunk uriDC = dd.uriDC;
         // Retrieve the thread local mapping data
         MappingData mappingData = dd.mappingData;
@@ -1124,14 +1106,7 @@ public class WebappContext implements ServletContext {
             return null;
         }
 
-        // Use the thread local URI and mapping data
-        DispatchData dd = dispatchData.get();
-        if (dd == null) {
-            dd = new DispatchData();
-            dispatchData.set(dd);
-        } else {
-            dd.recycle();
-        }
+        DispatchData dd = new DispatchData();
         DataChunk servletNameDC = dd.servletNameDC;
         // Retrieve the thread local mapping data
         MappingData mappingData = dd.mappingData;

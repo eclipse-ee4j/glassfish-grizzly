@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -17,8 +18,10 @@
 package org.glassfish.grizzly.http;
 
 import java.nio.ByteBuffer;
-import java.text.ParseException;
-import java.util.Date;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeParseException;
 
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.http.util.CookieUtils;
@@ -63,9 +66,9 @@ public class CookiesTest extends TestCase {
                                 new Checker(1, "/acme", CheckValue.PATH), new Checker(1, 1, CheckValue.VERSION) }) };
     }
 
-    private static final long IN_HOUR = System.currentTimeMillis() + 1000 * 60 * 60;
     // ex. Wednesday, 09-Nov-99 23:12:40 GMT
-    private static final String expiresStr = CookieUtils.OLD_COOKIE_FORMAT.get().format(new Date(IN_HOUR));
+    private static final String expiresStr =
+            CookieUtils.OLD_COOKIE_FORMAT.format(Instant.now().plusMillis(1000 * 60 * 60));
 
     private static Pair[] createServerTestCaseCookie() {
         return new Pair[] {
@@ -295,8 +298,10 @@ public class CookiesTest extends TestCase {
 
     private static int expire2MaxAge(String expire) {
         try {
-            return (int) (CookieUtils.OLD_COOKIE_FORMAT.get().parse(expire).getTime() - System.currentTimeMillis()) / 1000;
-        } catch (ParseException ex) {
+            return (int) Duration.between(Instant.now(),
+                                          ZonedDateTime.parse(expire, CookieUtils.OLD_COOKIE_FORMAT).toInstant())
+                                 .toSeconds();
+        } catch (DateTimeParseException ex) {
             throw new IllegalArgumentException("Illegal expire value: " + expire);
         }
     }

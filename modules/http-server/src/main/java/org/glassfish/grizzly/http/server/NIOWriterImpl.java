@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -31,7 +32,7 @@ import org.glassfish.grizzly.http.io.OutputBuffer;
  */
 final class NIOWriterImpl extends NIOWriter implements Cacheable {
 
-    private OutputBuffer outputBuffer;
+    private volatile OutputBuffer outputBuffer;
 
     // ----------------------------------------------------- Methods from Writer
 
@@ -40,6 +41,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
      */
     @Override
     public void write(int c) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.writeChar(c);
     }
 
@@ -48,6 +52,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
      */
     @Override
     public void write(char[] cbuf) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.write(cbuf);
     }
 
@@ -56,6 +63,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
      */
     @Override
     public void write(char[] cbuf, int off, int len) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.write(cbuf, off, len);
     }
 
@@ -64,6 +74,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
      */
     @Override
     public void write(String str) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.write(str);
     }
 
@@ -72,6 +85,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
      */
     @Override
     public void write(String str, int off, int len) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.write(str, off, len);
     }
 
@@ -80,6 +96,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
      */
     @Override
     public void flush() throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         outputBuffer.flush();
     }
 
@@ -88,6 +107,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
      */
     @Override
     public void close() throws IOException {
+        if (!initialized()) {
+            return;
+        }
         outputBuffer.close();
     }
 
@@ -104,6 +126,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
     @Deprecated
     @Override
     public boolean canWrite(final int length) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return outputBuffer.canWrite();
     }
 
@@ -115,6 +140,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
      */
     @Override
     public boolean canWrite() {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return outputBuffer.canWrite();
     }
 
@@ -132,6 +160,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
     @Deprecated
     @Override
     public void notifyCanWrite(final WriteHandler handler, final int length) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         outputBuffer.notifyCanWrite(handler);
     }
 
@@ -145,6 +176,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
      */
     @Override
     public void notifyCanWrite(final WriteHandler handler) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         outputBuffer.notifyCanWrite(handler);
     }
 
@@ -166,5 +200,9 @@ final class NIOWriterImpl extends NIOWriter implements Cacheable {
 
         this.outputBuffer = outputBuffer;
 
+    }
+
+    private boolean initialized() {
+        return outputBuffer != null;
     }
 }

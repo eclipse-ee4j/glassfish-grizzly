@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2024 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -18,6 +18,7 @@ package org.glassfish.grizzly.http;
 
 import java.io.IOException;
 import java.net.SocketAddress;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -48,22 +49,78 @@ import org.glassfish.grizzly.streams.StreamWriter;
 import org.glassfish.grizzly.utils.ChunkingFilter;
 import org.glassfish.grizzly.utils.Pair;
 
-import junit.framework.TestCase;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
+
+import static java.lang.Boolean.FALSE;
+import static java.lang.Boolean.TRUE;
+import static java.util.Arrays.asList;
+import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_NAME_VALIDATION_RFC_9110;
+import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_VALUE_VALIDATION_RFC_9110;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Testing HTTP response parsing
  *
  * @author Alexey Stashok
  */
-public class HttpResponseParseTest extends TestCase {
+@RunWith(Parameterized.class)
+public class HttpResponseParseTest {
     private static final Logger logger = Grizzly.logger(HttpResponseParseTest.class);
 
     public static final int PORT = 19021;
 
+    private final boolean isStrictHeaderNameValidationSet;
+    private final boolean isStrictHeaderValueValidationSet;
+    private final String isStrictHeaderNameValidationSetBefore;
+    private final String isStrictHeaderValueValidationSetBefore;
+
+    @Parameterized.Parameters
+    public static Collection<Object[]> getMode() {
+        return asList(new Object[][] { { FALSE, FALSE }, { FALSE, TRUE }, { TRUE, FALSE }, { TRUE, TRUE } });
+    }
+
+    @Before
+    public void before() throws Exception {
+        if (isStrictHeaderNameValidationSet) {
+            System.setProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110, String.valueOf(Boolean.TRUE));
+        } else {
+            System.setProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110, String.valueOf(Boolean.FALSE));
+        }
+        if (isStrictHeaderValueValidationSet) {
+            System.setProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110, String.valueOf(Boolean.TRUE));
+        } else {
+            System.setProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110, String.valueOf(Boolean.FALSE));
+        }
+    }
+
+    @After
+    public void after() throws Exception {
+        System.setProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110,
+                           isStrictHeaderNameValidationSetBefore != null ? isStrictHeaderNameValidationSetBefore :
+                           String.valueOf(Boolean.FALSE));
+        System.setProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110,
+                           isStrictHeaderValueValidationSetBefore != null ? isStrictHeaderValueValidationSetBefore :
+                           String.valueOf(Boolean.FALSE));
+    }
+
+    public HttpResponseParseTest(boolean isStrictHeaderNameValidationSet, boolean isStrictHeaderValueValidationSet) {
+        this.isStrictHeaderNameValidationSet = isStrictHeaderNameValidationSet;
+        this.isStrictHeaderValueValidationSet = isStrictHeaderValueValidationSet;
+        this.isStrictHeaderNameValidationSetBefore = System.getProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110);
+        this.isStrictHeaderValueValidationSetBefore = System.getProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110);
+    }
+
+    @Test
     public void testHeaderlessResponseLine() throws Exception {
         doHttpResponseTest("HTTP/1.0", 200, "OK", Collections.<String, Pair<String, String>>emptyMap(), "\r\n");
     }
 
+    @Test
     public void testSimpleHeaders() throws Exception {
         Map<String, Pair<String, String>> headers = new HashMap<>();
         headers.put("Header1", new Pair<>("localhost", "localhost"));
@@ -71,7 +128,12 @@ public class HttpResponseParseTest extends TestCase {
         doHttpResponseTest("HTTP/1.0", 200, "ALL RIGHT", headers, "\r\n");
     }
 
+    @Test
     public void testMultiLineHeaders() throws Exception {
+        if (isStrictHeaderValueValidationSet) {
+            // Multiline headers should not be supported
+            return;
+        }
         Map<String, Pair<String, String>> headers = new HashMap<>();
         headers.put("Header1", new Pair<>("localhost", "localhost"));
         headers.put("Multi-line", new Pair<>("first\r\n          second\r\n       third", "first seconds third"));
@@ -79,7 +141,12 @@ public class HttpResponseParseTest extends TestCase {
         doHttpResponseTest("HTTP/1.0", 200, "DONE", headers, "\r\n");
     }
 
+    @Test
     public void testHeadersN() throws Exception {
+        if (isStrictHeaderValueValidationSet) {
+            // Multiline headers should not be supported
+            return;
+        }
         Map<String, Pair<String, String>> headers = new HashMap<>();
         headers.put("Header1", new Pair<>("localhost", "localhost"));
         headers.put("Multi-line", new Pair<>("first\n          second\n       third", "first seconds third"));
@@ -87,6 +154,7 @@ public class HttpResponseParseTest extends TestCase {
         doHttpResponseTest("HTTP/1.0", 200, "DONE", headers, "\n");
     }
 
+    @Test
     public void testDecoder100continueThen200() {
         try {
             doTestDecoder("HTTP/1.1 100 Continue\n\nHTTP/1.1 200 OK\n\n", 4096);
@@ -97,6 +165,7 @@ public class HttpResponseParseTest extends TestCase {
         }
     }
 
+    @Test
     public void testDecoderOK() {
         try {
             doTestDecoder("HTTP/1.0 404 Not found\n\n", 4096);
@@ -107,6 +176,7 @@ public class HttpResponseParseTest extends TestCase {
         }
     }
 
+    @Test
     public void testDecoderOverflowProtocol() {
         try {
             doTestDecoder("HTTP/1.0 404 Not found\n\n", 2);
@@ -116,6 +186,7 @@ public class HttpResponseParseTest extends TestCase {
         }
     }
 
+    @Test
     public void testDecoderOverflowCode() {
         try {
             doTestDecoder("HTTP/1.0 404 Not found\n\n", 11);
@@ -125,6 +196,7 @@ public class HttpResponseParseTest extends TestCase {
         }
     }
 
+    @Test
     public void testDecoderOverflowPhrase() {
         try {
             doTestDecoder("HTTP/1.0 404 Not found\n\n", 19);
@@ -134,9 +206,10 @@ public class HttpResponseParseTest extends TestCase {
         }
     }
 
+    @Test
     public void testDecoderOverflowHeader() {
         try {
-            doTestDecoder("HTTP/1.0 404 Not found\nHeader1: somevalue\n\n", 30);
+            doTestDecoder("HTTP/1.0 404 Not found\nHeader1: somevalue\r\n\n", 31);
             assertTrue("Overflow exception had to be thrown", false);
         } catch (IllegalStateException e) {
             assertTrue(true);

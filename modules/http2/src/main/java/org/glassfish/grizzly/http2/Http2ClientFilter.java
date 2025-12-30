@@ -104,7 +104,7 @@ public class Http2ClientFilter extends Http2BaseFilter {
     }
 
     /**
-     * @return <tt>true</tt> if the push request has to be sent upstream, so a user have a chance to process it, or
+     * @return <tt>true</tt> if the push request has to be sent upstream, so a user has an opportunity to process it, or
      * <tt>false</tt> otherwise
      */
     public boolean isSendPushRequestUpstream() {
@@ -112,7 +112,7 @@ public class Http2ClientFilter extends Http2BaseFilter {
     }
 
     /**
-     * @param sendPushRequestUpstream <tt>true</tt> if the push request has to be sent upstream, so a user have a chance to
+     * @param sendPushRequestUpstream <tt>true</tt> if the push request has to be sent upstream, so a user has an opportunity to
      * process it, or <tt>false</tt> otherwise
      */
     public void setSendPushRequestUpstream(boolean sendPushRequestUpstream) {

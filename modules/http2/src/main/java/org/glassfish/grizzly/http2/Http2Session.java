@@ -30,6 +30,7 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -77,7 +78,6 @@ import org.glassfish.grizzly.memory.MemoryManager;
 import org.glassfish.grizzly.ssl.SSLBaseFilter;
 import org.glassfish.grizzly.utils.Futures;
 import org.glassfish.grizzly.utils.Holder;
-import org.glassfish.grizzly.utils.NullaryFunction;
 
 /**
  * The HTTP2 session abstraction.
@@ -207,7 +207,7 @@ public class Http2Session {
             this.lastPeerStreamId = 0;
         }
 
-        this.addressHolder = Holder.lazyHolder((NullaryFunction<Object>) () -> connection.getPeerAddress());
+        this.addressHolder = Holder.lazyHolder(() -> connection.getPeerAddress());
 
         connection.addCloseListener(new ConnectionCloseListener());
 

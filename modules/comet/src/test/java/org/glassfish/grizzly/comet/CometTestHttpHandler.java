@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2009, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -41,7 +42,7 @@ public class CometTestHttpHandler extends HttpHandler {
 
     @Override
     public void service(Request req, Response res) {
-        cometContext.addCometHandler(useConcurrentCometHandler ? new MyConcurrentCometHandler(cometContext, res) : new CometRequestHandler());
+        cometContext.addCometHandler(req, useConcurrentCometHandler ? new MyConcurrentCometHandler(cometContext, res) : new CometRequestHandler());
     }
 
     private void doEvent(CometEvent event, CometHandler handler) throws IOException {

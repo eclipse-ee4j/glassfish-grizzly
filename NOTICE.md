@@ -2,7 +2,7 @@
 
 This content is produced and maintained by the Eclipse Grizzly project.
 
-* Project home: https://projects.eclipse.org/projects/ee4j.grizzly
+* Project home: https://projects.eclipse.org/projects/ee4j.glassfish
 
 ## Trademarks
 
@@ -30,7 +30,7 @@ SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 
 The project maintains the following source code repositories:
 
-* https://github.com/eclipse-ee4j/grizzly
+* https://github.com/eclipse-ee4j/glassfish-grizzly
 
 ## Third-party Content
 

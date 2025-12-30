@@ -10,29 +10,29 @@ management issues made it impossible for a server to scale to thousands of
 users. The Eclipse Grizzly NIO framework has been designed to help developers to
 take advantage of the Java™ NIO API.
 
-* https://projects.eclipse.org/projects/ee4j.grizzly
+* https://projects.eclipse.org/projects/ee4j.glassfish
 
 ## Developer resources
 
 Information regarding source code management, builds, coding standards, and
 more.
 
-* https://projects.eclipse.org/projects/ee4j.grizzly/developer
+* https://projects.eclipse.org/projects/ee4j.glassfish/developer
 
 The project maintains the following source code repositories
 
-* https://github.com/eclipse-ee4j/grizzly
-* https://github.com/eclipse-ee4j/grizzly-npn
-* https://github.com/eclipse-ee4j/grizzly-thrift
-* https://github.com/eclipse-ee4j/grizzly-memcached
-* https://github.com/eclipse-ee4j/grizzly-ahc
+* https://github.com/eclipse-ee4j/glassfish-grizzly
+* https://github.com/eclipse-ee4j/glassfish-grizzly-npn
+* https://github.com/eclipse-ee4j/glassfish-grizzly-thrift
+* https://github.com/eclipse-ee4j/glassfish-grizzly-memcached
+* https://github.com/eclipse-ee4j/glassfish-grizzly-ahc
 
 ## Eclipse Contributor Agreement
 
 Before your contribution can be accepted by the project team contributors must
 electronically sign the Eclipse Contributor Agreement (ECA).
 
-* http://www.eclipse.org/legal/ECA.php
+* https://www.eclipse.org/legal/eca/
 
 Commits that are provided by non-committers must have a Signed-off-by field in
 the footer indicating that the author is aware of the terms by which the
@@ -47,4 +47,4 @@ https://www.eclipse.org/projects/handbook/#resources-commit
 
 Contact the project developers via the project's "dev" list.
 
-* https://dev.eclipse.org/mailman/listinfo/grizzly-dev
+* https://dev.eclipse.org/mailman/listinfo/glassfish-dev

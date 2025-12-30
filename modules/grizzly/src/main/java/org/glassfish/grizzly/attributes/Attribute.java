@@ -16,7 +16,7 @@
 
 package org.glassfish.grizzly.attributes;
 
-import org.glassfish.grizzly.utils.NullaryFunction;
+import java.util.function.Supplier;
 
 /**
  * Class used to define dynamic typed attributes on {@link AttributeHolder} instances. Storing attribute values in
@@ -38,7 +38,7 @@ public final class Attribute<T> {
     /**
      * Attribute initializer, which will be called, if attribute is not set.
      */
-    private final NullaryFunction<T> initializer;
+    private final Supplier<T> initializer;
     /**
      * Attribute index in AttributeBuilder
      */
@@ -50,16 +50,16 @@ public final class Attribute<T> {
     }
 
     protected Attribute(final AttributeBuilder builder, final String name, final int index, final T defaultValue) {
-        this(builder, name, index, new NullaryFunction<T>() {
+        this(builder, name, index, new Supplier<T>() {
 
             @Override
-            public T evaluate() {
+            public T get() {
                 return defaultValue;
             }
         });
     }
 
-    protected Attribute(final AttributeBuilder builder, final String name, final int index, final NullaryFunction<T> initializer) {
+    protected Attribute(final AttributeBuilder builder, final String name, final int index, final Supplier<T> initializer) {
         this.builder = builder;
         this.name = name;
         this.attributeIndex = index;
@@ -68,7 +68,7 @@ public final class Attribute<T> {
 
     /**
      * Get attribute value, stored on the {@link AttributeHolder}, the difference from
-     * {@link #get(org.glassfish.grizzly.attributes.AttributeHolder)} is that default value or {@link NullaryFunction} won't
+     * {@link #get(org.glassfish.grizzly.attributes.AttributeHolder)} is that default value or {@link Supplier} won't
      * be invoked.
      *
      * @param attributeHolder {@link AttributeHolder}.
@@ -80,7 +80,7 @@ public final class Attribute<T> {
 
     /**
      * Get attribute value, stored on the {@link AttributeStorage}, the difference from {@link #get(AttributeStorage)} is
-     * that default value or {@link NullaryFunction} won't be invoked.
+     * that default value or {@link Supplier} won't be invoked.
      *
      * @param storage {@link AttributeStorage}.
      * @return attribute value
@@ -212,7 +212,7 @@ public final class Attribute<T> {
     }
 
     @SuppressWarnings("unchecked")
-    private T get0(final AttributeHolder attributeHolder, final NullaryFunction<T> initializer) {
+    private T get0(final AttributeHolder attributeHolder, final Supplier<T> initializer) {
         final IndexedAttributeAccessor indexedAccessor = attributeHolder.getIndexedAttributeAccessor();
 
         return indexedAccessor != null ? (T) indexedAccessor.getAttribute(attributeIndex, initializer) : (T) attributeHolder.getAttribute(name, initializer);

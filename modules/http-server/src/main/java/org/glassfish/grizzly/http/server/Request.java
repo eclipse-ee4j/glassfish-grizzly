@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Contributors to the Eclipse Foundation
+ * Copyright (c) 2022, 2025 Contributors to the Eclipse Foundation
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -57,16 +57,16 @@ import org.glassfish.grizzly.http.io.NIOInputStream;
 import org.glassfish.grizzly.http.io.NIOReader;
 import org.glassfish.grizzly.http.server.http2.PushBuilder;
 import org.glassfish.grizzly.http.server.io.ServerInputBuffer;
+import org.glassfish.grizzly.http.server.util.DateTimeFormatters;
 import org.glassfish.grizzly.http.server.util.Globals;
 import org.glassfish.grizzly.http.server.util.MappingData;
 import org.glassfish.grizzly.http.server.util.ParameterMap;
 import org.glassfish.grizzly.http.server.util.RequestUtils;
-import org.glassfish.grizzly.http.server.util.SimpleDateFormats;
 import org.glassfish.grizzly.http.server.util.StringParser;
 import org.glassfish.grizzly.http.util.Chunk;
 import org.glassfish.grizzly.http.util.DataChunk;
-import org.glassfish.grizzly.http.util.FastHttpDateFormat;
 import org.glassfish.grizzly.http.util.Header;
+import org.glassfish.grizzly.http.util.HttpDateFormat;
 import org.glassfish.grizzly.http.util.Parameters;
 import org.glassfish.grizzly.localization.LogMessages;
 import org.glassfish.grizzly.utils.Charsets;
@@ -1423,11 +1423,11 @@ public class Request {
             return -1L;
         }
 
-        final SimpleDateFormats formats = SimpleDateFormats.create();
+        final DateTimeFormatters formats = DateTimeFormatters.create();
 
         try {
             // Attempt to convert the date header in a variety of formats
-            long result = FastHttpDateFormat.parseDate(value, formats.getFormats());
+            long result = HttpDateFormat.parseDate(value, formats.getFormats());
             if (result != -1L) {
                 return result;
             }
@@ -1453,11 +1453,11 @@ public class Request {
             return -1L;
         }
 
-        final SimpleDateFormats formats = SimpleDateFormats.create();
+        final DateTimeFormatters formats = DateTimeFormatters.create();
 
         try {
             // Attempt to convert the date header in a variety of formats
-            long result = FastHttpDateFormat.parseDate(value, formats.getFormats());
+            long result = HttpDateFormat.parseDate(value, formats.getFormats());
             if (result != -1L) {
                 return result;
             }

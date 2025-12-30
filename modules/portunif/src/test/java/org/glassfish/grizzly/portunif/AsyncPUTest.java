@@ -26,6 +26,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import java.util.logging.Logger;
 
 import org.glassfish.grizzly.Connection;
@@ -43,7 +44,6 @@ import org.glassfish.grizzly.impl.SafeFutureImpl;
 import org.glassfish.grizzly.nio.transport.TCPNIOConnectorHandler;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
-import org.glassfish.grizzly.utils.NullaryFunction;
 import org.glassfish.grizzly.utils.StringFilter;
 import org.junit.AfterClass;
 import org.junit.BeforeClass;
@@ -247,10 +247,10 @@ public class AsyncPUTest {
 
     private static final class ClientResultFilter extends BaseFilter {
         private static final Attribute<AtomicInteger> responseCounterAttr = Grizzly.DEFAULT_ATTRIBUTE_BUILDER
-                .createAttribute(ClientResultFilter.class.getName() + ".responseCounter", new NullaryFunction<AtomicInteger>() {
+                .createAttribute(ClientResultFilter.class.getName() + ".responseCounter", new Supplier<AtomicInteger>() {
 
                     @Override
-                    public AtomicInteger evaluate() {
+                    public AtomicInteger get() {
                         return new AtomicInteger();
                     }
                 });
@@ -285,10 +285,10 @@ public class AsyncPUTest {
 
     private static class StringDuplicatorFilter extends BaseFilter {
         private static final Attribute<AtomicInteger> duplicationsCounterAttribute = Grizzly.DEFAULT_ATTRIBUTE_BUILDER
-                .createAttribute(StringDuplicatorFilter.class.getName() + ".duplicationsCounterAttribute", new NullaryFunction<AtomicInteger>() {
+                .createAttribute(StringDuplicatorFilter.class.getName() + ".duplicationsCounterAttribute", new Supplier<AtomicInteger>() {
 
                     @Override
-                    public AtomicInteger evaluate() {
+                    public AtomicInteger get() {
                         return new AtomicInteger();
                     }
                 });

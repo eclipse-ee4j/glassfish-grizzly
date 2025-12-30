@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -123,7 +124,7 @@ public class OutputBuffer {
     private MemoryManager memoryManager;
     private Connection connection;
 
-    private WriteHandler handler;
+    private volatile WriteHandler handler;
 
     private InternalWriteHandler asyncWriteHandler;
 
@@ -897,7 +898,7 @@ public class OutputBuffer {
         return outputHeader.isChunkingAllowed() || outputHeader.getContentLength() != -1;
     }
 
-    private void blockAfterWriteIfNeeded() throws IOException {
+    protected void blockAfterWriteIfNeeded() throws IOException {
 
         if (IS_BLOCKING || isNonBlockingWriteGuaranteed || isLastWriteNonBlocking) {
             return;

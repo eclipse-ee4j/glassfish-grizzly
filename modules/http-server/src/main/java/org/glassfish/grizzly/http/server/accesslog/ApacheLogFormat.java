@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -18,7 +19,9 @@ package org.glassfish.grizzly.http.server.accesslog;
 
 import static java.util.logging.Level.WARNING;
 
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
@@ -131,7 +134,7 @@ import org.glassfish.grizzly.http.util.MimeHeaders;
  * <ul>
  * <li>When "<code>format</code>" is left unspecified, the default <code>%t</code> format
  * <code>[yyyy/MMM/dd:HH:mm:ss Z]</code> is used</li>
- * <li>When "<code>format</code>" is specified, the given pattern <b>must</b> be a valid {@link SimpleDateFormat}
+ * <li>When "<code>format</code>" is specified, the given pattern <b>must</b> be a valid {@link DateTimeFormatter}
  * pattern.</li>
  * <li>When "<code>@timezone</code>" is left unspecified, the {@linkplain TimeZone#getDefault() default time zone} is
  * used.</li>
@@ -179,7 +182,7 @@ import org.glassfish.grizzly.http.util.MimeHeaders;
 public class ApacheLogFormat implements AccessLogFormat {
 
     /* The UTC time zone */
-    private static final TimeZone UTC = TimeZone.getTimeZone("UTC");
+    private static final ZoneId UTC = ZoneId.of("UTC");
 
     /** A {@link String} representing our version of Apache's <em>common</em> format. */
     public static final String COMMON_FORMAT = "%h - %u %t \"%r\" %s %b";
@@ -245,13 +248,13 @@ public class ApacheLogFormat implements AccessLogFormat {
     private final List<Field> fields;
 
     /* Our timezone */
-    private final TimeZone timeZone;
+    private final ZoneId timeZone;
 
     /**
      * Create a new {@link ApacheLogFormat} instance by parsing the format from the specified {@link String}.
      */
     public ApacheLogFormat(String format) {
-        this(TimeZone.getDefault(), format);
+        this(ZoneId.systemDefault(), format);
     }
 
     /**
@@ -260,6 +263,18 @@ public class ApacheLogFormat implements AccessLogFormat {
     public ApacheLogFormat(TimeZone timeZone, String format) {
         if (timeZone == null) {
             throw new NullPointerException("Null time zone");
+        }
+        fields = new ArrayList<>();
+        this.timeZone = timeZone.toZoneId();
+        parse(format);
+    }
+
+    /**
+     * Create a new {@link ApacheLogFormat} instance by parsing the format from the specified {@link String}.
+     */
+    public ApacheLogFormat(final ZoneId timeZone, final String format) {
+        if (timeZone == null) {
+            throw new NullPointerException("Null ZoneId");
         }
         fields = new ArrayList<>();
         this.timeZone = timeZone;
@@ -715,13 +730,13 @@ public class ApacheLogFormat implements AccessLogFormat {
 
     private static class RequestTimeField extends Field {
 
-        private static final String DEFAULT_PATTERN = "[yyyy/MMM/dd:HH:mm:ss Z]";
-        private final SimpleDateFormatThreadLocal simpleDateFormat;
-        private final TimeZone timeZone;
+        private static final String DEFAULT_PATTERN = "'['yyyy/MMM/dd:HH:mm:ss Z']'";
+        private final DateTimeFormatter dateTimeFormatter;
+        private final ZoneId timeZone;
         private final String pattern;
         private final String format;
 
-        RequestTimeField(String format, TimeZone zone) {
+        RequestTimeField(String format, ZoneId zone) {
             this.format = format;
             if (format == null) {
                 pattern = DEFAULT_PATTERN;
@@ -738,17 +753,19 @@ public class ApacheLogFormat implements AccessLogFormat {
                 } else if (pos == 0) {
                     /* We have *ONLY* a time zone specified */
                     pattern = DEFAULT_PATTERN;
-                    timeZone = TimeZone.getTimeZone(format.substring(1));
+                    // For compatibility with old TimeZone formatting, we use TimeZone here instead of ZoneId. For example, JST, PST
+                    timeZone = TimeZone.getTimeZone(format.substring(1)).toZoneId();
 
                 } else {
                     /* We have both format and time zone */
                     pattern = format.substring(0, pos).replace("@@", "@");
-                    timeZone = TimeZone.getTimeZone(format.substring(pos + 1));
+                    // For compatibility with old TimeZone formatting, we use TimeZone here instead of ZoneId. For example, JST, PST
+                    timeZone = TimeZone.getTimeZone(format.substring(pos + 1)).toZoneId();
                 }
             }
 
-            /* Get our simple date format */
-            simpleDateFormat = new SimpleDateFormatThreadLocal(pattern);
+            /* Get our date time formatter */
+            dateTimeFormatter = DateTimeFormatter.ofPattern(pattern);
         }
 
         @Override
@@ -757,9 +774,8 @@ public class ApacheLogFormat implements AccessLogFormat {
                 return builder.append('-');
             }
 
-            final SimpleDateFormat format = simpleDateFormat.get();
-            format.setTimeZone(timeZone);
-            return builder.append(format.format(timeStamp));
+            final DateTimeFormatter format = dateTimeFormatter.withZone(timeZone);
+            return builder.append(format.format(timeStamp.toInstant()));
         }
 
         @Override

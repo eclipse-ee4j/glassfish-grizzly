@@ -21,11 +21,11 @@ import java.io.IOException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import java.util.function.Supplier;
 import org.glassfish.grizzly.attributes.AttributeStorage;
 import org.glassfish.grizzly.memory.MemoryManager;
 import org.glassfish.grizzly.monitoring.MonitoringAware;
 import org.glassfish.grizzly.monitoring.MonitoringConfig;
-import org.glassfish.grizzly.utils.NullaryFunction;
 
 /**
  * Common interface, which represents any kind of connection.
@@ -152,7 +152,7 @@ public interface Connection<L> extends Readable<L>, Writeable<L>, Closeable, Att
      *
      * @return the {@link Processor} state associated with this <tt>Connection</tt>.
      */
-    <E> E obtainProcessorState(Processor processor, NullaryFunction<E> factory);
+    <E> E obtainProcessorState(Processor processor, Supplier<E> factory);
 
     /**
      * Executes the {@link Runnable} in the thread, responsible for running the given type of event on this

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2023 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -15,6 +15,8 @@
  */
 
 package org.glassfish.grizzly.attributes;
+
+import java.util.function.Supplier;
 
 /**
  * <tt>AttributeBuilder</tt> is responsible for creating and indexing {@link Attribute}s. For faster access to
@@ -61,29 +63,17 @@ public interface AttributeBuilder {
      */
     <T> Attribute<T> createAttribute(String name, T defaultValue);
 
-    /**
-     * Create Attribute with name and initializer, which will be called, if Attribute's value is null on a AttributedObject
-     *
-     * @param <T> Type of attribute value
-     * @param name attribute name
-     * @param initializer NullaryFunction, which will be called, if Attribute's value is null on a AttributedObject
-     *
-     * @return Attribute<T>
-     */
-    <T> Attribute<T> createAttribute(String name, org.glassfish.grizzly.utils.NullaryFunction<T> initializer);
 
     /**
      * Create Attribute with name and initializer, which will be called, if Attribute's value is null on a AttributedObject
      *
      * @param <T> Type of attribute value
      * @param name attribute name
-     * @param initializer NullaryFunction, which will be called, if Attribute's value is null on a AttributedObject
+     * @param initializer {@link Supplier}, which will be called, if Attribute's value is null on a AttributedObject
      *
      * @return Attribute<T>
-     * @deprecated pls. use {@link #createAttribute(java.lang.String, org.glassfish.grizzly.utils.NullaryFunction)}.
      */
-    @Deprecated
-    <T> Attribute<T> createAttribute(String name, NullaryFunction<T> initializer);
+    <T> Attribute<T> createAttribute(String name, Supplier<T> initializer);
 
     /**
      * Creates and returns new thread-safe {@link AttributeHolder}

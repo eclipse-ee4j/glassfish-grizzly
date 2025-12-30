@@ -87,7 +87,7 @@ public class GrizzlyExecutorService extends AbstractExecutorService implements M
      */
     public GrizzlyExecutorService reconfigure(ThreadPoolConfig config) {
         synchronized (statelock) {
-            // TODO: only create new pool if old one cant be runtime config
+            // TODO: only create new pool if old one can't be runtime config
             // for the needed state change(s).
             final AbstractThreadPool oldpool = this.pool;
             if (config.getQueue() == oldpool.getQueue()) {

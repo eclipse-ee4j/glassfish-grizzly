@@ -319,7 +319,7 @@ public class StaticHttpHandlerTest {
     }
 
     private static File generateTempFile(final int size) throws IOException {
-        final File f = File.createTempFile("grizzly-temp-" + size, ".tmp2");
+        final File f = Files.createTempFile("grizzly-temp-" + size, ".tmp2").toFile();
         Random r = new Random();
         byte[] data = new byte[8192];
         r.nextBytes(data);

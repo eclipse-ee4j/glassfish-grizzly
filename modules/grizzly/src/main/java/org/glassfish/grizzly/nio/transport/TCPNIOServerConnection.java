@@ -24,6 +24,7 @@ import java.nio.channels.SocketChannel;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -42,7 +43,6 @@ import org.glassfish.grizzly.nio.SelectionKeyHandler;
 import org.glassfish.grizzly.utils.CompletionHandlerAdapter;
 import org.glassfish.grizzly.utils.Exceptions;
 import org.glassfish.grizzly.utils.Holder;
-import org.glassfish.grizzly.utils.NullaryFunction;
 
 /**
  *
@@ -265,10 +265,10 @@ public final class TCPNIOServerConnection extends TCPNIOConnection {
     @Override
     @SuppressWarnings("unchecked")
     protected void resetProperties() {
-        localSocketAddressHolder = Holder.lazyHolder(new NullaryFunction<SocketAddress>() {
+        localSocketAddressHolder = Holder.lazyHolder(new Supplier<SocketAddress>() {
 
             @Override
-            public SocketAddress evaluate() {
+            public SocketAddress get() {
                 return ((ServerSocketChannel) channel).socket().getLocalSocketAddress();
             }
         });

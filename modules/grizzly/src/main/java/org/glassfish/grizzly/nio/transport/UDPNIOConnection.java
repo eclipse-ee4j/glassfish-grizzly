@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation
  * Copyright (c) 2009, 2021 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -17,18 +18,18 @@
 package org.glassfish.grizzly.nio.transport;
 
 import java.io.IOException;
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketAddress;
 import java.nio.channels.DatagramChannel;
+import java.nio.channels.MembershipKey;
 import java.nio.channels.SelectionKey;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -40,9 +41,7 @@ import org.glassfish.grizzly.asyncqueue.AsyncQueueWriter;
 import org.glassfish.grizzly.localization.LogMessages;
 import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.nio.SelectorRunner;
-import org.glassfish.grizzly.utils.Exceptions;
 import org.glassfish.grizzly.utils.Holder;
-import org.glassfish.grizzly.utils.NullaryFunction;
 
 /**
  * {@link org.glassfish.grizzly.Connection} implementation for the {@link UDPNIOTransport}
@@ -54,54 +53,8 @@ public class UDPNIOConnection extends NIOConnection {
 
     private static final Logger LOGGER = Grizzly.logger(UDPNIOConnection.class);
 
-    private static final boolean IS_MULTICAST_SUPPORTED;
-    private static final Method JOIN_METHOD;
-    private static final Method JOIN_WITH_SOURCE_METHOD;
-    private static final Method MK_GET_NETWORK_INTERFACE_METHOD;
-    private static final Method MK_GET_SOURCE_ADDRESS_METHOD;
-    private static final Method MK_DROP_METHOD;
-    private static final Method MK_BLOCK_METHOD;
-    private static final Method MK_UNBLOCK_METHOD;
-
-    static {
-
-        boolean isInitialized = false;
-        Method join = null, joinWithSource = null, mkGetNetworkInterface = null, mkGetSourceAddress = null, mkDrop = null, mkBlock = null, mkUnblock = null;
-
-        try {
-            join = DatagramChannel.class.getMethod("join", InetAddress.class, NetworkInterface.class);
-            joinWithSource = DatagramChannel.class.getMethod("join", InetAddress.class, NetworkInterface.class, InetAddress.class);
-
-            final Class membershipKeyClass = loadClass("java.nio.channels.MembershipKey");
-
-            mkGetNetworkInterface = membershipKeyClass.getDeclaredMethod("networkInterface");
-            mkGetSourceAddress = membershipKeyClass.getDeclaredMethod("sourceAddress");
-            mkDrop = membershipKeyClass.getDeclaredMethod("drop");
-
-            mkBlock = membershipKeyClass.getDeclaredMethod("block", InetAddress.class);
-            mkUnblock = membershipKeyClass.getDeclaredMethod("unblock", InetAddress.class);
-            isInitialized = true;
-        } catch (Throwable t) {
-            LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_CONNECTION_UDPMULTICASTING_EXCEPTIONE(), t);
-        }
-
-        if (isInitialized) {
-            IS_MULTICAST_SUPPORTED = true;
-            JOIN_METHOD = join;
-            JOIN_WITH_SOURCE_METHOD = joinWithSource;
-            MK_GET_NETWORK_INTERFACE_METHOD = mkGetNetworkInterface;
-            MK_GET_SOURCE_ADDRESS_METHOD = mkGetSourceAddress;
-            MK_DROP_METHOD = mkDrop;
-            MK_BLOCK_METHOD = mkBlock;
-            MK_UNBLOCK_METHOD = mkUnblock;
-        } else {
-            IS_MULTICAST_SUPPORTED = false;
-            JOIN_METHOD = JOIN_WITH_SOURCE_METHOD = MK_GET_NETWORK_INTERFACE_METHOD = MK_GET_SOURCE_ADDRESS_METHOD = MK_DROP_METHOD = MK_BLOCK_METHOD = MK_UNBLOCK_METHOD = null;
-        }
-    }
-
-    private final Object multicastSync;
-    private Map<InetAddress, Set<Object>> membershipKeysMap;
+    private final Object multicastSync = new Object();
+    private Map<InetAddress, Set<MembershipKey>> membershipKeysMap;
 
     Holder<SocketAddress> localSocketAddressHolder;
     Holder<SocketAddress> peerSocketAddressHolder;
@@ -115,8 +68,6 @@ public class UDPNIOConnection extends NIOConnection {
         this.channel = channel;
 
         resetProperties();
-
-        multicastSync = IS_MULTICAST_SUPPORTED ? new Object() : null;
     }
 
     public boolean isConnected() {
@@ -157,10 +108,6 @@ public class UDPNIOConnection extends NIOConnection {
      */
     public void join(final InetAddress group, final NetworkInterface networkInterface, final InetAddress source) throws IOException {
 
-        if (!IS_MULTICAST_SUPPORTED) {
-            throw new UnsupportedOperationException("JDK 1.7+ required");
-        }
-
         if (group == null) {
             throw new IllegalArgumentException("group parameter can't be null");
         }
@@ -170,17 +117,14 @@ public class UDPNIOConnection extends NIOConnection {
         }
 
         synchronized (multicastSync) {
-            Object membershipKey = join0((DatagramChannel) channel, group, networkInterface, source);
+            MembershipKey membershipKey = source == null ? ((DatagramChannel) channel).join(group, networkInterface) :
+                    ((DatagramChannel) channel).join(group, networkInterface, source);
 
             if (membershipKeysMap == null) {
                 membershipKeysMap = new HashMap<>();
             }
 
-            Set<Object> keySet = membershipKeysMap.get(group);
-            if (keySet == null) {
-                keySet = new HashSet<>();
-                membershipKeysMap.put(group, keySet);
-            }
+            Set<MembershipKey> keySet = membershipKeysMap.computeIfAbsent(group, k -> new HashSet<>());
 
             keySet.add(membershipKey);
         }
@@ -216,10 +160,6 @@ public class UDPNIOConnection extends NIOConnection {
      */
     public void drop(final InetAddress group, final NetworkInterface networkInterface, final InetAddress source) throws IOException {
 
-        if (!IS_MULTICAST_SUPPORTED) {
-            throw new UnsupportedOperationException("JDK 1.7+ required");
-        }
-
         if (group == null) {
             throw new IllegalArgumentException("group parameter can't be null");
         }
@@ -229,14 +169,14 @@ public class UDPNIOConnection extends NIOConnection {
         }
 
         synchronized (multicastSync) {
-            final Set<Object> keys;
+            final Set<MembershipKey> keys;
             if (membershipKeysMap != null && (keys = membershipKeysMap.get(group)) != null) {
-                for (final Iterator<Object> it = keys.iterator(); it.hasNext();) {
-                    final Object key = it.next();
+                for (final Iterator<MembershipKey> it = keys.iterator(); it.hasNext();) {
+                    final MembershipKey key = it.next();
 
-                    if (networkInterface.equals(networkInterface0(key))) {
-                        if (source == null && sourceAddress0(key) == null || source != null && source.equals(sourceAddress0(key))) {
-                            drop0(key);
+                    if (networkInterface.equals(key.networkInterface())) {
+                        if (source == null && key.sourceAddress() == null || source != null && source.equals(key.sourceAddress())) {
+                            key.drop();
                             it.remove();
                         }
                     }
@@ -261,10 +201,6 @@ public class UDPNIOConnection extends NIOConnection {
      */
     public void dropAll(final InetAddress group, final NetworkInterface networkInterface) throws IOException {
 
-        if (!IS_MULTICAST_SUPPORTED) {
-            throw new UnsupportedOperationException("JDK 1.7+ required");
-        }
-
         if (group == null) {
             throw new IllegalArgumentException("group parameter can't be null");
         }
@@ -274,13 +210,13 @@ public class UDPNIOConnection extends NIOConnection {
         }
 
         synchronized (multicastSync) {
-            final Set<Object> keys;
+            final Set<MembershipKey> keys;
             if (membershipKeysMap != null && (keys = membershipKeysMap.get(group)) != null) {
-                for (final Iterator<Object> it = keys.iterator(); it.hasNext();) {
-                    final Object key = it.next();
+                for (final Iterator<MembershipKey> it = keys.iterator(); it.hasNext();) {
+                    final MembershipKey key = it.next();
 
-                    if (networkInterface.equals(networkInterface0(key))) {
-                        drop0(key);
+                    if (networkInterface.equals(key.networkInterface())) {
+                        key.drop();
                         it.remove();
                     }
                 }
@@ -307,10 +243,6 @@ public class UDPNIOConnection extends NIOConnection {
      */
     public void block(final InetAddress group, final NetworkInterface networkInterface, final InetAddress source) throws IOException {
 
-        if (!IS_MULTICAST_SUPPORTED) {
-            throw new UnsupportedOperationException("JDK 1.7+ required");
-        }
-
         if (group == null) {
             throw new IllegalArgumentException("group parameter can't be null");
         }
@@ -320,13 +252,11 @@ public class UDPNIOConnection extends NIOConnection {
         }
 
         synchronized (multicastSync) {
-            final Set<Object> keys;
+            final Set<MembershipKey> keys;
             if (membershipKeysMap != null && (keys = membershipKeysMap.get(group)) != null) {
-                for (final Iterator<Object> it = keys.iterator(); it.hasNext();) {
-                    final Object key = it.next();
-
-                    if (networkInterface.equals(networkInterface0(key)) && sourceAddress0(key) == null) {
-                        block0(key, source);
+                for (final MembershipKey key : keys) {
+                    if (networkInterface.equals(key.networkInterface()) && key.sourceAddress() == null) {
+                        key.block(source);
                     }
                 }
             }
@@ -350,10 +280,6 @@ public class UDPNIOConnection extends NIOConnection {
      */
     public void unblock(final InetAddress group, final NetworkInterface networkInterface, final InetAddress source) throws IOException {
 
-        if (!IS_MULTICAST_SUPPORTED) {
-            throw new UnsupportedOperationException("JDK 1.7+ required");
-        }
-
         if (group == null) {
             throw new IllegalArgumentException("group parameter can't be null");
         }
@@ -363,13 +289,11 @@ public class UDPNIOConnection extends NIOConnection {
         }
 
         synchronized (multicastSync) {
-            final Set<Object> keys;
+            final Set<MembershipKey> keys;
             if (membershipKeysMap != null && (keys = membershipKeysMap.get(group)) != null) {
-                for (final Iterator<Object> it = keys.iterator(); it.hasNext();) {
-                    final Object key = it.next();
-
-                    if (networkInterface.equals(networkInterface0(key)) && sourceAddress0(key) == null) {
-                        unblock0(key, source);
+                for (final MembershipKey key : keys) {
+                    if (networkInterface.equals(key.networkInterface()) && key.sourceAddress() == null) {
+                        key.unblock(source);
                     }
                 }
             }
@@ -420,16 +344,16 @@ public class UDPNIOConnection extends NIOConnection {
             setMaxAsyncWriteQueueSize(
                     transportMaxAsyncWriteQueueSize == AsyncQueueWriter.AUTO_SIZE ? getWriteBufferSize() * 4 : transportMaxAsyncWriteQueueSize);
 
-            localSocketAddressHolder = Holder.lazyHolder(new NullaryFunction<SocketAddress>() {
+            localSocketAddressHolder = Holder.lazyHolder(new Supplier<SocketAddress>() {
                 @Override
-                public SocketAddress evaluate() {
+                public SocketAddress get() {
                     return ((DatagramChannel) channel).socket().getLocalSocketAddress();
                 }
             });
 
-            peerSocketAddressHolder = Holder.lazyHolder(new NullaryFunction<SocketAddress>() {
+            peerSocketAddressHolder = Holder.lazyHolder(new Supplier<SocketAddress>() {
                 @Override
-                public SocketAddress evaluate() {
+                public SocketAddress get() {
                     return ((DatagramChannel) channel).socket().getRemoteSocketAddress();
                 }
             });
@@ -593,56 +517,5 @@ public class UDPNIOConnection extends NIOConnection {
         sb.append(", peerSocketAddress=").append(peerSocketAddressHolder);
         sb.append('}');
         return sb.toString();
-    }
-
-    private static Object join0(final DatagramChannel channel, final InetAddress group, final NetworkInterface networkInterface, final InetAddress source)
-            throws IOException {
-
-        return source == null ? invoke(channel, JOIN_METHOD, group, networkInterface)
-                : invoke(channel, JOIN_WITH_SOURCE_METHOD, group, networkInterface, source);
-    }
-
-    private static NetworkInterface networkInterface0(final Object membershipKey) throws IOException {
-
-        return (NetworkInterface) invoke(membershipKey, MK_GET_NETWORK_INTERFACE_METHOD);
-    }
-
-    private static InetAddress sourceAddress0(final Object membershipKey) throws IOException {
-
-        return (InetAddress) invoke(membershipKey, MK_GET_SOURCE_ADDRESS_METHOD);
-    }
-
-    private static void drop0(final Object membershipKey) throws IOException {
-
-        invoke(membershipKey, MK_DROP_METHOD);
-    }
-
-    private static void block0(final Object membershipKey, final InetAddress sourceAddress) throws IOException {
-
-        invoke(membershipKey, MK_BLOCK_METHOD, sourceAddress);
-    }
-
-    private static void unblock0(final Object membershipKey, final InetAddress sourceAddress) throws IOException {
-
-        invoke(membershipKey, MK_UNBLOCK_METHOD, sourceAddress);
-    }
-
-    private static Object invoke(final Object object, final Method method, final Object... params) throws IOException {
-        try {
-            return method.invoke(object, params);
-        } catch (InvocationTargetException e) {
-            final Throwable t = e.getCause();
-            if (t instanceof RuntimeException) {
-                throw (RuntimeException) t;
-            } else {
-                throw Exceptions.makeIOException(t);
-            }
-        } catch (Throwable t) {
-            throw Exceptions.makeIOException(t);
-        }
-    }
-
-    private static Class<?> loadClass(final String cname) throws Throwable {
-        return ClassLoader.getSystemClassLoader().loadClass(cname);
     }
 }

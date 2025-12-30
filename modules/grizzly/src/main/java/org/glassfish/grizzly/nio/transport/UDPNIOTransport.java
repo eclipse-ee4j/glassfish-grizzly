@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.net.DatagramSocket;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.nio.channels.SelectableChannel;
@@ -664,6 +665,14 @@ public final class UDPNIOTransport extends NIOTransport implements FilterChainEn
                 datagramSocket.setReuseAddress(udpNioTransport.isReuseAddress());
             } catch (IOException e) {
                 LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(udpNioTransport.isReuseAddress()), e);
+            }
+            if (udpNioTransport.isReusePortAvailable()) {
+                final boolean reusePort = udpNioTransport.isReusePort();
+                try {
+                    datagramSocket.setOption(StandardSocketOptions.SO_REUSEPORT, reusePort);
+                } catch (Throwable t) {
+                    LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort), t);
+                }
             }
         }
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2009, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2009, 2024 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -17,6 +17,7 @@
 package org.glassfish.grizzly;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -45,6 +46,7 @@ import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLHandshakeException;
+import javax.net.ssl.SSLParameters;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 
@@ -368,6 +370,22 @@ public class SSLTest {
             transport.shutdownNow();
         }
 
+    }
+
+
+    @Test
+    public void testSetSSLParameters() {
+
+        SSLContextConfigurator sslContextConfigurator = createSSLContextConfigurator();
+        SSLEngineConfigurator serverSSLEngineConfigurator = new SSLEngineConfigurator(sslContextConfigurator.createSSLContext(true), false, false, false);
+
+        assertFalse("Invalid initial value of NeedClientAuth", serverSSLEngineConfigurator.isNeedClientAuth());
+
+        SSLParameters sslParameters = new SSLParameters();
+        sslParameters.setNeedClientAuth(true);
+        serverSSLEngineConfigurator.setSSLParameters(sslParameters);
+
+        assertTrue("SSL params not propagated", serverSSLEngineConfigurator.isNeedClientAuth());
     }
 
     // ------------------------------------------------------- Protected Methods

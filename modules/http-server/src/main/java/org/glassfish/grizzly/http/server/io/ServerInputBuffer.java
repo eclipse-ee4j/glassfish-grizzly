@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -23,7 +24,9 @@ import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.http.HttpBrokenContent;
 import org.glassfish.grizzly.http.HttpContent;
+import org.glassfish.grizzly.http.HttpHeader;
 import org.glassfish.grizzly.http.io.InputBuffer;
+import org.glassfish.grizzly.http.server.HttpServerFilter;
 import org.glassfish.grizzly.http.server.Request;
 
 /**
@@ -48,7 +51,11 @@ public class ServerInputBuffer extends InputBuffer {
     @Override
     public void initiateAsyncronousDataReceiving() {
         if (!checkChunkedMaxPostSize()) {
-            final HttpContent brokenContent = HttpBrokenContent.builder(serverRequest.getRequest())
+            final Request localServerRequest = serverRequest;
+            if (localServerRequest == null) {
+                throw new IllegalStateException("ServerInputBuffer is not initialized in a Request");
+            }
+            final HttpContent brokenContent = HttpBrokenContent.builder(localServerRequest.getRequest())
                     .error(new IOException("The HTTP request content exceeds max post size")).build();
             try {
                 append(brokenContent);
@@ -71,7 +78,12 @@ public class ServerInputBuffer extends InputBuffer {
     }
 
     @Override
-    protected void updateInputContentBuffer(final Buffer buffer) {
+    protected void updateInputContentBuffer(final Buffer buffer) throws IOException {
+        if (!initialized()) {
+            // If serverRequest is null, we are in the process of recycling the ServerInputBuffer.
+            buffer.dispose();
+            throw new IOException("ServerInputBuffer is not initialized");
+        }
         totalReadContentInBytes += buffer.remaining();
         super.updateInputContentBuffer(buffer);
     }
@@ -85,15 +97,33 @@ public class ServerInputBuffer extends InputBuffer {
 
     @Override
     protected Executor getThreadPool() {
-        return serverRequest.getRequestExecutor();
+        final Request localServerRequest = serverRequest;
+        // If serverRequest is null, we are in the process of recycling the ServerInputBuffer.
+        return localServerRequest != null ? localServerRequest.getRequestExecutor() : null;
     }
 
     private boolean checkChunkedMaxPostSize() {
-        if (serverRequest.getRequest().isChunked()) {
-            final long maxPostSize = serverRequest.getHttpFilter().getConfiguration().getMaxPostSize();
+        final Request localServerRequest = serverRequest;
+        if (localServerRequest == null) {
+            throw new IllegalStateException("ServerInputBuffer is not initialized in a Request");
+        }
+        final HttpHeader httpRequest = localServerRequest.getRequest();
+        if (httpRequest == null) {
+            throw new IllegalStateException("HttpRequestPacket is not initialized in a Request");
+        }
+        if (httpRequest.isChunked()) {
+            final HttpServerFilter httpServerFilter = localServerRequest.getHttpFilter();
+            if (httpServerFilter == null) {
+                throw new IllegalStateException("HttpServerFilter is not initialized in a Request");
+            }
+            final long maxPostSize = httpServerFilter.getConfiguration().getMaxPostSize();
             return maxPostSize < 0 || maxPostSize > totalReadContentInBytes;
         }
 
         return true;
+    }
+
+    private boolean initialized() {
+        return serverRequest != null;
     }
 }

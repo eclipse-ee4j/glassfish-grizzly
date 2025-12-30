@@ -18,7 +18,7 @@ package org.glassfish.grizzly.attributes;
 
 import java.util.Set;
 
-import org.glassfish.grizzly.utils.NullaryFunction;
+import java.util.function.Supplier;
 
 /**
  * Interface declares common functionality for objects, which have associated {@link Attribute}s.
@@ -62,7 +62,7 @@ public interface AttributeHolder {
      *
      * @since 2.3.18
      */
-    Object getAttribute(String name, NullaryFunction initializer);
+    Object getAttribute(String name, Supplier initializer);
 
     /**
      * Return a {@link Set} of attribute names.

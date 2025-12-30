@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2015, 2020 Oracle and/or its affiliates and others.
  * All rights reserved.
  * Copyright (c) 2021 Contributors to the Eclipse Foundation
@@ -63,8 +64,8 @@ import org.glassfish.grizzly.http.Method;
 import org.glassfish.grizzly.http.Protocol;
 import org.glassfish.grizzly.http.server.http2.PushEvent;
 import org.glassfish.grizzly.http.util.DataChunk;
-import org.glassfish.grizzly.http.util.FastHttpDateFormat;
 import org.glassfish.grizzly.http.util.Header;
+import org.glassfish.grizzly.http.util.HttpDateFormat;
 import org.glassfish.grizzly.http.util.HttpStatus;
 import org.glassfish.grizzly.http2.NetLogger.Context;
 import org.glassfish.grizzly.http2.frames.ErrorCode;
@@ -882,7 +883,7 @@ public class Http2ServerFilter extends Http2BaseFilter {
         }
 
         if (!response.containsHeader(Header.Date)) {
-            response.getHeaders().addValue(Header.Date).setBytes(FastHttpDateFormat.getCurrentDateBytes());
+            response.getHeaders().addValue(Header.Date).setBytes(HttpDateFormat.getCurrentDateBytes());
         }
     }
 

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -28,7 +29,7 @@ import static org.glassfish.grizzly.http.util.CookieUtils.isToken2;
 import static org.glassfish.grizzly.http.util.CookieUtils.tspecials2NoSlash;
 
 import java.nio.BufferOverflowException;
-import java.util.Date;
+import java.time.Instant;
 
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.http.Cookie;
@@ -98,7 +99,7 @@ public class CookieSerializerUtils {
                 if (maxAge == 0) {
                     buf.append(ancientDate);
                 } else {
-                    buf.append(OLD_COOKIE_FORMAT.get().format(new Date(System.currentTimeMillis() + maxAge * 1000L)));
+                    buf.append(OLD_COOKIE_FORMAT.format(Instant.now().plusSeconds(maxAge)));
                 }
 
             }
@@ -188,7 +189,7 @@ public class CookieSerializerUtils {
                 if (maxAge == 0) {
                     put(buf, ancientDate);
                 } else {
-                    put(buf, OLD_COOKIE_FORMAT.get().format(new Date(System.currentTimeMillis() + maxAge * 1000L)));
+                    put(buf, OLD_COOKIE_FORMAT.format(Instant.now().plusSeconds(maxAge)));
                 }
 
             }

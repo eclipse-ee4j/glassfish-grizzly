@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -35,7 +36,7 @@ public class CometHttpHandler extends HttpHandler {
     @Override
     public void service(Request request, Response response) throws IOException {
         cometHandler = createHandler(response);
-        cometContext.addCometHandler(cometHandler);
+        cometContext.addCometHandler(request, cometHandler);
     }
 
     public DefaultTestCometHandler createHandler(Response response) {

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -154,11 +155,11 @@ public abstract class AbstractHttp2Test {
                     SSLContextConfigurator sslContextConfigurator = createSSLContextConfigurator();
                     serverSSLEngineConfigurator = new SSLEngineConfigurator(sslContextConfigurator.createSSLContext(true), false, false, false);
 
-                    serverSSLEngineConfigurator.setEnabledCipherSuites(new String[] { "TLS_RSA_WITH_AES_256_CBC_SHA" });
+                    serverSSLEngineConfigurator.setEnabledCipherSuites(new String[] { "TLS_AES_128_GCM_SHA256" });
 
                     clientSSLEngineConfigurator = new SSLEngineConfigurator(sslContextConfigurator.createSSLContext(true), true, false, false);
 
-                    clientSSLEngineConfigurator.setEnabledCipherSuites(new String[] { "TLS_RSA_WITH_AES_256_CBC_SHA" });
+                    clientSSLEngineConfigurator.setEnabledCipherSuites(new String[] { "TLS_AES_128_GCM_SHA256" });
                 }
             }
         }

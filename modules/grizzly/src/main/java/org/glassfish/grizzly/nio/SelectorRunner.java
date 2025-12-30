@@ -415,7 +415,7 @@ public final class SelectorRunner implements Runnable {
     /**
      * Notify transport about the {@link Exception} happened, log it and cancel the {@link SelectionKey}, if it is not null
      *
-     * @param key {@link SelectionKey}, which was processed, when the {@link Exception} occured
+     * @param key {@link SelectionKey}, which was processed, when the {@link Exception} occurred
      * @param description error description
      * @param e {@link Exception} occurred
      * @param runLogLevel logger {@link Level} to use, if transport is in running state

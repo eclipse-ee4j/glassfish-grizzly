@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2013, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -192,6 +192,39 @@ public class NIOTransportTest {
                 assertTrue(connection != null);
                 connection.closeSilently();
             }
+        } finally {
+            transport.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testReusePortBind() throws Exception {
+        if (!transport.isReusePortAvailable()) {
+            return;
+        }
+        LOGGER.log(Level.INFO, "Running: testReusePortBind ({0})", transport.getName());
+
+        final int portsTest = 10;
+        final int onePort = PORT + 1234;
+
+        Connection connection;
+        transport.setReusePort(true);
+
+        try {
+            for (int i = 0; i < portsTest; i++) {
+                try {
+                    transport.bind("localhost", onePort, 4096);
+                } catch (IOException e) {
+                    fail("Unexpected exception type: " + e);
+                }
+            }
+
+            transport.start();
+
+            Future<Connection> future = transport.connect("localhost", onePort);
+            connection = future.get(10, TimeUnit.SECONDS);
+            assertTrue(connection != null);
+            connection.closeSilently();
         } finally {
             transport.shutdownNow();
         }

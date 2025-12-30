@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -32,7 +33,7 @@ import org.glassfish.grizzly.http.io.NIOInputStream;
  */
 final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
 
-    private InputBuffer inputBuffer;
+    private volatile InputBuffer inputBuffer;
 
     // ------------------------------------------------ Methods from InputStream
 
@@ -41,6 +42,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public int read() throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         return inputBuffer.readByte();
     }
 
@@ -49,6 +53,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public int read(byte[] b) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         return inputBuffer.read(b, 0, b.length);
     }
 
@@ -57,6 +64,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public int read(byte[] b, int off, int len) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         return inputBuffer.read(b, off, len);
     }
 
@@ -65,6 +75,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public long skip(long n) throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         return inputBuffer.skip(n);
     }
 
@@ -73,6 +86,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public int available() throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         return inputBuffer.available();
     }
 
@@ -81,6 +97,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public void close() throws IOException {
+        if (!initialized()) {
+            return;
+        }
         inputBuffer.close();
     }
 
@@ -89,6 +108,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public void mark(int readlimit) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         inputBuffer.mark(readlimit);
     }
 
@@ -97,6 +119,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public void reset() throws IOException {
+        if (!initialized()) {
+            throw new IOException("Not initialized");
+        }
         inputBuffer.reset();
     }
 
@@ -107,6 +132,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public boolean markSupported() {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return inputBuffer.markSupported();
     }
 
@@ -117,6 +145,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public void notifyAvailable(ReadHandler handler) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         inputBuffer.notifyAvailable(handler);
     }
 
@@ -125,6 +156,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public void notifyAvailable(ReadHandler handler, int size) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         inputBuffer.notifyAvailable(handler, size);
     }
 
@@ -133,6 +167,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public boolean isFinished() {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return inputBuffer.isFinished();
     }
 
@@ -141,6 +178,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public int readyData() {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return inputBuffer.available();
     }
 
@@ -149,6 +189,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public boolean isReady() {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return inputBuffer.available() > 0;
     }
 
@@ -159,6 +202,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public Buffer getBuffer() {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return inputBuffer.getBuffer();
     }
 
@@ -167,6 +213,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public Buffer readBuffer() {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return inputBuffer.readBuffer();
     }
 
@@ -175,6 +224,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
      */
     @Override
     public Buffer readBuffer(final int size) {
+        if (!initialized()) {
+            throw new IllegalStateException("Not initialized");
+        }
         return inputBuffer.readBuffer(size);
     }
     // -------------------------------------------------- Methods from Cacheable
@@ -195,5 +247,9 @@ final class NIOInputStreamImpl extends NIOInputStream implements Cacheable {
 
         this.inputBuffer = inputBuffer;
 
+    }
+
+    private boolean initialized() {
+        return inputBuffer != null;
     }
 }

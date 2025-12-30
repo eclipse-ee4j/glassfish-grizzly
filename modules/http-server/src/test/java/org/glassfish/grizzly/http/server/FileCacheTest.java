@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -28,7 +29,10 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.text.SimpleDateFormat;
+import java.nio.file.Files;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Arrays;
 import java.util.Calendar;
 import java.util.Collection;
@@ -957,15 +961,13 @@ public class FileCacheTest {
     }
 
     private static String convertToDate(final long date) {
-
-        SimpleDateFormat format = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US);
-        format.setTimeZone(TimeZone.getTimeZone("GMT"));
-        return format.format(new Date(date));
-
+        final DateTimeFormatter format =
+                DateTimeFormatter.ofPattern("EEE, dd MMM yyyy HH:mm:ss zzz", Locale.US).withZone(ZoneId.of("GMT"));
+        return format.format(Instant.ofEpochMilli(date));
     }
 
     private static File createTempFile() throws IOException {
-        final File f = File.createTempFile("grizzly-file-cache", ".txt");
+        final File f = Files.createTempFile("grizzly-file-cache", ".txt").toFile();
         f.deleteOnExit();
         FileOutputStream out = null;
         try {

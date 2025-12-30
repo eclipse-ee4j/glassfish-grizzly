@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -64,7 +64,7 @@ public abstract class HandShake {
             resourcePath += "?" + url.getQuery();
         }
         serverHostName = url.getHost();
-        secure = "wss://".equals(url.getScheme());
+        secure = "wss".equals(url.getScheme());
         port = url.getPort();
 
         final StringBuilder sb = new StringBuilder(32).append(getScheme()).append("://").append(url.getHost());
@@ -385,6 +385,6 @@ public abstract class HandShake {
     }
 
     private String getScheme() {
-        return isSecure() ? "ws" : "wss";
+        return isSecure() ? "wss" : "ws";
     }
 }

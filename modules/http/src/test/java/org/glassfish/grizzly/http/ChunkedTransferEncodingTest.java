@@ -1,5 +1,6 @@
 /*
- * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2011, 2024 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -38,6 +39,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Properties;
 import java.util.Queue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutionException;
@@ -90,6 +92,7 @@ public class ChunkedTransferEncodingTest {
 
     private final String eol;
     private final boolean isChunkWhenParsing;
+    private final boolean isStrictChunkedTransferCodingLineTerminator;
 
     private TCPNIOTransport transport;
     private Connection connection;
@@ -99,7 +102,9 @@ public class ChunkedTransferEncodingTest {
 
     @Parameters
     public static Collection<Object[]> getMode() {
-        return asList(new Object[][] { { "\r\n", FALSE }, { "\r\n", TRUE }, { "\n", FALSE }, { "\n", TRUE } });
+        return asList(new Object[][]{{"\r\n", FALSE, FALSE}, {"\r\n", FALSE, TRUE}, {"\r\n", TRUE, FALSE},
+                                     {"\r\n", TRUE, TRUE}, {"\n", FALSE, FALSE}, {"\n", FALSE, TRUE},
+                                     {"\n", TRUE, FALSE}, {"\n", TRUE, TRUE}});
     }
 
     @Before
@@ -111,8 +116,15 @@ public class ChunkedTransferEncodingTest {
         if (isChunkWhenParsing) {
             filterChainBuilder.add(new ChunkingFilter(2));
         }
+        final Properties props;
+        if (isStrictChunkedTransferCodingLineTerminator) {
+            props = new Properties();
+            props.setProperty(ChunkedTransferEncoding.STRICT_CHUNKED_TRANSFER_CODING_LINE_TERMINATOR_RFC_9112, "true");
+        } else {
+            props = null;
+        }
         HttpServerFilter httpServerFilter = new HttpServerFilter(true, DEFAULT_MAX_HTTP_PACKET_HEADER_SIZE, null, null, null,
-                MAX_NUM_HEADERS_UNBOUNDED, MAX_NUM_HEADERS_UNBOUNDED);
+                MAX_NUM_HEADERS_UNBOUNDED, MAX_NUM_HEADERS_UNBOUNDED, props);
         filterChainBuilder.add(httpServerFilter);
         httpRequestCheckFilter = new HTTPRequestCheckFilter(resultQueue);
         filterChainBuilder.add(httpRequestCheckFilter);
@@ -150,9 +162,10 @@ public class ChunkedTransferEncodingTest {
         }
     }
 
-    public ChunkedTransferEncodingTest(String eol, boolean isChunkWhenParsing) {
+    public ChunkedTransferEncodingTest(String eol, boolean isChunkWhenParsing, boolean isStrictChunkedTransferCodingLineTerminator) {
         this.eol = eol;
         this.isChunkWhenParsing = isChunkWhenParsing;
+        this.isStrictChunkedTransferCodingLineTerminator = isStrictChunkedTransferCodingLineTerminator;
     }
 
     @Test
@@ -258,14 +271,73 @@ public class ChunkedTransferEncodingTest {
         sb.append("POST / HTTP/1.1\r\n");
         sb.append("Host: localhost:").append(PORT).append("\r\n");
         sb.append("Transfer-Encoding: chunked\r\n\r\n");
-        sb.append("  ").append(msgLen).append("  ").append(eol).append(msg).append(eol);
-        sb.append("  0  ").append(eol).append(eol);
+        sb.append("  ").append(msgLen).append("  ").append("\r\n").append(msg).append(eol);
+        sb.append("  0  ").append("\r\n").append(eol);
 
         Buffer b = Buffers.wrap(DEFAULT_MEMORY_MANAGER, sb.toString(), Charsets.ASCII_CHARSET);
         Future f = connection.write(b);
         f.get(10, SECONDS);
         Future<Boolean> result = resultQueue.poll(10, SECONDS);
         assertTrue(result.get(10, SECONDS));
+    }
+
+    @SuppressWarnings("unchecked")
+    @Test
+    public void testVulnerableLineTerminatorInChunkSizeHeader() throws Exception {
+        StringBuilder sb = new StringBuilder();
+        String nestedMsg = "XX";
+        String nestedMsgLen = Integer.toHexString(nestedMsg.length());
+        sb.append("\r\n");
+        sb.append("POST /2 HTTP/1.1").append("\r\n");
+        sb.append("Host: localhost:").append(PORT).append("\r\n");
+        sb.append("Transfer-Encoding: chunked").append("\r\n");
+        sb.append("\r\n");
+        sb.append(nestedMsgLen).append("\r\n");
+        sb.append(nestedMsg).append("\r\n");
+        String dummy = sb.toString();
+        String firstMsg = "A".repeat(dummy.length());
+        final String firstMsgLen = Integer.toHexString(firstMsg.length());
+
+        // original packet
+        sb = new StringBuilder();
+        sb.append("POST /1 HTTP/1.1").append("\r\n");
+        sb.append("Host: localhost:").append(PORT).append("\r\n");
+        sb.append("Transfer-Encoding: chunked").append("\r\n");
+        sb.append("\r\n");
+        sb.append(firstMsgLen).append(';').append('\n').append(firstMsg).append('\n').append('0').append("\r\n");
+        sb.append(dummy);
+        sb.append("0").append("\r\n"); // last-chunk
+        sb.append("\r\n"); // CRLF
+
+        final Buffer expectedContent = Buffers.wrap(DEFAULT_MEMORY_MANAGER, firstMsg, ASCII_CHARSET);
+        httpRequestCheckFilter.setCheckParameters(expectedContent, Collections.<String, Pair<String, String>>emptyMap());
+        Buffer b = Buffers.wrap(DEFAULT_MEMORY_MANAGER, sb.toString(), Charsets.ASCII_CHARSET);
+        Future f = connection.write(b);
+        f.get(5, SECONDS);
+
+        Future<Boolean> result;
+        if (!isStrictChunkedTransferCodingLineTerminator) {
+            // first msg
+            result = resultQueue.poll(5, SECONDS);
+            assertTrue(result.get(2, SECONDS));
+
+            // nested msg
+            result = resultQueue.poll(5, SECONDS);
+            try {
+                result.get(2, SECONDS);
+                fail("Expected AssertError to be thrown on server side");
+            } catch (ExecutionException ignore) {
+            }
+        } else {
+            // first msg
+            result = resultQueue.poll(5, SECONDS);
+            try {
+                result.get(2, SECONDS);
+                fail("Expected HttpBrokenContentException to be thrown on server side");
+            } catch (ExecutionException ee) {
+                assertEquals(HttpBrokenContentException.class, ee.getCause().getClass());
+            }
+        }
     }
 
     /**
@@ -307,27 +379,27 @@ public class ChunkedTransferEncodingTest {
               .append(eol)
               .append("Host: localhost:")
               .append(PORT)
-              .append(eol)
+              .append("\r\n")
               .append("Transfer-encoding: chunked")
-              .append(eol)
-              .append("Content-Type: application/x-www-form-urlencoded").append(eol);
+              .append("\r\n")
+              .append("Content-Type: application/x-www-form-urlencoded").append("\r\n");
 
             if (i == packetsNum - 1) {
-                sb.append("Connection: close").append(eol);
+                sb.append("Connection: close").append("\r\n");
             }
 
             sb.append(eol);
 
             if (hasContent) {
-                sb.append("3").append(eol).append("a=0").append(eol).append("4").append(eol).append("&b=1").append(eol);
+                sb.append("3").append("\r\n").append("a=0").append(eol).append("4").append("\r\n").append("&b=1").append(eol);
             }
 
-            sb.append("0").append(eol);
+            sb.append("0").append("\r\n");
 
             for (Entry<String, Pair<String, String>> entry : trailerHeaders.entrySet()) {
                 final String value = entry.getValue().getFirst();
                 if (value != null) {
-                    sb.append(entry.getKey()).append(": ").append(value).append(eol);
+                    sb.append(entry.getKey()).append(": ").append(value).append("\r\n");
                 }
             }
 

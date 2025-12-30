@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2007, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -39,6 +40,7 @@ import org.glassfish.grizzly.utils.Charsets;
  * @author Gustav Trede
  * @author Remy Maucherat
  */
+@Deprecated
 public final class FastHttpDateFormat {
 
     private static final String ASCII_CHARSET_NAME = Charsets.ASCII_CHARSET.name();
@@ -172,8 +174,8 @@ public final class FastHttpDateFormat {
 
     /**
      * Get the HTTP format of the specified date.<br>
-     * http spec only requre second precision http://tools.ietf.org/html/rfc2616#page-20 <br>
-     * therefore we dont use the millisecond precision , but second . truncation is done in the same way for second
+     * http spec only require second precision http://tools.ietf.org/html/rfc2616#page-20 <br>
+     * therefore we don't use the millisecond precision , but second . truncation is done in the same way for second
      * precision in SimpleDateFormat:<br>
      * (999 millisec. = 0 sec.)
      * 

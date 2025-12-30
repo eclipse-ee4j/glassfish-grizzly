@@ -26,6 +26,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -69,7 +70,7 @@ public class FileTransferTest {
         TCPNIOTransport client = TCPNIOTransportBuilder.newInstance().build();
         FilterChainBuilder clientChain = FilterChainBuilder.stateless();
         final SafeFutureImpl<File> future = SafeFutureImpl.create();
-        final File temp = File.createTempFile("grizzly-download-", ".tmp");
+        final File temp = Files.createTempFile("grizzly-download-", ".tmp").toFile();
         temp.deleteOnExit();
         final FileOutputStream out = new FileOutputStream(temp);
         final AtomicInteger total = new AtomicInteger(0);
@@ -140,7 +141,7 @@ public class FileTransferTest {
             fail("Unexpected exception type: " + e);
         }
 
-        f = File.createTempFile("grizzly-test-", ".tmp");
+        f = Files.createTempFile("grizzly-test-", ".tmp").toFile();
         f.deleteOnExit();
         new FileOutputStream(f).write(1);
 
@@ -195,7 +196,7 @@ public class FileTransferTest {
     }
 
     private static File generateTempFile(final int size) throws IOException {
-        final File f = File.createTempFile("grizzly-temp-" + size, ".tmp");
+        final File f = Files.createTempFile("grizzly-temp-" + size, ".tmp").toFile();
         Random r = new Random();
         byte[] data = new byte[8192];
         r.nextBytes(data);

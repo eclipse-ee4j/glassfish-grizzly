@@ -22,6 +22,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.math.BigInteger;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.security.MessageDigest;
 import java.util.Random;
 import java.util.concurrent.Executors;
@@ -558,7 +559,7 @@ public class SendFileTest extends TestCase {
     }
 
     private static File generateTempFile(final int size, final String ext) throws IOException {
-        final File f = File.createTempFile("grizzly-temp-" + size, "." + ext);
+        final File f = Files.createTempFile("grizzly-temp-" + size, "." + ext).toFile();
         Random r = new Random();
         byte[] data = new byte[8192];
         r.nextBytes(data);

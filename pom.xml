@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2025 Contributors to the Eclipse Foundation.
     Copyright (c) 2007, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -24,16 +24,17 @@
     <parent>
         <groupId>org.glassfish.grizzly</groupId>
         <artifactId>grizzly-bom</artifactId>
-        <version>3.0.1</version>
+        <version>4.1.0-SNAPSHOT</version>
         <relativePath>boms/bom/pom.xml</relativePath>
     </parent>
 
     <artifactId>grizzly-project</artifactId>
-    <version>4.0.0-SNAPSHOT</version> <!-- Version must be repeated so versions-maven-plugin:set works correctly -->
+    <version>4.1.0-SNAPSHOT</version>
+    <!-- Version must be repeated so versions-maven-plugin:set works correctly -->
     <packaging>pom</packaging>
 
     <name>grizzly-project</name>
-    <url>https://projects.eclipse.org/projects/ee4j.grizzly</url>
+    <url>https://projects.eclipse.org/projects/ee4j.glassfish</url>
     <organization>
         <name>Oracle Corporation</name>
         <url>http://www.oracle.com</url>
@@ -120,13 +121,11 @@
     <properties>
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <servlet-version>6.0.0</servlet-version>
+        <servlet-version>6.1.0</servlet-version>
         <maven-plugin.version>1.0.0</maven-plugin.version>
         <cobertura.version>2.4</cobertura.version>
-        <gmbal.version>4.0.0</gmbal.version>
+        <gmbal.version>4.1.0</gmbal.version>
         <grizzly.npn.api.version>2.0.0</grizzly.npn.api.version>
-        <grizzly.npn.bootstrap.version>2.0.0</grizzly.npn.bootstrap.version>
-        <openjsse.version>1.1.5</openjsse.version>
         <osgi.version>4.2.0</osgi.version>
         <release.arguments></release.arguments>
     </properties>
@@ -136,7 +135,7 @@
             <dependency>
                 <groupId>org.glassfish.gmbal</groupId>
                 <artifactId>gmbal</artifactId>
-                <version>4.0.3</version>
+                <version>${gmbal.version}</version>
             </dependency>
             <dependency>
                 <groupId>jakarta.servlet</groupId>
@@ -146,7 +145,7 @@
             <dependency>
                 <groupId>jakarta.persistence</groupId>
                 <artifactId>jakarta.persistence-api</artifactId>
-                <version>3.0.0</version>
+                <version>3.2.0</version>
             </dependency>
             <dependency>
                 <groupId>org.osgi</groupId>
@@ -175,7 +174,6 @@
         </dependency>
     </dependencies>
 
-
     <build>
         <defaultGoal>install</defaultGoal>
         <directory>target</directory>
@@ -190,15 +188,12 @@
                 <directory>src/test/resources/</directory>
             </testResource>
         </testResources>
-
         <pluginManagement>
             <plugins>
                 <plugin>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.9.0</version>
+                    <version>3.13.0</version>
                     <configuration>
-                        <source>${java.version}</source>
-                        <target>${java.version}</target>
                         <release>${java.version}</release>
                         <compilerArgument>-Xlint:unchecked,deprecation,fallthrough,finally,cast,dep-ann,empty,overrides</compilerArgument>
                     </configuration>
@@ -206,17 +201,20 @@
                 <plugin>
                     <groupId>org.apache.felix</groupId>
                     <artifactId>maven-bundle-plugin</artifactId>
-                    <version>5.1.2</version>
+                    <version>5.1.9</version>
+                    <configuration>
+                        <instructions>
+                            <_noimportjava>true</_noimportjava>
+                            <_runee>JavaSE-${java.version}</_runee>
+                        </instructions>
+                    </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>
-
         <plugins>
-            <!-- Sets minimal Maven version to 3.6.3 -->
+            <!-- Sets minimal Maven version to 3.8.9 -->
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-enforcer-plugin</artifactId>
-                <version>3.0.0</version>
                 <executions>
                     <execution>
                         <id>enforce-maven</id>
@@ -226,10 +224,10 @@
                         <configuration>
                             <rules>
                                 <requireJavaVersion>
-                                    <version>[21,)</version>
+                                    <version>[${java.version},)</version>
                                 </requireJavaVersion>
                                 <requireMavenVersion>
-                                    <version>3.6.3</version>
+                                    <version>3.8.9</version>
                                 </requireMavenVersion>
                             </rules>
                         </configuration>
@@ -237,10 +235,8 @@
                 </executions>
             </plugin>
 
-            <plugin><inherited>true</inherited>
-                <groupId>org.apache.maven.plugins</groupId>
+            <plugin>
                 <artifactId>maven-jar-plugin</artifactId>
-                <version>3.2.0</version>
                 <configuration>
                     <archive>
                         <manifestEntries>
@@ -253,7 +249,7 @@
                 </configuration>
             </plugin>
 
-            <plugin><inherited>true</inherited>
+            <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
                 <executions>
@@ -271,7 +267,7 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
                 <configuration>
-                    <javadocVersion>1.8</javadocVersion>
+                    <doclint>none</doclint>
                     <notimestamp>true</notimestamp>
                     <splitindex>true</splitindex>
                     <doctitle>${project.name} ${project.version}</doctitle>

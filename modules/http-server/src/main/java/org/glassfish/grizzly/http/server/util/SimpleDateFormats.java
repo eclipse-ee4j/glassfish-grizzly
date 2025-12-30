@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -22,6 +23,7 @@ import java.util.TimeZone;
 
 import org.glassfish.grizzly.ThreadCache;
 
+@Deprecated
 public final class SimpleDateFormats {
     private static final ThreadCache.CachedTypeIndex<SimpleDateFormats> CACHE_IDX = ThreadCache.obtainIndex(SimpleDateFormats.class, 1);
 

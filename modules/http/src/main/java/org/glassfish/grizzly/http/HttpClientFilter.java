@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -22,6 +23,7 @@ import static org.glassfish.grizzly.http.util.HttpCodecUtils.put;
 import static org.glassfish.grizzly.http.util.HttpCodecUtils.skipSpaces;
 
 import java.io.IOException;
+import java.util.Properties;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
@@ -65,13 +67,22 @@ public class HttpClientFilter extends HttpCodecFilter {
     }
 
     /**
-     * Constructor, which creates <tt>HttpClientFilter</tt> instance, with the specific secure and max header size
-     * parameter.
+     * Constructor, which creates <tt>HttpClientFilter</tt> instance, with the specific max header size parameter.
      *
      * @param maxHeadersSize the maximum size of the HTTP message header.
      */
     public HttpClientFilter(int maxHeadersSize) {
-        super(true, maxHeadersSize);
+        this(maxHeadersSize, null);
+    }
+
+    /**
+     * Constructor, which creates <tt>HttpClientFilter</tt> instance, with the specific max header size and properties parameter.
+     *
+     * @param maxHeadersSize the maximum size of the HTTP message header.
+     * @param props the properties to be used by this filter.
+     */
+    public HttpClientFilter(final int maxHeadersSize, final Properties props) {
+        super(true, maxHeadersSize, props);
 
         this.httpResponseInProcessAttr = Grizzly.DEFAULT_ATTRIBUTE_BUILDER.createAttribute("HttpClientFilter.httpResponse");
         this.httpRequestQueueAttr = Grizzly.DEFAULT_ATTRIBUTE_BUILDER.createAttribute("HttpClientFilter.httpRequest");

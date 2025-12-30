@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, 2022 Contributors to the Eclipse Foundation
+ * Copyright (c) 2022, 2025 Contributors to the Eclipse Foundation
  * Copyright 2004, 2022 The Apache Software Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,14 +16,12 @@
  */
 package org.glassfish.grizzly.http.util;
 
-import java.text.DateFormat;
-import java.text.FieldPosition;
-import java.text.SimpleDateFormat;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.BitSet;
-import java.util.Date;
 import java.util.Locale;
 import java.util.Map;
-import java.util.TimeZone;
 
 /**
  * <p>Cookie header generator based on RFC6265</p>
@@ -44,14 +42,10 @@ public class CookieHeaderGenerator {
 
     private static final String COOKIE_DATE_PATTERN = "EEE, dd-MMM-yyyy HH:mm:ss z";
 
-    protected static final ThreadLocal<DateFormat> COOKIE_DATE_FORMAT =
-        ThreadLocal.withInitial(() -> {
-            DateFormat dateFormat = new SimpleDateFormat(COOKIE_DATE_PATTERN, Locale.US);
-            dateFormat.setTimeZone(TimeZone.getTimeZone("GMT"));
-            return dateFormat;
-        });
+    protected static final DateTimeFormatter COOKIE_DATE_FORMAT =
+            DateTimeFormatter.ofPattern(COOKIE_DATE_PATTERN, Locale.US).withZone(ZoneId.of("GMT"));
 
-    protected static final String ANCIENT_DATE = COOKIE_DATE_FORMAT.get().format(new Date(10000));
+    protected static final String ANCIENT_DATE = COOKIE_DATE_FORMAT.format(Instant.ofEpochMilli(10000));
 
     private static final BitSet domainValid = new BitSet(128);
 
@@ -89,8 +83,13 @@ public class CookieHeaderGenerator {
         // RFC 6265 prefers Max-Age to Expires but... (see below)
         if (maxAge > -1) {
             // Negative Max-Age is equivalent to no Max-Age
-            header.append("; Max-Age=");
-            header.append(maxAge);
+
+            // Max age 0 is omit Max-Age itself, but conditionally (see below)
+            // add Expires
+            if (maxAge > 0) {
+                header.append("; Max-Age=");
+                header.append(maxAge);
+            }
 
             if (CookieUtils.ALWAYS_ADD_EXPIRES) {
                 // Microsoft IE and Microsoft Edge don't understand Max-Age so send
@@ -104,12 +103,7 @@ public class CookieHeaderGenerator {
                 if (maxAge == 0) {
                     header.append(ANCIENT_DATE);
                 } else {
-                    COOKIE_DATE_FORMAT
-                        .get()
-                        .format(
-                            new Date(System.currentTimeMillis() + maxAge * 1000L),
-                            header,
-                            new FieldPosition(0));
+                    header.append(COOKIE_DATE_FORMAT.format(Instant.now().plusSeconds(maxAge)));
                 }
             }
         }
@@ -149,8 +143,10 @@ public class CookieHeaderGenerator {
                     validateAttribute(entry.getKey(), entry.getValue());
                     header.append("; ");
                     header.append(entry.getKey());
-                    header.append('=');
-                    header.append(entry.getValue());
+                    if (!"".equals(entry.getValue())) {
+                        header.append('=');
+                        header.append(entry.getValue());
+                    }
                 }
             }
         }

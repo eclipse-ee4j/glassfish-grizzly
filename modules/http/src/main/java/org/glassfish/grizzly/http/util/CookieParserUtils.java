@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -26,8 +27,9 @@ import static org.glassfish.grizzly.http.util.CookieUtils.getTokenEndPosition;
 import static org.glassfish.grizzly.http.util.CookieUtils.isSeparator;
 import static org.glassfish.grizzly.http.util.CookieUtils.isWhiteSpace;
 
-import java.text.ParseException;
-import java.util.Date;
+import java.time.Instant;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -907,10 +909,10 @@ public class CookieParserUtils {
                         pos = valueEnd + 1;
 
                         final String expiresDate = new String(bytes, valueStart, valueEnd - valueStart, Charsets.ASCII_CHARSET);
-
-                        final Date date = OLD_COOKIE_FORMAT.get().parse(expiresDate);
-                        cookie.setMaxAge(getMaxAgeDelta(date.getTime(), System.currentTimeMillis()) / 1000);
-                    } catch (ParseException ignore) {
+                        cookie.setMaxAge(getMaxAgeDelta(
+                                ZonedDateTime.parse(expiresDate, OLD_COOKIE_FORMAT).toInstant().toEpochMilli(),
+                                Instant.now().toEpochMilli()) / 1000);
+                    } catch (DateTimeParseException ignore) {
                     }
 
                     continue;
@@ -1150,9 +1152,10 @@ public class CookieParserUtils {
                         pos = valueEnd + 1;
 
                         final String expiresDate = buffer.toStringContent(Charsets.ASCII_CHARSET, valueStart, valueEnd);
-                        final Date date = OLD_COOKIE_FORMAT.get().parse(expiresDate);
-                        cookie.setMaxAge(getMaxAgeDelta(date.getTime(), System.currentTimeMillis()) / 1000);
-                    } catch (ParseException ignore) {
+                        cookie.setMaxAge(getMaxAgeDelta(
+                                ZonedDateTime.parse(expiresDate, OLD_COOKIE_FORMAT).toInstant().toEpochMilli(),
+                                Instant.now().toEpochMilli()) / 1000);
+                    } catch (DateTimeParseException ignore) {
                     }
 
                     continue;
@@ -1385,9 +1388,10 @@ public class CookieParserUtils {
                         valueEnd = getTokenEndPosition(cookiesStr, valueEnd + 1, end, false);
                         pos = valueEnd + 1;
                         final String expiresDate = cookiesStr.substring(valueStart, valueEnd);
-                        final Date date = OLD_COOKIE_FORMAT.get().parse(expiresDate);
-                        cookie.setMaxAge(getMaxAgeDelta(date.getTime(), System.currentTimeMillis()) / 1000);
-                    } catch (ParseException ignore) {
+                        cookie.setMaxAge(getMaxAgeDelta(
+                                ZonedDateTime.parse(expiresDate, OLD_COOKIE_FORMAT).toInstant().toEpochMilli(),
+                                Instant.now().toEpochMilli()) / 1000);
+                    } catch (DateTimeParseException ignore) {
                     }
 
                     continue;

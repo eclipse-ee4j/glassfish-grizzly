@@ -35,6 +35,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -67,7 +68,6 @@ import org.glassfish.grizzly.monitoring.DefaultMonitoringConfig;
 import org.glassfish.grizzly.monitoring.MonitoringConfig;
 import org.glassfish.grizzly.utils.CompletionHandlerAdapter;
 import org.glassfish.grizzly.utils.Futures;
-import org.glassfish.grizzly.utils.NullaryFunction;
 
 /**
  * Common {@link Connection} implementation for Java NIO <tt>Connection</tt>s.
@@ -315,7 +315,7 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
     }
 
     @Override
-    public <E> E obtainProcessorState(final Processor processor, final NullaryFunction<E> factory) {
+    public <E> E obtainProcessorState(final Processor processor, final Supplier<E> factory) {
         return processorStateStorage.getState(processor, factory);
     }
 
@@ -962,7 +962,7 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
         private ConcurrentMap<Processor, Object> processorStatesMap;
 
         @SuppressWarnings("unchecked")
-        public <E> E getState(final Processor processor, final NullaryFunction<E> stateFactory) {
+        public <E> E getState(final Processor processor, final Supplier<E> stateFactory) {
 
             final int c = volatileFlag;
             if (c == 0) {
@@ -986,9 +986,9 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
             }
         }
 
-        private synchronized <E> Object getStateSync(final Processor processor, final NullaryFunction<E> stateFactory) {
+        private synchronized <E> Object getStateSync(final Processor processor, final Supplier<E> stateFactory) {
             if (volatileFlag == 0) {
-                final E state = stateFactory.evaluate();
+                final E state = stateFactory.get();
                 singleProcessorState = new ProcessorState(processor, state);
                 volatileFlag++;
 
@@ -1021,7 +1021,7 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
                 Grizzly.logger(StaticMapAccessor.class).fine("Map is going to " + "be used as Connection<->ProcessorState storage");
             }
 
-            private static <E> Object getFromMap(final ProcessorStatesMap storage, final Processor processor, final NullaryFunction<E> stateFactory) {
+            private static <E> Object getFromMap(final ProcessorStatesMap storage, final Processor processor, final Supplier<E> stateFactory) {
 
                 final Map<Processor, Object> localStateMap = storage.processorStatesMap;
                 if (localStateMap != null) {
@@ -1034,7 +1034,7 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
                 return storage.getStateSync(processor, stateFactory);
             }
 
-            private static <E> Object getFromMapSync(final ProcessorStatesMap storage, final Processor processor, final NullaryFunction<E> stateFactory) {
+            private static <E> Object getFromMapSync(final ProcessorStatesMap storage, final Processor processor, final Supplier<E> stateFactory) {
 
                 ConcurrentMap<Processor, Object> localStatesMap = storage.processorStatesMap;
 
@@ -1043,13 +1043,13 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
                         return localStatesMap.get(processor);
                     }
 
-                    final Object state = stateFactory.evaluate();
+                    final Object state = stateFactory.get();
                     localStatesMap.put(processor, state);
                     return state;
                 }
 
                 localStatesMap = new ConcurrentHashMap<>(4);
-                final Object state = stateFactory.evaluate();
+                final Object state = stateFactory.get();
                 localStatesMap.put(processor, state);
                 storage.processorStatesMap = localStatesMap;
                 storage.volatileFlag++;

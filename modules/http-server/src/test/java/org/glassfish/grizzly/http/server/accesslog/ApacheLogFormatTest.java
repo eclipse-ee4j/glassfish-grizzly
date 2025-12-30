@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 Contributors to the Eclipse Foundation.
+ * Copyright 2021, 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -25,6 +25,7 @@ import static org.glassfish.grizzly.http.Method.GET;
 import static org.glassfish.grizzly.http.Protocol.HTTP_1_1;
 import static org.junit.Assert.assertEquals;
 
+import java.time.ZoneId;
 import java.util.Date;
 import java.util.Locale;
 import java.util.TimeZone;
@@ -35,7 +36,6 @@ import org.glassfish.grizzly.http.HttpResponsePacket;
 import org.glassfish.grizzly.http.server.Request;
 import org.glassfish.grizzly.http.server.Response;
 import org.glassfish.grizzly.http.util.MimeHeaders;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.mockito.internal.stubbing.answers.ThrowsException;
@@ -133,7 +133,6 @@ public class ApacheLogFormatTest {
     }
 
     @Test
-    @Ignore
     public void testBasicFormats() {
         final Response response = mockSimpleResponse();
         Locale.setDefault(Locale.US);
@@ -153,7 +152,6 @@ public class ApacheLogFormatTest {
     }
 
     @Test
-    @Ignore
     public void testBasicFormatsEmptyResponse() {
         final Response response = mockEmptyResponse();
 
@@ -166,14 +164,12 @@ public class ApacheLogFormatTest {
     }
 
     @Test
-    @Ignore
     public void testEscapes() {
         final Response response = mockSimpleResponse();
         assertEquals(new ApacheLogFormat("%%\\t\\b\\n\\r\\f\\%").unsafeFormat(response, date, nanos), "%\t\b\n\r\f%");
     }
 
     @Test
-    @Ignore
     public void testPatterns() {
         final Response response = mockSimpleResponse();
 
@@ -250,7 +246,6 @@ public class ApacheLogFormatTest {
     }
 
     @Test
-    @Ignore
     public void testPatternsEmptyResponse() {
         final Response response = mockEmptyResponse();
 
@@ -324,10 +319,9 @@ public class ApacheLogFormatTest {
     }
 
     @Test
-    @Ignore
     public void testDates() {
-        final TimeZone utc = TimeZone.getTimeZone("UTC");
-        final TimeZone jst = TimeZone.getTimeZone("JST");
+        final ZoneId utc = ZoneId.of("UTC");
+        final ZoneId jst = TimeZone.getTimeZone("JST").toZoneId();
         final Response response = mockEmptyResponse();
 
         assertEquals(new ApacheLogFormat(utc, "%t").unsafeFormat(response, date, nanos), "[2014/Jan/15:23:45:12 +0000]");

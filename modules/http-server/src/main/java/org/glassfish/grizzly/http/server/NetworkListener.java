@@ -410,7 +410,7 @@ public class NetworkListener {
     }
 
     /**
-     * Return the array of the registered {@link AddOn}s. Please note, possible array modifications wont affect the
+     * Return the array of the registered {@link AddOn}s. Please note, possible array modifications won't affect the
      * {@link NetworkListener}'s addons list.
      *
      * @return the array of the registered {@link AddOn}s.
@@ -462,7 +462,7 @@ public class NetworkListener {
     }
 
     /**
-     * Enable/disable chunking of an HTTP response body if no content length has been explictly specified. Chunking is
+     * Enable/disable chunking of an HTTP response body if no content length has been explicitly specified. Chunking is
      * enabled by default.
      *
      * @param chunkingEnabled <code>true</code> to enable chunking; <code>false</code> to disable.

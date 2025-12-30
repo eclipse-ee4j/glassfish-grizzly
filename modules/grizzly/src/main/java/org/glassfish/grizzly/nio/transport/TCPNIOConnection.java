@@ -22,6 +22,7 @@ import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.SocketChannel;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -37,7 +38,6 @@ import org.glassfish.grizzly.localization.LogMessages;
 import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.nio.SelectorRunner;
 import org.glassfish.grizzly.utils.Holder;
-import org.glassfish.grizzly.utils.NullaryFunction;
 
 /**
  * {@link org.glassfish.grizzly.Connection} implementation for the {@link TCPNIOTransport}
@@ -112,16 +112,16 @@ public class TCPNIOConnection extends NIOConnection {
             setMaxAsyncWriteQueueSize(
                     transportMaxAsyncWriteQueueSize == AsyncQueueWriter.AUTO_SIZE ? getWriteBufferSize() * 4 : transportMaxAsyncWriteQueueSize);
 
-            localSocketAddressHolder = Holder.lazyHolder(new NullaryFunction<SocketAddress>() {
+            localSocketAddressHolder = Holder.lazyHolder(new Supplier<SocketAddress>() {
                 @Override
-                public SocketAddress evaluate() {
+                public SocketAddress get() {
                     return ((SocketChannel) channel).socket().getLocalSocketAddress();
                 }
             });
 
-            peerSocketAddressHolder = Holder.lazyHolder(new NullaryFunction<SocketAddress>() {
+            peerSocketAddressHolder = Holder.lazyHolder(new Supplier<SocketAddress>() {
                 @Override
-                public SocketAddress evaluate() {
+                public SocketAddress get() {
                     return ((SocketChannel) channel).socket().getRemoteSocketAddress();
                 }
             });

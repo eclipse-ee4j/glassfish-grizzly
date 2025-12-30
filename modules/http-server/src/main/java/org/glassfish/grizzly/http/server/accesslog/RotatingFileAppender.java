@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -20,8 +21,8 @@ import static java.util.logging.Level.WARNING;
 
 import java.io.File;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.logging.Logger;
 
 import org.glassfish.grizzly.Grizzly;
@@ -38,10 +39,10 @@ public class RotatingFileAppender implements AccessLogAppender {
 
     private static final Logger LOGGER = Grizzly.logger(HttpServer.class);
 
-    /* The SDF that will format the "current" file name */
-    private final SimpleDateFormatThreadLocal fileFormat;
-    /* The SDF that will format the "archive" file name */
-    private final SimpleDateFormatThreadLocal archiveFormat;
+    /* The DTF that will format the "current" file name */
+    private final DateTimeFormatter fileFormat;
+    /* The DTF that will format the "archive" file name */
+    private final DateTimeFormatter archiveFormat;
 
     /* Our current file appender */
     private FileAppender appender;
@@ -56,7 +57,7 @@ public class RotatingFileAppender implements AccessLogAppender {
 
     /**
      * Create a {@link RotatingFileAppender} writing access log files in the specified directory and using the specified
-     * {@link SimpleDateFormat} pattern to generate file names.
+     * {@link DateTimeFormatter} pattern to generate file names.
      *
      * <p>
      * For example when the specified pattern is <code>'access-'yyyyMMDDhh'.log'</code> (note the quotes), access log files
@@ -64,7 +65,7 @@ public class RotatingFileAppender implements AccessLogAppender {
      * <code>access-2013120423.log</code>, ... and so on.
      *
      * @param directory The directory where access log files will be written to.
-     * @param filePattern A properly escaped {@link SimpleDateFormat} pattern for the access log files.
+     * @param filePattern A properly escaped {@link DateTimeFormatter} pattern for the access log files.
      * @throws IOException If an I/O error occurred accessing the filesystem.
      */
     public RotatingFileAppender(File directory, String filePattern) throws IOException {
@@ -89,7 +90,7 @@ public class RotatingFileAppender implements AccessLogAppender {
      *
      * @param directory The directory where access log files will be written to.
      * @param fileName A file name where log entries will be written to.
-     * @param archivePattern A properly escaped {@link SimpleDateFormat} pattern for the access log archive files.
+     * @param archivePattern A properly escaped {@link DateTimeFormatter} pattern for the access log archive files.
      * @throws IOException If an I/O error occurred accessing the filesystem.
      */
     public RotatingFileAppender(File directory, String fileName, String archivePattern) throws IOException {
@@ -111,12 +112,12 @@ public class RotatingFileAppender implements AccessLogAppender {
     private RotatingFileAppender(String filePattern, String archivePattern, File directory) throws IOException {
 
         this.directory = directory.getCanonicalFile();
-        archiveFormat = new SimpleDateFormatThreadLocal(archivePattern);
-        fileFormat = new SimpleDateFormatThreadLocal(filePattern);
+        archiveFormat = DateTimeFormatter.ofPattern(archivePattern);
+        fileFormat = DateTimeFormatter.ofPattern(filePattern);
 
-        final Date now = new Date();
-        currentArchive = new File(directory, archiveFormat.get().format(now)).getCanonicalFile();
-        currentFile = new File(directory, fileFormat.get().format(now)).getCanonicalFile();
+        final Instant now = Instant.now();
+        currentArchive = new File(directory, archiveFormat.format(now)).getCanonicalFile();
+        currentFile = new File(directory, fileFormat.format(now)).getCanonicalFile();
 
         /* Validate the arguments */
         if (!this.directory.equals(currentArchive.getParentFile())) {
@@ -144,10 +145,10 @@ public class RotatingFileAppender implements AccessLogAppender {
         }
 
         /* It's all about date and time */
-        final Date date = new Date();
+        final Instant date = Instant.now();
         synchronized (this) {
             /* Calculate the name of the current archive */
-            final SimpleDateFormat archiveFormat = this.archiveFormat.get();
+            final DateTimeFormatter archiveFormat = this.archiveFormat;
             final File archive = new File(directory, archiveFormat.format(date));
 
             /* If this archive is *NOT* the one we wrote to last, rotate */
@@ -167,7 +168,7 @@ public class RotatingFileAppender implements AccessLogAppender {
 
                     /* Save our new state */
                     currentArchive = archive;
-                    currentFile = new File(directory, fileFormat.get().format(date));
+                    currentFile = new File(directory, fileFormat.format(date));
 
                     /* Create our new appender */
                     appender = new FileAppender(currentFile, true);

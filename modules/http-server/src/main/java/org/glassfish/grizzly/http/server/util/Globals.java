@@ -94,7 +94,7 @@ public final class Globals {
     public static final String EXCEPTION_TYPE_ATTR = "jakarta.servlet.error.exception_type";
 
     /**
-     * The request attribute under which we forward an HTTP status message (as an object of type STring) to an error page.
+     * The request attribute under which we forward an HTTP status message (as an object of type String) to an error page.
      */
     public static final String ERROR_MESSAGE_ATTR = "jakarta.servlet.error.message";
 

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, 2022 Contributors to the Eclipse Foundation
+ * Copyright (c) 2022, 2024 Contributors to the Eclipse Foundation
  * Copyright 2004, 2022 The Apache Software Foundation
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -194,26 +194,22 @@ public class CookieHeaderParser {
      */
     private static ByteBuffer readCookieValueRfc6265(ByteBuffer byteBuffer) {
         boolean quoted = false;
-        if (byteBuffer.hasRemaining()) {
-            if (byteBuffer.get() == QUOTE_BYTE) {
-                quoted = true;
-            } else {
-                byteBuffer.rewind();
-            }
-        }
 
-        int start = byteBuffer.position();
-        int end = byteBuffer.limit();
+        int cookieValueStart = byteBuffer.position();
+        int cookieValueEnd = byteBuffer.limit();
+
         while (byteBuffer.hasRemaining()) {
-            byte b = byteBuffer.get();
-            if (isCookieOctet[(b & 0xFF)]) {
+            byte byteFromBuffer = byteBuffer.get();
+            if (isCookieOctet[(byteFromBuffer & 0xFF)]) {
                 // NO-OP
-            } else if (b == SEMICOLON_BYTE || b == SPACE_BYTE || b == TAB_BYTE) {
-                end = byteBuffer.position() - 1;
-                byteBuffer.position(end);
+            } else if (byteFromBuffer == SEMICOLON_BYTE || byteFromBuffer == SPACE_BYTE || byteFromBuffer == TAB_BYTE) {
+                cookieValueEnd = byteBuffer.position() - 1;
+                byteBuffer.position(cookieValueEnd);
                 break;
-            } else if (quoted && b == QUOTE_BYTE) {
-                end = byteBuffer.position() - 1;
+            } else if (byteFromBuffer == QUOTE_BYTE && cookieValueStart == byteBuffer.position() -1) {
+                quoted = true;
+            } else if (quoted && byteFromBuffer == QUOTE_BYTE) {
+                cookieValueEnd = byteBuffer.position();
                 break;
             } else {
                 // Invalid cookie
@@ -221,7 +217,7 @@ public class CookieHeaderParser {
             }
         }
 
-        return new ByteBuffer(byteBuffer.bytes, start, end - start);
+        return new ByteBuffer(byteBuffer.bytes, cookieValueStart, cookieValueEnd - cookieValueStart);
     }
 
 
@@ -240,9 +236,26 @@ public class CookieHeaderParser {
     }
 
     public static boolean isToken(int c) {
+        if (c < 0 || c >= ARRAY_SIZE) {
+            // out of bounds
+            return false;
+        }
         // Fast for correct values, slower for incorrect ones
         try {
             return IS_TOKEN[c];
+        } catch (ArrayIndexOutOfBoundsException ex) {
+            return false;
+        }
+    }
+
+    public static boolean isText(int c) {
+        if (c < 0 || c >= 256) {
+            // out of bounds
+            return false;
+        }
+        // Fast for correct values, slower for incorrect ones
+        try {
+            return isText[c];
         } catch (ArrayIndexOutOfBoundsException ex) {
             return false;
         }

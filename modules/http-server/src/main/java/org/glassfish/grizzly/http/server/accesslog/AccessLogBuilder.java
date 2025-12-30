@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -18,7 +19,8 @@ package org.glassfish.grizzly.http.server.accesslog;
 
 import java.io.File;
 import java.io.IOException;
-import java.text.SimpleDateFormat;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.TimeZone;
 
 import org.glassfish.grizzly.http.server.HttpServer;
@@ -34,8 +36,8 @@ import org.glassfish.grizzly.http.server.ServerConfiguration;
  * </p>
  *
  * <p>
- * If the {@linkplain #timeZone(TimeZone) time zone} is left unspecified, the {@link TimeZone#getDefault() default time
- * zone} will be used.
+ * If the {@linkplain #timeZone(ZoneId) time zone} is left unspecified, the {@link ZoneId#systemDefault() default zone
+ * id} will be used.
  * </p>
  *
  * @author <a href="mailto:pier@usrz.com">Pier Fumagalli</a>
@@ -168,7 +170,21 @@ public class AccessLogBuilder {
         }
         if (format instanceof ApacheLogFormat) {
             final ApacheLogFormat apacheFormat = (ApacheLogFormat) format;
-            format = new ApacheLogFormat(timeZone, apacheFormat.getFormat());
+            format = new ApacheLogFormat(timeZone.toZoneId(), apacheFormat.getFormat());
+            return this;
+        }
+        throw new IllegalStateException("TimeZone can not be set for " + format.getClass().getName());
+    }
+
+    /**
+     * Set the <em>time zone</em> that will be used to represent dates.
+     */
+    public AccessLogBuilder timeZone(final ZoneId zoneId) {
+        if (zoneId == null) {
+            throw new NullPointerException("Null zoneId");
+        }
+        if (format instanceof ApacheLogFormat apacheFormat) {
+            format = new ApacheLogFormat(zoneId, apacheFormat.getFormat());
             return this;
         }
         throw new IllegalStateException("TimeZone can not be set for " + format.getClass().getName());
@@ -226,7 +242,7 @@ public class AccessLogBuilder {
     }
 
     /**
-     * Set up automatic log-file rotation based on a specified {@link SimpleDateFormat} <em>pattern</em>.
+     * Set up automatic log-file rotation based on a specified {@link DateTimeFormatter} <em>pattern</em>.
      *
      * <p>
      * For example, if the file name specified at {@linkplain #AccessLogBuilder(File) construction} was

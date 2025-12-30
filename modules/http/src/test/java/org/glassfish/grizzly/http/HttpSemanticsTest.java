@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2024 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -677,7 +677,7 @@ public class HttpSemanticsTest extends TestCase {
     public void testExplicitConnectionCloseHeader() throws Throwable {
         final TCPNIOConnection connection = new TCPNIOConnection(TCPNIOTransportBuilder.newInstance().build(), null);
 
-        Buffer requestBuf = Buffers.wrap(connection.getMemoryManager(), "GET /path HTTP/1.1\n" + "Host: localhost:" + PORT + '\n' + '\n');
+        Buffer requestBuf = Buffers.wrap(connection.getMemoryManager(), "GET /path HTTP/1.1\n" + "Host: localhost:" + PORT + "\r\n" + '\n');
 
         FilterChainContext ctx = FilterChainContext.create(connection);
         ctx.setMessage(requestBuf);

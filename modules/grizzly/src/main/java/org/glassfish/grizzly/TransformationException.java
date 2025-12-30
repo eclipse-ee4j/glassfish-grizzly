@@ -17,7 +17,7 @@
 package org.glassfish.grizzly;
 
 /**
- * Describes the problem, occured during original message transformation.
+ * Describes the problem, occurred during original message transformation.
  *
  * @author Alexey Stashok
  */

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2007, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -97,8 +98,6 @@ public class CometContext<E> {
             + " invoking that method is the same as the Servlet.service() thread.";
     protected final static Logger LOGGER = Logger.getLogger(CometContext.class.getName());
     private final Map<Object, Object> attributes;
-
-    protected final static ThreadLocal<Request> REQUEST_LOCAL = new ThreadLocal<>();
 
     /**
      * The context path associated with this instance.
@@ -214,14 +213,13 @@ public class CometContext<E> {
      *
      * @return The hash code of the handler.
      */
-    public int addCometHandler(CometHandler<E> handler) {
+    public int addCometHandler(final Request request, CometHandler<E> handler) {
         if (handler == null) {
             throw new IllegalStateException(INVALID_COMET_HANDLER);
         }
         if (!CometEngine.getEngine().isCometEnabled()) {
             throw new IllegalStateException(COMET_NOT_ENABLED);
         }
-        final Request request = REQUEST_LOCAL.get();
         final Response response = request.getResponse();
         final Connection c = request.getContext().getConnection();
 

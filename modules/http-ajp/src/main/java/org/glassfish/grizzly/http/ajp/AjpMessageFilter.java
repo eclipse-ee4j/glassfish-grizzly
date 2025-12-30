@@ -18,6 +18,7 @@ package org.glassfish.grizzly.http.ajp;
 
 import java.io.IOException;
 
+import java.util.function.Supplier;
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.Connection;
 import org.glassfish.grizzly.Grizzly;
@@ -25,7 +26,6 @@ import org.glassfish.grizzly.attributes.Attribute;
 import org.glassfish.grizzly.filterchain.BaseFilter;
 import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.filterchain.NextAction;
-import org.glassfish.grizzly.utils.NullaryFunction;
 
 /**
  * Filter, responsible for parsing Ajp requests and making sure the request packets are complete and properly
@@ -35,10 +35,10 @@ import org.glassfish.grizzly.utils.NullaryFunction;
  */
 public class AjpMessageFilter extends BaseFilter {
     private final Attribute<ParsingState> parsingStateAttribute = Grizzly.DEFAULT_ATTRIBUTE_BUILDER
-            .createAttribute(AjpMessageFilter.class + ".parsingStateAttribute", new NullaryFunction<ParsingState>() {
+            .createAttribute(AjpMessageFilter.class + ".parsingStateAttribute", new Supplier<ParsingState>() {
 
                 @Override
-                public ParsingState evaluate() {
+                public ParsingState get() {
                     return new ParsingState();
                 }
             });
