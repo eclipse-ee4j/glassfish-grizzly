@@ -119,6 +119,7 @@
     </issueManagement>
 
     <properties>
+        <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <servlet-version>6.1.0</servlet-version>
         <maven-plugin.version>1.0.0</maven-plugin.version>
@@ -193,7 +194,7 @@
                     <artifactId>maven-compiler-plugin</artifactId>
                     <version>3.13.0</version>
                     <configuration>
-                        <release>17</release>
+                        <release>${java.version}</release>
                         <compilerArgument>-Xlint:unchecked,deprecation,fallthrough,finally,cast,dep-ann,empty,overrides</compilerArgument>
                     </configuration>
                 </plugin>
@@ -204,7 +205,7 @@
                     <configuration>
                         <instructions>
                             <_noimportjava>true</_noimportjava>
-                            <_runee>JavaSE-17</_runee>
+                            <_runee>JavaSE-${java.version}</_runee>
                         </instructions>
                     </configuration>
                 </plugin>
@@ -223,7 +224,7 @@
                         <configuration>
                             <rules>
                                 <requireJavaVersion>
-                                    <version>[17,)</version>
+                                    <version>[${java.version},)</version>
                                 </requireJavaVersion>
                                 <requireMavenVersion>
                                     <version>3.8.9</version>
