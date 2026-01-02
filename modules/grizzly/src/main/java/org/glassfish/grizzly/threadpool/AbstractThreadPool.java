@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -36,7 +37,6 @@ import org.glassfish.grizzly.memory.MemoryManager;
 import org.glassfish.grizzly.memory.ThreadLocalPoolProvider;
 import org.glassfish.grizzly.monitoring.DefaultMonitoringConfig;
 import org.glassfish.grizzly.monitoring.MonitoringAware;
-import org.glassfish.grizzly.monitoring.MonitoringConfig;
 import org.glassfish.grizzly.monitoring.MonitoringUtils;
 import org.glassfish.grizzly.utils.DelayedExecutor;
 
@@ -45,7 +45,7 @@ import org.glassfish.grizzly.utils.DelayedExecutor;
  *
  * @author Alexey Stashok
  */
-public abstract class AbstractThreadPool extends AbstractExecutorService implements Thread.UncaughtExceptionHandler, MonitoringAware<ThreadPoolProbe> {
+public abstract class AbstractThreadPool extends AbstractExecutorService implements ThreadPoolInfo, Thread.UncaughtExceptionHandler, MonitoringAware<ThreadPoolProbe> {
 
     private static final Logger logger = Grizzly.logger(AbstractThreadPool.class);
     // Min number of worker threads in a pool
@@ -148,7 +148,7 @@ public abstract class AbstractThreadPool extends AbstractExecutorService impleme
 
     /**
      * must hold statelock while calling this method.
-     * 
+     *
      * @param worker
      */
     protected void startWorker(final Worker worker) {
@@ -446,7 +446,7 @@ public abstract class AbstractThreadPool extends AbstractExecutorService impleme
      * {@inheritDoc}
      */
     @Override
-    public MonitoringConfig<ThreadPoolProbe> getMonitoringConfig() {
+    public DefaultMonitoringConfig<ThreadPoolProbe> getMonitoringConfig() {
         return monitoringConfig;
     }
 
@@ -459,7 +459,7 @@ public abstract class AbstractThreadPool extends AbstractExecutorService impleme
     }
 
     Object createJmxManagementObject() {
-        return MonitoringUtils.loadJmxObject("org.glassfish.grizzly.threadpool.jmx.ThreadPool", this, AbstractThreadPool.class);
+        return MonitoringUtils.loadJmxObject("org.glassfish.grizzly.threadpool.jmx.ThreadPool", this, ThreadPoolInfo.class);
     }
 
     protected final ThreadFactory getDefaultThreadFactory() {
@@ -495,6 +495,11 @@ public abstract class AbstractThreadPool extends AbstractExecutorService impleme
     }
 
     @Override
+    public int getQueueSize() {
+        return getQueue().size();
+    }
+
+    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder(256);
         sb.append(getClass().getSimpleName());
@@ -524,20 +529,20 @@ public abstract class AbstractThreadPool extends AbstractExecutorService impleme
             while (true) {
                 try {
                     Thread.interrupted();
-                    final Runnable r = getTask();
-                    if (r == poison || r == null) {
+                    final Runnable task = getTask();
+                    if (task == poison || task == null) {
                         return;
                     }
-                    onTaskDequeued(r);
+                    onTaskDequeued(task);
                     Throwable error = null;
                     try {
-                        beforeExecute(this, thread, r); // inside try. to ensure balance
-                        r.run();
-                        onTaskCompletedEvent(r);
+                        beforeExecute(this, thread, task); // inside try. to ensure balance
+                        task.run();
+                        onTaskCompletedEvent(task);
                     } catch (Exception e) {
                         error = e;
                     } finally {
-                        afterExecute(this, thread, r, error);
+                        afterExecute(this, thread, task, error);
                     }
                 } catch (Exception ignore) {
                 }
