@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -17,7 +18,7 @@
 package org.glassfish.grizzly.threadpool;
 
 /**
- * Monitoring probe providing callbacks that may be invoked by Grizzly {@link AbstractThreadPool} implementations.
+ * Monitoring probe providing callbacks that may be invoked by Grizzly {@link ThreadPoolInfo} implementations.
  *
  * @author gustav trede
  * @author Alexey Stashok
@@ -27,72 +28,72 @@ package org.glassfish.grizzly.threadpool;
 public interface ThreadPoolProbe {
     /**
      * <p>
-     * This event may be fired when an {@link AbstractThreadPool} implementation starts running.
+     * This event may be fired when an {@link ThreadPoolInfo} implementation starts running.
      * </p>
      *
-     * @param threadPool the {@link AbstractThreadPool} being monitored
+     * @param threadPool the {@link ThreadPoolInfo} being monitored
      */
-    void onThreadPoolStartEvent(AbstractThreadPool threadPool);
+    void onThreadPoolStartEvent(ThreadPoolInfo threadPool);
 
     /**
      * <p>
-     * This event may be fired when an {@link AbstractThreadPool} implementation stops.
+     * This event may be fired when an {@link ThreadPoolInfo} implementation stops.
      * </p>
      *
-     * @param threadPool the {@link AbstractThreadPool} being monitored
+     * @param threadPool the {@link ThreadPoolInfo} being monitored
      */
-    void onThreadPoolStopEvent(AbstractThreadPool threadPool);
+    void onThreadPoolStopEvent(ThreadPoolInfo threadPool);
 
     /**
      * <p>
-     * This event may be fired when an {@link AbstractThreadPool} implementation allocates a new managed {@link Thread}.
+     * This event may be fired when an {@link ThreadPoolInfo} implementation allocates a new managed {@link Thread}.
      * </p>
      *
-     * @param threadPool the {@link AbstractThreadPool} being monitored
+     * @param threadPool the {@link ThreadPoolInfo} being monitored
      * @param thread the thread that has been allocated
      */
-    void onThreadAllocateEvent(AbstractThreadPool threadPool, Thread thread);
+    void onThreadAllocateEvent(ThreadPoolInfo threadPool, Thread thread);
 
     /**
      * <p>
-     * This event may be fired when a thread will no longer be managed by the {@link AbstractThreadPool} implementation.
+     * This event may be fired when a thread will no longer be managed by the {@link ThreadPoolInfo} implementation.
      * </p>
      *
-     * @param threadPool the {@link AbstractThreadPool} being monitored
-     * @param thread the thread that is no longer being managed by the {@link AbstractThreadPool}
+     * @param threadPool the {@link ThreadPoolInfo} being monitored
+     * @param thread the thread that is no longer being managed by the {@link ThreadPoolInfo}
      */
-    void onThreadReleaseEvent(AbstractThreadPool threadPool, Thread thread);
+    void onThreadReleaseEvent(ThreadPoolInfo threadPool, Thread thread);
 
     /**
      * <p>
-     * This event may be fired when the {@link AbstractThreadPool} implementation has allocated and is managing a number of
+     * This event may be fired when the {@link ThreadPoolInfo} implementation has allocated and is managing a number of
      * threads equal to the maximum limit of the pool.
      * <p>
      *
-     * @param threadPool the {@link AbstractThreadPool} being monitored
-     * @param maxNumberOfThreads the maximum number of threads allowed in the {@link AbstractThreadPool}
+     * @param threadPool the {@link ThreadPoolInfo} being monitored
+     * @param maxNumberOfThreads the maximum number of threads allowed in the {@link ThreadPoolInfo}
      */
-    void onMaxNumberOfThreadsEvent(AbstractThreadPool threadPool, int maxNumberOfThreads);
+    void onMaxNumberOfThreadsEvent(ThreadPoolInfo threadPool, int maxNumberOfThreads);
 
     /**
      * <p>
      * This event may be fired when a task has been queued for processing.
      * </p>
      *
-     * @param threadPool the {@link AbstractThreadPool} being monitored
+     * @param threadPool the {@link ThreadPoolInfo} being monitored
      * @param task a unit of work to be processed
      */
-    void onTaskQueueEvent(AbstractThreadPool threadPool, Runnable task);
+    void onTaskQueueEvent(ThreadPoolInfo threadPool, Runnable task);
 
     /**
      * <p>
      * This event may be fired when a task has been pulled from the queue and is about to be processed.
      * </p>
      *
-     * @param threadPool the {@link AbstractThreadPool} being monitored
+     * @param threadPool the {@link ThreadPoolInfo} being monitored
      * @param task a unit of work that is about to be processed.
      */
-    void onTaskDequeueEvent(AbstractThreadPool threadPool, Runnable task);
+    void onTaskDequeueEvent(ThreadPoolInfo threadPool, Runnable task);
 
     /**
      * <p>
@@ -101,30 +102,30 @@ public interface ThreadPoolProbe {
      * This event can occur during shutdownNow() invocation, where tasks are getting pulled out of thread pool queue and
      * returned as the result of shutdownNow() method call.
      *
-     * @param threadPool the {@link AbstractThreadPool} being monitored
+     * @param threadPool the {@link ThreadPoolInfo} being monitored
      * @param task a unit of work that has been canceled
      */
-    void onTaskCancelEvent(AbstractThreadPool threadPool, Runnable task);
+    void onTaskCancelEvent(ThreadPoolInfo threadPool, Runnable task);
 
     /**
      * <p>
      * This event may be fired when a dequeued task has completed processing.
      * </p>
      *
-     * @param threadPool the {@link AbstractThreadPool} being monitored
+     * @param threadPool the {@link ThreadPoolInfo} being monitored
      * @param task the unit of work that has completed processing
      */
-    void onTaskCompleteEvent(AbstractThreadPool threadPool, Runnable task);
+    void onTaskCompleteEvent(ThreadPoolInfo threadPool, Runnable task);
 
     /**
      * <p>
-     * This event may be fired when the task queue of the {@link AbstractThreadPool} implementation has exceeded its
+     * This event may be fired when the task queue of the {@link ThreadPoolInfo} implementation has exceeded its
      * configured size.
      * </p>
      *
-     * @param threadPool the {@link AbstractThreadPool} being monitored
+     * @param threadPool the {@link ThreadPoolInfo} being monitored
      */
-    void onTaskQueueOverflowEvent(AbstractThreadPool threadPool);
+    void onTaskQueueOverflowEvent(ThreadPoolInfo threadPool);
 
     // ---------------------------------------------------------- Nested Classes
 
@@ -143,70 +144,70 @@ public interface ThreadPoolProbe {
          * {@inheritDoc}
          */
         @Override
-        public void onThreadPoolStartEvent(AbstractThreadPool threadPool) {
+        public void onThreadPoolStartEvent(ThreadPoolInfo threadPool) {
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        public void onThreadPoolStopEvent(AbstractThreadPool threadPool) {
+        public void onThreadPoolStopEvent(ThreadPoolInfo threadPool) {
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        public void onThreadAllocateEvent(AbstractThreadPool threadPool, Thread thread) {
+        public void onThreadAllocateEvent(ThreadPoolInfo threadPool, Thread thread) {
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        public void onThreadReleaseEvent(AbstractThreadPool threadPool, Thread thread) {
+        public void onThreadReleaseEvent(ThreadPoolInfo threadPool, Thread thread) {
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        public void onMaxNumberOfThreadsEvent(AbstractThreadPool threadPool, int maxNumberOfThreads) {
+        public void onMaxNumberOfThreadsEvent(ThreadPoolInfo threadPool, int maxNumberOfThreads) {
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        public void onTaskQueueEvent(AbstractThreadPool threadPool, Runnable task) {
+        public void onTaskQueueEvent(ThreadPoolInfo threadPool, Runnable task) {
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        public void onTaskDequeueEvent(AbstractThreadPool threadPool, Runnable task) {
+        public void onTaskDequeueEvent(ThreadPoolInfo threadPool, Runnable task) {
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        public void onTaskCancelEvent(AbstractThreadPool threadPool, Runnable task) {
+        public void onTaskCancelEvent(ThreadPoolInfo threadPool, Runnable task) {
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        public void onTaskCompleteEvent(AbstractThreadPool threadPool, Runnable task) {
+        public void onTaskCompleteEvent(ThreadPoolInfo threadPool, Runnable task) {
         }
 
         /**
          * {@inheritDoc}
          */
         @Override
-        public void onTaskQueueOverflowEvent(AbstractThreadPool threadPool) {
+        public void onTaskQueueOverflowEvent(ThreadPoolInfo threadPool) {
         }
 
     } // END Adapter

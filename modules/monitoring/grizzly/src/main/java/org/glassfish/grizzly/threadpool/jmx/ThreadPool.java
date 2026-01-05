@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -17,7 +18,6 @@
 package org.glassfish.grizzly.threadpool.jmx;
 
 import org.glassfish.grizzly.monitoring.jmx.JmxObject;
-import org.glassfish.grizzly.threadpool.AbstractThreadPool;
 import org.glassfish.grizzly.threadpool.ThreadPoolProbe;
 import org.glassfish.gmbal.Description;
 import org.glassfish.gmbal.GmbalMBean;
@@ -26,7 +26,9 @@ import org.glassfish.gmbal.ManagedObject;
 
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+
 import org.glassfish.grizzly.jmxbase.GrizzlyJmxManager;
+import org.glassfish.grizzly.threadpool.ThreadPoolInfo;
 
 /**
  * JMX managed object for Grizzly thread pool implementations.
@@ -37,7 +39,7 @@ import org.glassfish.grizzly.jmxbase.GrizzlyJmxManager;
 @Description("Grizzly ThreadPool (typically shared between Transport instances).")
 public class ThreadPool extends JmxObject {
 
-    private final AbstractThreadPool threadPool;
+    private final ThreadPoolInfo threadPool;
     private final ThreadPoolProbe probe = new JmxThreadPoolProbe();
 
     private final AtomicInteger totalAllocatedThreadCount = new AtomicInteger();
@@ -49,7 +51,7 @@ public class ThreadPool extends JmxObject {
     // ------------------------------------------------------------ Constructors
 
 
-    public ThreadPool(AbstractThreadPool threadPool) {
+    public ThreadPool(ThreadPoolInfo threadPool) {
         this.threadPool = threadPool;
     }
 
@@ -160,7 +162,7 @@ public class ThreadPool extends JmxObject {
     @ManagedAttribute(id="thread-pool-queued-task-count")
     @Description("The number of tasks currently being queued by this thread pool.")
     public int getCurrentTaskCount() {
-        return threadPool.getQueue().size();
+        return threadPool.getQueueSize();
     }
 
 
@@ -194,31 +196,31 @@ public class ThreadPool extends JmxObject {
 
 
         @Override
-        public void onThreadAllocateEvent(AbstractThreadPool threadPool, Thread thread) {
+        public void onThreadAllocateEvent(ThreadPoolInfo threadPool, Thread thread) {
             totalAllocatedThreadCount.incrementAndGet();
         }
 
         @Override
-        public void onTaskDequeueEvent(AbstractThreadPool threadPool, Runnable task) {
+        public void onTaskDequeueEvent(ThreadPoolInfo threadPool, Runnable task) {
             busyThreadsCount.incrementAndGet();
         }
 
         @Override
-        public void onTaskCancelEvent(AbstractThreadPool threadPool, Runnable task) {
+        public void onTaskCancelEvent(ThreadPoolInfo threadPool, Runnable task) {
             decBusyThreadCount();
         }
-        
+
         @Override
-        public void onTaskCompleteEvent(AbstractThreadPool threadPool, Runnable task) {
+        public void onTaskCompleteEvent(ThreadPoolInfo threadPool, Runnable task) {
             totalCompletedTasksCount.incrementAndGet();
             decBusyThreadCount();
         }
 
         @Override
-        public void onTaskQueueOverflowEvent(AbstractThreadPool threadPool) {
+        public void onTaskQueueOverflowEvent(ThreadPoolInfo threadPool) {
             totalTaskQueueOverflowCount.incrementAndGet();
         }
-        
+
         private void decBusyThreadCount() {
             final int val = busyThreadsCount.decrementAndGet();
             if (val < 0) {
@@ -228,7 +230,7 @@ public class ThreadPool extends JmxObject {
                 // get the proper value.
                 busyThreadsCount.compareAndSet(val, 0);
             }
-        }        
+        }
     } // END JmxThreadPoolProbe
 
 }

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -24,6 +25,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.glassfish.grizzly.threadpool.GrizzlyExecutorService;
 import org.glassfish.grizzly.threadpool.ThreadPoolConfig;
+import org.glassfish.grizzly.threadpool.ThreadPoolInfo;
 import org.glassfish.grizzly.threadpool.ThreadPoolProbe;
 import org.glassfish.grizzly.utils.DelayedExecutor;
 
@@ -182,6 +184,60 @@ public class GrizzlyExecutorServiceTest extends GrizzlyTestCase {
                 }
             });
         }
+    }
+
+    public void testProbeNotifications() throws Exception {
+        final CountDownLatch taskQueuedLatch = new CountDownLatch(1);
+        final CountDownLatch taskDequeuedLatch = new CountDownLatch(1);
+        final CountDownLatch taskCompletedLatch = new CountDownLatch(1);
+        final CountDownLatch threadAllocatedLatch = new CountDownLatch(1);
+
+        ThreadPoolProbe probe = new ThreadPoolProbe.Adapter() {
+            @Override
+            public void onTaskQueueEvent(ThreadPoolInfo threadPool, Runnable task) {
+                taskQueuedLatch.countDown();
+            }
+
+            @Override
+            public void onTaskDequeueEvent(ThreadPoolInfo threadPool, Runnable task) {
+                taskDequeuedLatch.countDown();
+            }
+
+            @Override
+            public void onTaskCompleteEvent(ThreadPoolInfo threadPool, Runnable task) {
+                taskCompletedLatch.countDown();
+            }
+
+            @Override
+            public void onThreadAllocateEvent(ThreadPoolInfo threadPool, Thread thread) {
+                threadAllocatedLatch.countDown();
+            }
+        };
+
+        ThreadPoolConfig config = ThreadPoolConfig.defaultConfig()
+                .setMaxPoolSize(2)
+                .setCorePoolSize(1);
+        config.getInitialMonitoringConfig().addProbes(probe);
+
+        GrizzlyExecutorService executor = GrizzlyExecutorService.createInstance(config);
+
+        CountDownLatch taskLatch = new CountDownLatch(1);
+        executor.execute(() -> {
+            try {
+                Thread.sleep(100);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+            taskLatch.countDown();
+        });
+
+        assertTrue("Task should complete", taskLatch.await(5, TimeUnit.SECONDS));
+        assertTrue("Task queued probe should be called", taskQueuedLatch.await(1, TimeUnit.SECONDS));
+        assertTrue("Task dequeued probe should be called", taskDequeuedLatch.await(1, TimeUnit.SECONDS));
+        assertTrue("Task completed probe should be called", taskCompletedLatch.await(1, TimeUnit.SECONDS));
+        assertTrue("Thread allocated probe should be called", threadAllocatedLatch.await(1, TimeUnit.SECONDS));
+
+        executor.shutdown();
     }
 
 }
