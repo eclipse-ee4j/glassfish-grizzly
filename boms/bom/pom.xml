@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021, 2024 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2007, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -211,11 +211,8 @@
                         </goals>
                         <configuration>
                             <rules>
-                                <requireJavaVersion>
-                                    <version>[11,)</version>
-                                </requireJavaVersion>
                                 <requireMavenVersion>
-                                    <version>3.5.4</version>
+                                    <version>3.8.9</version>
                                 </requireMavenVersion>
                             </rules>
                         </configuration>
