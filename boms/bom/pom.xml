@@ -169,37 +169,6 @@
     </dependencyManagement>
 
     <build>
-        <pluginManagement>
-            <plugins>
-                <plugin>
-                    <artifactId>maven-surefire-plugin</artifactId>
-                    <version>3.2.5</version>
-                </plugin>
-                <plugin>
-                    <artifactId>maven-javadoc-plugin</artifactId>
-                    <version>3.6.3</version>
-                    <configuration>
-                        <additionalOptions>
-                            <additionalOption>-Xdoclint:none</additionalOption>
-                        </additionalOptions>
-                    </configuration>
-                </plugin>
-                <plugin><!--
-                        Can not use 3.3.0, which triggers:
-
-                        Presumably you have configured maven-source-plugn to execute twice times in your build. You have to configure a classifier for at least on of them.
-
-                    -->
-                    <artifactId>maven-source-plugin</artifactId>
-                    <version>3.2.1</version>
-                </plugin>
-                <plugin>
-                    <groupId>org.codehaus.mojo</groupId>
-                    <artifactId>build-helper-maven-plugin</artifactId>
-                    <version>3.6.1</version>
-                </plugin>
-            </plugins>
-        </pluginManagement>
         <plugins>
             <plugin>
                 <artifactId>maven-enforcer-plugin</artifactId>
