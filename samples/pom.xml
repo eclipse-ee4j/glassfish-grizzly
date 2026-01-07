@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-
+    Copyright 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -25,7 +25,7 @@
     <artifactId>grizzly-samples</artifactId>
     <packaging>pom</packaging>
 
-    <name>grizzly-samples</name>
+    <name>Samples: Aggregator POM</name>
 
     <modules>
         <module>framework-samples</module>

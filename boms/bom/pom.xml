@@ -33,7 +33,7 @@
     <version>5.0.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
-    <name>grizzly-bom</name>
+    <name>Grizzly BOM</name>
     <description>Grizzly Bill of Materials (BOM)</description>
 
     <url>https://eclipse-ee4j.github.io/glassfish-grizzly</url>

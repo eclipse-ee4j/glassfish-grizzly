@@ -26,13 +26,12 @@
     <artifactId>grizzly-http-server-samples</artifactId>
     <packaging>bundle</packaging>
 
-    <name>grizzly-http-server-samples</name>
+    <name>Samples: Grizzly HTTP Server</name>
 
     <dependencies>
         <dependency>
             <groupId>org.glassfish.grizzly</groupId>
             <artifactId>grizzly-http-server</artifactId>
-            <version>${project.version}</version>
         </dependency>
     </dependencies>
 

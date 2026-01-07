@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021, 2023 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -31,7 +31,8 @@
     <artifactId>grizzly-websockets</artifactId>
     <packaging>bundle</packaging>
 
-    <name>grizzly-websockets</name>
+    <name>Grizzly WebSockets Support</name>
+    <description>WebSocket is a protocol providing a bidirectional communication channel over a single TCP connection.</description>
 
     <dependencies>
         <dependency>

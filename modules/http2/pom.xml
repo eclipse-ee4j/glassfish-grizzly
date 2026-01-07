@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021, 2025 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2015, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -30,7 +30,7 @@
 
     <artifactId>grizzly-http2</artifactId>
 
-    <name>grizzly-http2</name>
+    <name>Grizzly HTTP/2 Protocol Handler</name>
 
     <properties>
         <bootClasspath></bootClasspath>
@@ -44,8 +44,8 @@
         <dependency>
             <groupId>org.glassfish.grizzly</groupId>
             <artifactId>grizzly-http-server</artifactId>
-            <!-- These dependencies aren't needed in the client case. Only if the project is using the Http2Addon or the
-                GlassFish integration code -->
+            <!-- These dependencies aren't needed in the client case.
+                Only if the project is using the Http2Addon or the GlassFish integration code -->
             <scope>provided</scope>
             <optional>true</optional>
         </dependency>

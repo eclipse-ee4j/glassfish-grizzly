@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021, 2023 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -31,7 +31,17 @@
     <artifactId>grizzly-comet</artifactId>
     <packaging>bundle</packaging>
 
-    <name>grizzly-comet</name>
+    <name>Grizzly Comet Support</name>
+    <!-- See https://en.wikipedia.org/wiki/Comet_(programming) -->
+    <!-- WARN: Do not add/remove spaces, the felix plugin keeps them in manifest! -->
+    <description>
+ Comet is a web application model in which a long-held HTTPS request
+ allows a web server to push data to a browser, without the browser
+ explicitly requesting it.
+ Comet is known by several other names, including Ajax Push,
+ Reverse Ajax, Two-way-web, HTTP Streaming, and HTTP server
+ push among others.
+    </description>
 
     <dependencies>
         <dependency>

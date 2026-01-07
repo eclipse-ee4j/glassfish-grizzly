@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021, 2023 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2007, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -31,7 +31,7 @@
     <artifactId>grizzly-http</artifactId>
     <packaging>bundle</packaging>
 
-    <name>grizzly-http</name>
+    <name>Grizzly HTTP Protocol Handler</name>
 
     <dependencies>
         <dependency>

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021, 2023 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -26,13 +26,12 @@
     <artifactId>connection-pool-samples</artifactId>
     <packaging>bundle</packaging>
 
-    <name>connection-pool-samples</name>
+    <name>Samples: Grizzly HTTP Endpoint Connection Pool</name>
 
     <dependencies>
         <dependency>
             <groupId>org.glassfish.grizzly</groupId>
             <artifactId>connection-pool</artifactId>
-            <version>${project.version}</version>
         </dependency>
     </dependencies>
 
@@ -61,7 +60,7 @@
                         </Export-Package>
                     </instructions>
                 </configuration>
-            </plugin>           
+            </plugin>
         </plugins>
     </build>
 </project>
