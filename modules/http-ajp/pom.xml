@@ -32,7 +32,6 @@
     <packaging>bundle</packaging>
 
     <name>grizzly-http-ajp</name>
-    <url>https://projects.eclipse.org/projects/ee4j.glassfish</url>
 
     <dependencies>
         <dependency>

@@ -34,7 +34,7 @@
     <packaging>pom</packaging>
 
     <name>grizzly-project</name>
-    <url>https://projects.eclipse.org/projects/ee4j.glassfish</url>
+    <url>https://eclipse-ee4j.github.io/glassfish-grizzly</url>
     <organization>
         <name>Eclipse.org - GlassFish Project</name>
         <url>https://glassfish.org</url>
