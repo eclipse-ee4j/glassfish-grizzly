@@ -24,7 +24,6 @@
 
     <groupId>org.glassfish.grizzly.samples</groupId>
     <artifactId>grizzly-http-jaxws-samples</artifactId>
-    <packaging>bundle</packaging>
 
     <name>Samples: Grizzly Metro Integration</name>
 
@@ -46,27 +45,22 @@
     </dependencies>
 
     <build>
-        <defaultGoal>install</defaultGoal>
         <plugins>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
             </plugin>
             <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
-                <extensions>true</extensions>
-                <configuration>
-                    <instructions>
-                        <Import-Package>
-                            org.glassfish.grizzly*;version=${project.version},
-                            *,
-                        </Import-Package>
-                        <Export-Package>
-                            org.glassfish.grizzly.samples.jaxws.*;version=${project.version},
-                        </Export-Package>
-                    </instructions>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

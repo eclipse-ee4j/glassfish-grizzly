@@ -29,7 +29,6 @@
     </parent>
 
     <artifactId>grizzly-websockets-server</artifactId>
-    <packaging>jar</packaging>
 
     <name>Bundle: Grizzly WebSockets Server</name>
     <description>Repackaged WebSockets server jar files</description>
@@ -56,103 +55,77 @@
     </dependencies>
 
     <build>
-        <defaultGoal>install</defaultGoal>
         <plugins>
             <plugin>
-                <artifactId>maven-clean-plugin</artifactId>
-                <version>3.3.2</version>
-                <configuration>
-                    <filesets>
-                        <!-- Make sure we remove the fake source directory. -->
-                        <fileset>
-                            <directory>src</directory>
-                        </fileset>
-                    </filesets>
-                </configuration>
-            </plugin>
-
-            <plugin>
                 <artifactId>maven-dependency-plugin</artifactId>
-                <version>3.6.1</version>
                 <executions>
                     <execution>
-                        <id>src-dependencies</id>
+                        <id>unpack-sources-from-dependencies</id>
                         <phase>generate-sources</phase>
                         <goals>
-                            <!-- use copy-dependencies instead if you don't want to explode the sources -->
                             <goal>unpack-dependencies</goal>
                         </goals>
                         <configuration>
                             <classifier>sources</classifier>
-                            <excludeArtifactIds>junit, hamcrest-core</excludeArtifactIds>
-                            <excludes>module-info.java</excludes>
-                            <!-- fudge an actual source hierarchy so that the source
-                                 plugin can actually do something useful.  Otherwise,
-                                 you'll end up with an empty source jar -->
-                            <outputDirectory>${basedir}/src/main/java</outputDirectory>
-                            <overWriteReleases>false</overWriteReleases>
+                            <excludes>module-info.java,META-INF/**</excludes>
+                            <excludeArtifactIds>junit,hamcrest-core</excludeArtifactIds>
+                            <outputDirectory>${project.build.directory}/generated-sources/grizzly</outputDirectory>
                             <overWriteSnapshots>true</overWriteSnapshots>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
-
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>build-helper-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>add-source-directory</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>add-source</goal>
+                            <goal>add-resource</goal>
+                        </goals>
+                        <configuration>
+                            <sources>${project.build.directory}/generated-sources/grizzly</sources>
+                            <resources>
+                                <resource>
+                                    <directory>${project.build.directory}/generated-sources/grizzly</directory>
+                                    <filtering>false</filtering>
+                                    <includes>
+                                        <include>**/*.properties</include>
+                                    </includes>
+                                </resource>
+                            </resources>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
-                <configuration>
-                    <instructions>
-                        <Import-Package>
-                            *,
-                        </Import-Package>
-                        <Export-Package>
-                            org.glassfish.grizzly.*;-split-package:=merge-first;version=${project.version}
-                        </Export-Package>
-                        <Embed-Dependency>org.glassfish.grizzly;scope=runtime
-                        </Embed-Dependency>
-                    </instructions>
-                    <unpackBundle>true</unpackBundle>
-                </configuration>
                 <executions>
                     <execution>
-                        <id>osgi-bundle</id>
-                        <phase>package</phase>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
                         <goals>
-                            <goal>bundle</goal>
+                            <goal>manifest</goal>
                         </goals>
                     </execution>
                 </executions>
             </plugin>
-
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-javadoc-plugin</artifactId>
+            </plugin>
+            <plugin>
                 <artifactId>maven-source-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>fudge-source</id>
+                        <id>package-source</id>
                         <phase>install</phase>
                     </execution>
                 </executions>
             </plugin>
-
-            <plugin>
-                <artifactId>maven-antrun-plugin</artifactId>
-                <version>1.8</version>
-                <executions>
-                    <execution>
-                        <phase>install</phase>
-                        <configuration>
-                            <target>
-                                <delete dir="src" includeemptydirs="true" />
-                            </target>
-                        </configuration>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                    </execution>
-                </executions>
-            </plugin>
-
         </plugins>
     </build>
 </project>

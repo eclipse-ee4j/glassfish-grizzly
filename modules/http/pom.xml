@@ -29,7 +29,6 @@
     </parent>
 
     <artifactId>grizzly-http</artifactId>
-    <packaging>bundle</packaging>
 
     <name>Grizzly HTTP Protocol Handler</name>
 
@@ -60,27 +59,17 @@
         </resources>
         <plugins>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <reuseForks>false</reuseForks>
-                </configuration>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
-                <extensions>true</extensions>
-                <configuration>
-                    <instructions>
-                        <Import-Package>
-                            org.glassfish.grizzly*;version=${project.version},
-                            *,
-                        </Import-Package>
-                        <Export-Package>
-                            org.glassfish.grizzly.http.*;version=${project.version},
-                        </Export-Package>
-                    </instructions>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

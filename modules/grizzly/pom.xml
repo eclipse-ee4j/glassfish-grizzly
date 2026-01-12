@@ -29,12 +29,10 @@
     </parent>
 
     <artifactId>grizzly-framework</artifactId>
-    <packaging>bundle</packaging>
 
     <name>Grizzly Framework</name>
 
     <build>
-        <defaultGoal>install</defaultGoal>
         <resources>
             <resource>
                 <filtering>true</filtering>
@@ -54,28 +52,17 @@
         </testResources>
         <plugins>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <reuseForks>false</reuseForks>
-                </configuration>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
-                <extensions>true</extensions>
-                <configuration>
-                    <instructions>
-                        <Import-Package>
-                            org.glassfish.grizzly*;version=${project.version},
-                            !android.os,
-                            *,
-                        </Import-Package>
-                        <Export-Package>
-                            org.glassfish.grizzly.*;version=${project.version},
-                        </Export-Package>
-                    </instructions>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <artifactId>maven-jar-plugin</artifactId>

@@ -29,7 +29,6 @@
     </parent>
 
     <artifactId>grizzly-http-servlet</artifactId>
-    <packaging>bundle</packaging>
 
     <name>Grizzly HTTP Servlet Implementation</name>
 
@@ -69,33 +68,19 @@
     </dependencies>
 
     <build>
-        <defaultGoal>install</defaultGoal>
         <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <useModulePath>false</useModulePath>
-                    <reuseForks>false</reuseForks>
-                </configuration>
-            </plugin>
             <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
-                <extensions>true</extensions>
-                <configuration>
-                    <instructions>
-                        <Import-Package>
-                            org.glassfish.grizzly*;version=${project.version},
-                            jakarta.servlet*;version="[6.0,7)",
-                            *,
-                        </Import-Package>
-                        <Export-Package>
-                            org.glassfish.grizzly.servlet.*;version=${project.version}
-                        </Export-Package>
-                    </instructions>
-                    <unpackBundle>true</unpackBundle>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

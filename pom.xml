@@ -34,6 +34,7 @@
     <packaging>pom</packaging>
 
     <name>Grizzly Parent POM</name>
+    <description>${project.artifactId}</description>
     <url>https://eclipse-ee4j.github.io/glassfish-grizzly</url>
     <organization>
         <name>Eclipse Foundation - GlassFish Project</name>
@@ -153,6 +154,12 @@
                 <version>${osgi.version}</version>
                 <scope>provided</scope>
             </dependency>
+            <dependency>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>5.21.0</version>
+                <scope>test</scope>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -166,8 +173,6 @@
     </dependencies>
 
     <build>
-        <defaultGoal>install</defaultGoal>
-        <directory>target</directory>
         <finalName>${project.artifactId}-${project.version}</finalName>
         <resources>
             <resource>
@@ -219,6 +224,11 @@
                 <plugin>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>3.5.4</version>
+                    <configuration>
+                        <reuseForks>false</reuseForks>
+                        <useModulePath>false</useModulePath>
+                        <argLine>-XX:+HeapDumpOnOutOfMemoryError</argLine>
+                    </configuration>
                 </plugin>
                 <plugin>
                     <artifactId>maven-install-plugin</artifactId>
@@ -234,16 +244,22 @@
                     <version>6.0.0</version>
                     <configuration>
                         <niceManifest>true</niceManifest>
+                        <url>${project.url}</url>
                         <instructions>
                             <_noimportjava>true</_noimportjava>
                             <_runee>JavaSE-${java.version}</_runee>
+                            <Import-Package>
+                                !android.os,
+                                *,
+                            </Import-Package>
+                            <!-- Grizzly exports even impl packages -->
+                            <Export-Package>*</Export-Package>
                         </instructions>
                     </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
-            <!-- Sets minimal Maven version to 3.8.9 -->
             <plugin>
                 <artifactId>maven-enforcer-plugin</artifactId>
                 <executions>
@@ -270,12 +286,10 @@
                 <artifactId>maven-jar-plugin</artifactId>
                 <configuration>
                     <archive>
-                        <manifestEntries>
-                            <mode>development</mode>
-                            <url>${project.url}</url>
-                            <implementation-version>${project.version}</implementation-version>
-                            <package>org.glassfish.grizzly</package>
-                        </manifestEntries>
+                        <manifest>
+                            <addClasspath>false</addClasspath>
+                        </manifest>
+                        <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
                     </archive>
                 </configuration>
             </plugin>
@@ -292,7 +306,6 @@
                 </executions>
             </plugin>
 
-            <!-- Configure the jar with the javadoc -->
             <plugin>
                 <artifactId>maven-javadoc-plugin</artifactId>
             </plugin>

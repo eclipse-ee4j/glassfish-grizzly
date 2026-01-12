@@ -29,7 +29,6 @@
     </parent>
 
     <artifactId>grizzly-http-server</artifactId>
-    <packaging>bundle</packaging>
 
     <name>Grizzly HTTP Server</name>
 
@@ -47,13 +46,10 @@
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
-            <version>5.21.0</version>
-            <scope>test</scope>
         </dependency>
     </dependencies>
 
     <build>
-        <defaultGoal>install</defaultGoal>
         <resources>
             <resource>
                 <filtering>true</filtering>
@@ -72,30 +68,25 @@
         </resources>
         <plugins>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
+                <groupId>org.apache.felix</groupId>
+                <artifactId>maven-bundle-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
                     <argLine>
                         --add-opens java.base/java.lang=ALL-UNNAMED
                         --add-reads org.glassfish.grizzly.http=ALL-UNNAMED
                     </argLine>
-                </configuration>
-            </plugin>
-            <plugin>
-                <groupId>org.apache.felix</groupId>
-                <artifactId>maven-bundle-plugin</artifactId>
-                <extensions>true</extensions>
-                <configuration>
-                    <instructions>
-                        <Import-Package>
-                            org.glassfish.grizzly*;version=${project.version},
-                            !android.os,
-                            *,
-                        </Import-Package>
-                        <Export-Package>
-                            org.glassfish.grizzly.http.server.*;version=${project.version},
-                        </Export-Package>
-                    </instructions>
                 </configuration>
             </plugin>
         </plugins>
