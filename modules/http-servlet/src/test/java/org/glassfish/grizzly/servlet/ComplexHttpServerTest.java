@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2009, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -16,19 +17,18 @@
 
 package org.glassfish.grizzly.servlet;
 
-import static java.util.logging.Level.INFO;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
-import java.security.SecureRandom;
 import java.util.logging.Logger;
 
 import org.glassfish.grizzly.Grizzly;
 import org.glassfish.grizzly.http.server.HttpServer;
 
-import jakarta.servlet.http.HttpServlet;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
+import static java.util.logging.Level.INFO;
 
 /**
  * {@link HttpServer} tests.
@@ -40,7 +40,7 @@ public class ComplexHttpServerTest extends HttpServerAbstractTest {
 
     public static final int PORT = PORT();
     private static final Logger logger = Grizzly.logger(ComplexHttpServerTest.class);
-   
+
 
     /**
      * Want to test multiple servletMapping

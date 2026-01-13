@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021, 2023 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -29,9 +29,8 @@
     </parent>
 
     <artifactId>grizzly-http-monitoring</artifactId>
-    <packaging>bundle</packaging>
 
-    <name>grizzly-http-monitoring</name>
+    <name>Monitoring of Grizzly HTTP Protocol Handler</name>
 
     <dependencies>
         <dependency>
@@ -45,7 +44,6 @@
     </dependencies>
 
     <build>
-        <defaultGoal>install</defaultGoal>
         <resources>
             <resource>
                 <filtering>true</filtering>
@@ -65,34 +63,37 @@
         </testResources>
         <plugins>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <reuseForks>false</reuseForks>
-                </configuration>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
-                <extensions>true</extensions>
-                <configuration>
-                    <instructions>
-                        <Import-Package>
-                            org.glassfish.grizzly*;version=${project.version},
-                            *,
-                        </Import-Package>
-                        <Export-Package>
-                            org.glassfish.grizzly.http.jmx.*;version=${project.version},
-                        </Export-Package>
-                    </instructions>
-                </configuration>
-            </plugin>
-            <plugin>
-                <artifactId>maven-jar-plugin</artifactId>
                 <executions>
                     <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
                         <goals>
-                            <goal>test-jar</goal>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>com.sun.istack</groupId>
+                <artifactId>maven-istack-commons-plugin</artifactId>
+                <version>2.11</version>
+                <executions>
+                    <execution>
+                        <phase>generate-sources</phase>
+                        <configuration>
+                            <resources>
+                                <directory>${basedir}/src/main/resources</directory>
+                                <includes>
+                                    <include>**/*.properties</include>
+                                </includes>
+                            </resources>
+                            <destDir>${project.build.directory}/generated-sources</destDir>
+                            <localizationUtilitiesPkgName>org.glassfish.grizzly.localization</localizationUtilitiesPkgName>
+                        </configuration>
+                        <goals>
+                            <goal>rs-gen</goal>
                         </goals>
                     </execution>
                 </executions>
@@ -116,24 +117,11 @@
                 </executions>
             </plugin>
             <plugin>
-                <groupId>com.sun.istack</groupId>
-                <artifactId>maven-istack-commons-plugin</artifactId>
-                <version>2.11</version>
+                <artifactId>maven-jar-plugin</artifactId>
                 <executions>
                     <execution>
-                        <phase>generate-sources</phase>
-                        <configuration>
-                            <resources>
-                                <directory>${basedir}/src/main/resources</directory>
-                                <includes>
-                                    <include>**/*.properties</include>
-                                </includes>
-                            </resources>
-                            <destDir>${project.build.directory}/generated-sources</destDir>
-                            <localizationUtilitiesPkgName>org.glassfish.grizzly.localization</localizationUtilitiesPkgName>
-                        </configuration>
                         <goals>
-                            <goal>rs-gen</goal>
+                            <goal>test-jar</goal>
                         </goals>
                     </execution>
                 </executions>

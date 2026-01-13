@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021, 2023 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2007, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -29,20 +29,22 @@
     </parent>
 
     <artifactId>grizzly-portunif</artifactId>
-    <packaging>bundle</packaging>
 
-    <name>grizzly-portunif</name>
+    <name>Grizzly Port Protocol Unificator</name>
+    <!-- WARN: Do not add/remove spaces, the felix plugin keeps them in manifest! -->
+    <description>It enables a single network port to handle multiple protocols
+ by detecting the protocol of incoming connections and dispatching them
+ to the appropriate handler.
+    </description>
 
     <dependencies>
         <dependency>
             <groupId>org.glassfish.grizzly</groupId>
             <artifactId>grizzly-framework</artifactId>
-            <version>${project.version}</version>
         </dependency>
     </dependencies>
 
     <build>
-        <defaultGoal>install</defaultGoal>
         <resources>
             <resource>
                 <filtering>true</filtering>
@@ -59,27 +61,17 @@
         </testResources>
         <plugins>
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <reuseForks>false</reuseForks>
-                </configuration>
-            </plugin>
-            <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
-                <extensions>true</extensions>
-                <configuration>
-                    <instructions>
-                        <Import-Package>
-                            org.glassfish.grizzly*;version=${project.version},
-                            *,
-                        </Import-Package>
-                        <Export-Package>
-                            org.glassfish.grizzly.portunif.*;version=${project.version},
-                        </Export-Package>
-                    </instructions>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>bundle-manifest</id>
+                        <phase>process-classes</phase>
+                        <goals>
+                            <goal>manifest</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

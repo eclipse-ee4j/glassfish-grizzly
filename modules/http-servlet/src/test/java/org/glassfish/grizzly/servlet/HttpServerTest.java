@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation.
  * Copyright (c) 2009, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -16,31 +17,6 @@
 
 package org.glassfish.grizzly.servlet;
 
-import static java.util.logging.Level.INFO;
-
-import java.io.File;
-import java.io.IOException;
-import java.net.HttpURLConnection;
-import java.net.ServerSocket;
-import java.net.URI;
-import java.net.URISyntaxException;
-import java.net.URL;
-import java.security.GeneralSecurityException;
-import java.util.logging.Logger;
-
-import javax.net.ssl.HostnameVerifier;
-import javax.net.ssl.HttpsURLConnection;
-import javax.net.ssl.SSLSession;
-
-import org.glassfish.grizzly.Grizzly;
-import org.glassfish.grizzly.http.server.HttpHandler;
-import org.glassfish.grizzly.http.server.HttpServer;
-import org.glassfish.grizzly.http.server.Request;
-import org.glassfish.grizzly.http.server.Response;
-import org.glassfish.grizzly.ssl.SSLContextConfigurator;
-import org.glassfish.grizzly.ssl.SSLEngineConfigurator;
-import org.junit.Ignore;
-
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.FilterConfig;
@@ -50,6 +26,18 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+
+import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.ServerSocket;
+import java.net.URL;
+import java.util.logging.Logger;
+
+import org.glassfish.grizzly.Grizzly;
+import org.glassfish.grizzly.http.server.HttpServer;
+import org.junit.Test;
+
+import static java.util.logging.Level.INFO;
 
 /**
  * {@link HttpServer} tests.
@@ -62,9 +50,10 @@ public class HttpServerTest extends HttpServerAbstractTest {
     public static int PORT = PORT();
     private static Logger logger = Grizzly.logger(HttpServerTest.class);
 
+    @Test
     public void testAddHttpHandlerAfterStart() throws Exception {
         System.out.println("testAddHttpHandlerAfterStart");
-        
+
         try {
             int port = PORT + 1;
             startHttpServer(port);
@@ -81,9 +70,10 @@ public class HttpServerTest extends HttpServerAbstractTest {
         }
     }
 
+    @Test
     public void testMultipleAddHttpHandlerAfterStart() throws Exception {
         System.out.println("testMultipleAddHttpHandlerAfterStart");
-        
+
         try {
             int port = PORT + 2;
             startHttpServer(port);
@@ -103,6 +93,7 @@ public class HttpServerTest extends HttpServerAbstractTest {
         }
     }
 
+    @Test
     public void testOverlapingAddHttpHandlerAfterStart() throws Exception {
         System.out.println("testOverlapingAddHttpHandlerAfterStart");
         try {
@@ -133,6 +124,7 @@ public class HttpServerTest extends HttpServerAbstractTest {
      *
      * @throws IOException Error.
      */
+    @Test
     public void testStartContract() throws IOException {
         System.out.println("testStartContract");
         // lock port
@@ -239,6 +231,7 @@ public class HttpServerTest extends HttpServerAbstractTest {
      *
      * @throws IOException Couldn't start {@link HttpServer}.
      */
+    @Test
     public void testFilterLifecycle() throws IOException {
 
         int port = PORT + 8;
@@ -282,6 +275,7 @@ public class HttpServerTest extends HttpServerAbstractTest {
         assertTrue(destroy[0]);
     }
 
+    @Test
     public void testFilterLifecycleByServletName() throws IOException {
 
         int port = PORT + 8;
@@ -329,6 +323,7 @@ public class HttpServerTest extends HttpServerAbstractTest {
      *
      * @throws IOException Fail.
      */
+    @Test
     public void testAddHttpHandlerBeforeAndAfterStart() throws IOException {
         System.out.println("testAddHttpHandlerBeforeAndAfterStart");
         try {
@@ -360,6 +355,7 @@ public class HttpServerTest extends HttpServerAbstractTest {
         }
     }
 
+    @Test
     public void testMultipleAddHttpHandlerBeforeStartAndOneAfter() throws IOException {
         System.out.println("testMultipleAddHttpHandlerBeforeStartAndOneAfter");
         try {
