@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -18,6 +18,7 @@
 package org.glassfish.grizzly.connectionpool;
 
 import java.io.IOException;
+import java.lang.System.Logger;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.SocketAddress;
@@ -42,6 +43,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import static java.lang.System.Logger.Level.DEBUG;
 import static java.util.Collections.newSetFromMap;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.Assert.assertEquals;
@@ -56,6 +58,7 @@ import static org.junit.Assert.fail;
  * @author Alexey Stashok
  */
 public class MultiEndPointPoolTest {
+    private static final Logger LOG = System.getLogger(MultiEndPointPoolTest.class.getName());
     private static final Integer[] PORTS = getFreePorts(3);
 
     private Set<Connection<?>> serverSideConnections = newSetFromMap(new ConcurrentHashMap<>());
@@ -71,12 +74,14 @@ public class MultiEndPointPoolTest {
 
             @Override
             public NextAction handleAccept(FilterChainContext ctx) throws IOException {
+                LOG.log(DEBUG, "handleAccept(ctx={0})", ctx);
                 serverSideConnections.add(ctx.getConnection());
                 return ctx.getStopAction();
             }
 
             @Override
             public NextAction handleClose(FilterChainContext ctx) throws IOException {
+                LOG.log(DEBUG, "handleClose(ctx={0})", ctx);
                 serverSideConnections.remove(ctx.getConnection());
                 return ctx.getStopAction();
             }
@@ -93,10 +98,13 @@ public class MultiEndPointPoolTest {
 
     @After
     public void tearDown() throws IOException {
-        serverSideConnections.clear();
         if (transport != null) {
             transport.shutdownNow();
         }
+        for (Connection<?> connection : serverSideConnections) {
+            assertFalse("Pool is closed, but connection is still open: " + connection, connection.isOpen());
+        }
+        serverSideConnections.clear();
     }
 
     @Test
@@ -113,9 +121,12 @@ public class MultiEndPointPoolTest {
         try {
             Connection<?> c1 = pool.take(key1).get();
             assertEquals(localAddress, c1.getLocalAddress());
+            assertTrue("Connection could not be released: " + c1, pool.release(c1));
+            assertEquals(1, pool.size());
         } finally {
             pool.close();
         }
+        assertEquals(0, pool.size());
     }
 
     @Test
@@ -303,6 +314,7 @@ public class MultiEndPointPoolTest {
         } finally {
             pool.close();
         }
+        assertEquals(0, pool.size());
     }
 
     @Test
@@ -351,6 +363,7 @@ public class MultiEndPointPoolTest {
         } finally {
             pool.close();
         }
+        assertEquals(0, pool.size());
     }
 
     @Test
@@ -395,6 +408,7 @@ public class MultiEndPointPoolTest {
         } finally {
             pool.close();
         }
+        assertEquals(0, pool.size());
     }
 
     /**
