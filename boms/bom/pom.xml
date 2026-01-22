@@ -30,7 +30,7 @@
 
     <groupId>org.glassfish.grizzly</groupId>
     <artifactId>grizzly-bom</artifactId>
-    <version>5.0.0</version>
+    <version>5.0.1-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>Grizzly BOM</name>
