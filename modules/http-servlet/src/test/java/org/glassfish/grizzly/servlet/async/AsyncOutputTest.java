@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -24,6 +25,7 @@ import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -72,7 +74,7 @@ public class AsyncOutputTest extends HttpServerAbstractTest {
                     AsyncContext asyncCtx = req.startAsync();
 
                     ServletOutputStream output = res.getOutputStream();
-                    WriteListenerImpl writeListener = new WriteListenerImpl(asyncCtx);
+                    WriteListenerImpl writeListener = new WriteListenerImpl(asyncCtx, blockFuture);
                     output.setWriteListener(writeListener);
 
                     output.write("START\n".getBytes());
@@ -163,7 +165,7 @@ public class AsyncOutputTest extends HttpServerAbstractTest {
                     AsyncContext asyncCtx = req.startAsync();
 
                     ServletOutputStream output = res.getOutputStream();
-                    WriteListenerImpl writeListener = new WriteListenerImpl(asyncCtx);
+                    WriteListenerImpl writeListener = new WriteListenerImpl(asyncCtx, blockFuture);
                     output.setWriteListener(writeListener);
 
                     output.write("START\n".getBytes());
@@ -262,14 +264,19 @@ public class AsyncOutputTest extends HttpServerAbstractTest {
 
     static class WriteListenerImpl implements WriteListener {
         private AsyncContext asyncCtx;
+        private Future<Boolean> blockFuture;
 
-        private WriteListenerImpl(AsyncContext asyncCtx) {
+        private WriteListenerImpl(AsyncContext asyncCtx, Future<Boolean> blockFuture) {
             this.asyncCtx = asyncCtx;
+            this.blockFuture = blockFuture;
         }
 
         @Override
         public void onWritePossible() {
             try {
+                if (!blockFuture.isDone()) {
+                    return;
+                }
                 ServletOutputStream output = asyncCtx.getResponse().getOutputStream();
 
                 String message = "onWritePossible";
