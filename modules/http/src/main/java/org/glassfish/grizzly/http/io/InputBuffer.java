@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -817,7 +817,7 @@ public class InputBuffer {
         if (size <= 0) {
             throw new IllegalArgumentException("size should be positive integer");
         }
-        if (this.handler != null) {
+        if (this.handler != null && this.handler != handler) {
             throw new IllegalStateException("Illegal attempt to register a new handler before the existing handler has been notified");
         }
 
