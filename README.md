@@ -12,13 +12,14 @@ WebSocket, Comet, and more!
 
 ### Versions and Branches
 
-- 4.x.x : Next main version in development (Jakarta EE 10).
-- 3.x.x : This is the sustaining branch for 3.x (Jakarta EE 9). (latest release is 3.0.1)
-- 2.4.x : This is the sustaining branch for 2.4 (Jakarta EE 8). (latest release is 2.4.4)
-- 2.3.x : This is the sustaining branch for 2.3 (Java EE 8). (latest release is 2.3.35)
 
-There are other branches for older releases of Grizzly that we don't
-actively maintain at this time, but we keep them for the history.
+- `main` : This is the main development branch, currently for 5.0.x (Jakarta EE 11, Java 21+). (latest release is 5.0.0)
+- `4.1.x` : This is the sustaining branch for 4.1.x (Jakarta EE 11 with Java 17 support). (no release yet)
+- `4.0.x` : This is the sustaining branch for 4.0.x (Jakarta EE 10). (latest release is 4.0.2)
+- `3.0.x` : This is the sustaining branch for 3.x (Jakarta EE 9). (latest release is 3.0.1)
+- `2.4.x` : This is the sustaining branch for 2.4 (Jakarta EE 8). (latest release is 2.4.4)
+
+Branches for older versions can be found in the [javaee/grizzly](https://github.com/javaee/grizzly) repository.
 
 ## Getting Started
 
