@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -98,10 +99,6 @@ public class ServletOutputStreamImpl extends ServletOutputStream {
      */
     @Override
     public boolean isReady() {
-        if (!hasSetWriteListener) {
-            throw new IllegalStateException(LogMessages.WARNING_GRIZZLY_HTTP_SERVLET_OUTPUTSTREAM_ISREADY_ERROR());
-        }
-
         if (!prevIsReady) {
             return false;
         }
@@ -140,6 +137,18 @@ public class ServletOutputStreamImpl extends ServletOutputStream {
         }
 
         writeHandler = new WriteHandlerImpl(writeListener);
+
+        // Initial installation of WriteListener that will be notified
+        if (!outputStream.canWrite()) {
+            prevIsReady = false;
+        }
+        CAN_WRITE_SCOPE.set(Boolean.TRUE);
+        try {
+            outputStream.notifyCanWrite(writeHandler);
+        } finally {
+            CAN_WRITE_SCOPE.remove();
+        }
+
         hasSetWriteListener = true;
     }
 
