@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -24,6 +25,8 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.net.HttpURLConnection;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.EnumSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -44,19 +47,34 @@ import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 /**
  * Basic Servlet 3.1 non-blocking input tests.
  */
+@RunWith(Parameterized.class)
 public class AsyncInputTest extends HttpServerAbstractTest {
     private static Logger LOGGER = Grizzly.logger(AsyncInputTest.class);
 
-    public static int PORT = PORT();
+    private final boolean withBlockingModeRead;
 
+    public AsyncInputTest(final boolean withBlockingModeRead) {
+        this.withBlockingModeRead = withBlockingModeRead;
+    }
+
+    @Parameterized.Parameters
+    public static Collection<Object[]> getWithBlockingModeRead() {
+        return Arrays.asList(new Object[][]{{true}, {false}});
+    }
+
+    @Test
     public void testNonBlockingInput() throws IOException {
         System.out.println("testNonBlockingInput");
         try {
-            newHttpServer(PORT);
+            final int port = PORT();
+            newHttpServer(port);
             WebappContext ctx = new WebappContext("Test", "/contextPath");
             addServlet(ctx, "foobar", "/servletPath/*", new HttpServlet() {
 
@@ -72,9 +90,11 @@ public class AsyncInputTest extends HttpServerAbstractTest {
                     ReadListener readListener = new ReadListenerImpl(asyncCtx, buffer);
                     input.setReadListener(readListener);
 
-                    int len;
-                    while (input.isReady() && (len = input.read(buffer)) != -1) {
-                        output.write(buffer, 0, len);
+                    if (withBlockingModeRead) {
+                        int len;
+                        while (input.isReady() && (len = input.read(buffer)) != -1) {
+                            output.write(buffer, 0, len);
+                        }
                     }
                 }
             });
@@ -82,7 +102,7 @@ public class AsyncInputTest extends HttpServerAbstractTest {
             ctx.deploy(httpServer);
             httpServer.start();
 
-            HttpURLConnection conn = createConnection("/contextPath/servletPath/pathInfo", PORT);
+            HttpURLConnection conn = createConnection("/contextPath/servletPath/pathInfo", port);
             conn.setChunkedStreamingMode(5);
             conn.setDoOutput(true);
             conn.connect();
