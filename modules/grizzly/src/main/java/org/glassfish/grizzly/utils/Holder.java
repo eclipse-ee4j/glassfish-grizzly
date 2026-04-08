@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -24,8 +25,9 @@ import java.util.function.Supplier;
  * @author Alexey Stashok
  */
 public abstract class Holder<E> {
+
     public static <T> Holder<T> staticHolder(final T value) {
-        return new Holder<T>() {
+        return new Holder<>() {
 
             @Override
             public T get() {
@@ -34,31 +36,11 @@ public abstract class Holder<E> {
         };
     }
 
-    public static IntHolder staticIntHolder(final int value) {
-        return new IntHolder() {
-
-            @Override
-            public int getInt() {
-                return value;
-            }
-        };
-    }
-
     public static <T> LazyHolder<T> lazyHolder(final Supplier<T> factory) {
-        return new LazyHolder<T>() {
+        return new LazyHolder<>() {
 
             @Override
             protected T evaluate() {
-                return factory.get();
-            }
-        };
-    }
-
-    public static LazyIntHolder lazyIntHolder(final Supplier<Integer> factory) {
-        return new LazyIntHolder() {
-
-            @Override
-            protected int evaluate() {
                 return factory.get();
             }
         };
@@ -93,37 +75,5 @@ public abstract class Holder<E> {
         }
 
         protected abstract E evaluate();
-    }
-
-    public static abstract class IntHolder extends Holder<Integer> {
-        @Override
-        public final Integer get() {
-            return getInt();
-        }
-
-        public abstract int getInt();
-    }
-
-    public static abstract class LazyIntHolder extends IntHolder {
-        private volatile boolean isSet;
-        private int value;
-
-        @Override
-        public final int getInt() {
-            if (isSet) {
-                return value;
-            }
-
-            synchronized (this) {
-                if (!isSet) {
-                    value = evaluate();
-                    isSet = true;
-                }
-            }
-
-            return value;
-        }
-
-        protected abstract int evaluate();
     }
 }
