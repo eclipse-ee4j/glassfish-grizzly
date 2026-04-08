@@ -17,6 +17,10 @@
 
 package org.glassfish.grizzly.utils;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 /**
@@ -55,23 +59,39 @@ public abstract class Holder<E> {
     }
 
     public static abstract class LazyHolder<E> extends Holder<E> {
-        private volatile boolean isSet;
-        private E value;
+
+        private static final Object UNINITIALIZED = new Object();
+
+        private static final VarHandle VALUE;
+        static {
+            try {
+                VALUE = MethodHandles.lookup().findVarHandle(LazyHolder.class, "value", Object.class);
+            } catch (ReflectiveOperationException e) {
+                throw new ExceptionInInitializerError(e);
+            }
+        }
+
+        private final Lock lock = new ReentrantLock();
+
+        private volatile Object value = UNINITIALIZED;
 
         @Override
+        @SuppressWarnings("unchecked")
         public final E get() {
-            if (isSet) {
-                return value;
-            }
-
-            synchronized (this) {
-                if (!isSet) {
-                    value = evaluate();
-                    isSet = true;
+            Object localValue = VALUE.getAcquire(this);
+            if (localValue == UNINITIALIZED) {
+                lock.lock();
+                try {
+                    localValue = VALUE.getAcquire(this);
+                    if (localValue == UNINITIALIZED) {
+                        localValue = evaluate();
+                        VALUE.setRelease(this, localValue);
+                    }
+                } finally {
+                    lock.unlock();
                 }
             }
-
-            return value;
+            return (E) localValue;
         }
 
         protected abstract E evaluate();
