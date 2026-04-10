@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2009, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -114,7 +115,7 @@ public class UDPNIOConnectorHandler extends AbstractSocketConnectorHandler {
                 try {
                     socket.setOption(StandardSocketOptions.SO_REUSEPORT, reusePort);
                 } catch (Throwable t) {
-                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort), t);
+                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort, socket), t);
                 }
             }
 

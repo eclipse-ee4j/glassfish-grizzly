@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -712,14 +713,14 @@ public final class TCPNIOTransport extends NIOTransport implements AsyncQueueEna
                 try {
                     socket.setReuseAddress(reuseAddress);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(reuseAddress), e);
+                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(reuseAddress, socket), e);
                 }
                 if (tcpNioTransport.isReusePortAvailable()) {
                     final boolean reusePort = tcpNioTransport.isReusePort();
                     try {
                         socket.setOption(StandardSocketOptions.SO_REUSEPORT, reusePort);
                     } catch (Throwable t) {
-                        LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort), t);
+                        LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort, socket), t);
                     }
                 }
             } else { // ServerSocketChannel
@@ -731,14 +732,14 @@ public final class TCPNIOTransport extends NIOTransport implements AsyncQueueEna
                 try {
                     serverSocket.setReuseAddress(tcpNioTransport.isReuseAddress());
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(tcpNioTransport.isReuseAddress()), e);
+                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(tcpNioTransport.isReuseAddress(), serverSocket), e);
                 }
                 if (tcpNioTransport.isReusePortAvailable()) {
                     final boolean reusePort = tcpNioTransport.isReusePort();
                     try {
                         serverSocket.setOption(StandardSocketOptions.SO_REUSEPORT, reusePort);
                     } catch (Throwable t) {
-                        LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort), t);
+                        LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort, serverSocket), t);
                     }
                 }
             }
@@ -758,28 +759,28 @@ public final class TCPNIOTransport extends NIOTransport implements AsyncQueueEna
                         socket.setSoLinger(true, linger);
                     }
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_LINGER_EXCEPTION(linger), e);
+                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_LINGER_EXCEPTION(linger, socket), e);
                 }
 
                 final boolean keepAlive = tcpNioTransport.isKeepAlive();
                 try {
                     socket.setKeepAlive(keepAlive);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_KEEPALIVE_EXCEPTION(keepAlive), e);
+                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_KEEPALIVE_EXCEPTION(keepAlive, socket), e);
                 }
 
                 final boolean tcpNoDelay = tcpNioTransport.isTcpNoDelay();
                 try {
                     socket.setTcpNoDelay(tcpNoDelay);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_TCPNODELAY_EXCEPTION(tcpNoDelay), e);
+                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_TCPNODELAY_EXCEPTION(tcpNoDelay, socket), e);
                 }
 
                 final int clientSocketSoTimeout = tcpNioTransport.getClientSocketSoTimeout();
                 try {
                     socket.setSoTimeout(clientSocketSoTimeout);
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_TIMEOUT_EXCEPTION(tcpNioTransport.getClientSocketSoTimeout()), e);
+                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_TIMEOUT_EXCEPTION(tcpNioTransport.getClientSocketSoTimeout(), socket), e);
                 }
             } else { // ServerSocketChannel
                 final ServerSocketChannel serverSocketChannel = (ServerSocketChannel) channel;
@@ -788,7 +789,7 @@ public final class TCPNIOTransport extends NIOTransport implements AsyncQueueEna
                 try {
                     serverSocket.setSoTimeout(tcpNioTransport.getServerSocketSoTimeout());
                 } catch (IOException e) {
-                    LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_TIMEOUT_EXCEPTION(tcpNioTransport.getServerSocketSoTimeout()), e);
+                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_TIMEOUT_EXCEPTION(tcpNioTransport.getServerSocketSoTimeout(), serverSocket), e);
                 }
             }
         }
