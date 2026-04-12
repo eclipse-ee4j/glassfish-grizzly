@@ -23,6 +23,7 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketAddress;
+import java.net.SocketException;
 import java.net.StandardSocketOptions;
 import java.nio.channels.ClosedByInterruptException;
 import java.nio.channels.SelectableChannel;
@@ -700,96 +701,129 @@ public final class TCPNIOTransport extends NIOTransport implements AsyncQueueEna
     }
 
     private static class DefaultChannelConfigurator implements ChannelConfigurator {
+
         @Override
         public void preConfigure(NIOTransport transport, SelectableChannel channel) throws IOException {
             final TCPNIOTransport tcpNioTransport = (TCPNIOTransport) transport;
-            if (channel instanceof SocketChannel) {
-                final SocketChannel sc = (SocketChannel) channel;
-                final Socket socket = sc.socket();
 
-                sc.configureBlocking(false);
+            channel.configureBlocking(false);
+
+            if (channel instanceof SocketChannel socketChannel) {
+                final Socket socket = socketChannel.socket();
+
+                // The behavior when SO_REUSEADDR or SO_REUSEPORT is enabled
+                // or disabled after a socket is bound is not defined.
+                if (socket.isBound()) {
+                    return;
+                }
+
+                // If an IOException was thrown while setting a socket option,
+                // The socket was closed or is in an invalid state.
+                // We do not set other options to avoid expensive syscalls.
 
                 final boolean reuseAddress = tcpNioTransport.isReuseAddress();
                 try {
-                    socket.setReuseAddress(reuseAddress);
+                    socket.setOption(StandardSocketOptions.SO_REUSEADDR, reuseAddress);
                 } catch (IOException e) {
-                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(reuseAddress, socket), e);
+                    LOGGER.log(Level.FINE, e, () -> LogMessages.FINE_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(reuseAddress, socket));
+                    return;
                 }
+
                 if (tcpNioTransport.isReusePortAvailable()) {
                     final boolean reusePort = tcpNioTransport.isReusePort();
                     try {
                         socket.setOption(StandardSocketOptions.SO_REUSEPORT, reusePort);
-                    } catch (Throwable t) {
-                        LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort, socket), t);
+                    } catch (IOException e) {
+                        LOGGER.log(Level.FINE, e, () -> LogMessages.FINE_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort, socket));
                     }
                 }
-            } else { // ServerSocketChannel
-                final ServerSocketChannel serverSocketChannel = (ServerSocketChannel) channel;
+            } else if (channel instanceof ServerSocketChannel serverSocketChannel) {
                 final ServerSocket serverSocket = serverSocketChannel.socket();
 
-                serverSocketChannel.configureBlocking(false);
-
-                try {
-                    serverSocket.setReuseAddress(tcpNioTransport.isReuseAddress());
-                } catch (IOException e) {
-                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(tcpNioTransport.isReuseAddress(), serverSocket), e);
+                if (serverSocket.isBound()) {
+                    return;
                 }
+
+                final boolean reuseAddress = tcpNioTransport.isReuseAddress();
+                try {
+                    serverSocket.setOption(StandardSocketOptions.SO_REUSEADDR, reuseAddress);
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE, e, () -> LogMessages.FINE_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(reuseAddress, serverSocket));
+                    return;
+                }
+
                 if (tcpNioTransport.isReusePortAvailable()) {
                     final boolean reusePort = tcpNioTransport.isReusePort();
                     try {
                         serverSocket.setOption(StandardSocketOptions.SO_REUSEPORT, reusePort);
-                    } catch (Throwable t) {
-                        LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort, serverSocket), t);
+                    } catch (IOException e) {
+                        LOGGER.log(Level.FINE, e, () -> LogMessages.FINE_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort, serverSocket));
                     }
                 }
             }
         }
 
         @Override
-        public void postConfigure(final NIOTransport transport, final SelectableChannel channel) throws IOException {
-
+        public void postConfigure(final NIOTransport transport, final SelectableChannel channel) {
             final TCPNIOTransport tcpNioTransport = (TCPNIOTransport) transport;
-            if (channel instanceof SocketChannel) {
-                final SocketChannel sc = (SocketChannel) channel;
-                final Socket socket = sc.socket();
+            if (channel instanceof SocketChannel socketChannel) {
+                final Socket socket = socketChannel.socket();
 
-                final int linger = tcpNioTransport.getLinger();
-                try {
-                    if (linger >= 0) {
-                        socket.setSoLinger(true, linger);
-                    }
-                } catch (IOException e) {
-                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_LINGER_EXCEPTION(linger, socket), e);
-                }
+                // If an IOException was thrown while setting a socket option,
+                // The socket was closed or is in an invalid state.
+                // We do not set other options to avoid expensive syscalls.
 
                 final boolean keepAlive = tcpNioTransport.isKeepAlive();
                 try {
-                    socket.setKeepAlive(keepAlive);
+                    socket.setOption(StandardSocketOptions.SO_KEEPALIVE, keepAlive);
                 } catch (IOException e) {
-                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_KEEPALIVE_EXCEPTION(keepAlive, socket), e);
+                    LOGGER.log(Level.FINE, e, () -> LogMessages.FINE_GRIZZLY_SOCKET_KEEPALIVE_EXCEPTION(keepAlive, socket));
+                    return;
                 }
 
                 final boolean tcpNoDelay = tcpNioTransport.isTcpNoDelay();
                 try {
-                    socket.setTcpNoDelay(tcpNoDelay);
+                    socket.setOption(StandardSocketOptions.TCP_NODELAY, tcpNoDelay);
                 } catch (IOException e) {
-                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_TCPNODELAY_EXCEPTION(tcpNoDelay, socket), e);
+                    LOGGER.log(Level.FINE, e, () -> LogMessages.FINE_GRIZZLY_SOCKET_TCPNODELAY_EXCEPTION(tcpNoDelay, socket));
+                    return;
                 }
+
+                // If the socket is in non-blocking mode, setting the SO_LINGER
+                // and the SO_TIMEOUT options produces undefined results.
+                if (!socketChannel.isBlocking()) {
+                    return;
+                }
+
+                final int linger = tcpNioTransport.getLinger();
+                try {
+                    if (linger >= 0) {
+                        socket.setOption(StandardSocketOptions.SO_LINGER, linger);
+                    }
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE, e, () -> LogMessages.FINE_GRIZZLY_SOCKET_LINGER_EXCEPTION(linger, socket));
+                    return;
+                }
+
 
                 final int clientSocketSoTimeout = tcpNioTransport.getClientSocketSoTimeout();
                 try {
                     socket.setSoTimeout(clientSocketSoTimeout);
-                } catch (IOException e) {
-                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_TIMEOUT_EXCEPTION(tcpNioTransport.getClientSocketSoTimeout(), socket), e);
+                } catch (SocketException | IllegalArgumentException e) {
+                    LOGGER.log(Level.FINE, e, () -> LogMessages.FINE_GRIZZLY_SOCKET_TIMEOUT_EXCEPTION(clientSocketSoTimeout, socket));
                 }
-            } else { // ServerSocketChannel
-                final ServerSocketChannel serverSocketChannel = (ServerSocketChannel) channel;
+            } else if (channel instanceof ServerSocketChannel serverSocketChannel) {
+                if (!serverSocketChannel.isBlocking()) {
+                    return;
+                }
+
                 final ServerSocket serverSocket = serverSocketChannel.socket();
 
+                final int serverSocketSoTimeout = tcpNioTransport.getServerSocketSoTimeout();
                 try {
-                    serverSocket.setSoTimeout(tcpNioTransport.getServerSocketSoTimeout());
-                } catch (IOException e) {
-                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_TIMEOUT_EXCEPTION(tcpNioTransport.getServerSocketSoTimeout(), serverSocket), e);
+                    serverSocket.setSoTimeout(serverSocketSoTimeout);
+                } catch (SocketException | IllegalArgumentException e) {
+                    LOGGER.log(Level.FINE, e, () -> LogMessages.FINE_GRIZZLY_SOCKET_TIMEOUT_EXCEPTION(serverSocketSoTimeout, serverSocket));
                 }
             }
         }
