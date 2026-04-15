@@ -292,7 +292,7 @@ public class Http2ServerFilter extends Http2BaseFilter {
         }
 
         final Buffer framePayload;
-        if (!http2Session.isHttp2InputEnabled()) { // Preface is not received yet
+        if (!http2Session.isHttp2InputEnabled() && !http2State.isPriReceived()) { // Preface is not received yet
 
             if (http2State.isHttpUpgradePhase()) {
                 // It's plain HTTP/1.1 data coming with upgrade request
@@ -312,6 +312,7 @@ public class Http2ServerFilter extends Http2BaseFilter {
                     // Not enough PRI content read
                     return ctx.getStopAction(httpContent);
                 }
+                http2State.setPriReceived(true);
             } catch (Exception e) {
                 httpRequest.getProcessingState().setError(true);
                 httpRequest.getProcessingState().setKeepAlive(false);
