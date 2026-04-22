@@ -69,7 +69,7 @@ class Http2State {
 
     private Http2Session http2Session;
 
-    private volatile boolean isPriReceived;
+    private boolean isPriReceived;
 
     private boolean isClientHttpUpgradeRequestFinished;
     private boolean isClientPrefaceSent;
