@@ -291,8 +291,7 @@ public class Http2ServerFilter extends Http2BaseFilter {
             }
         }
 
-        final Buffer framePayload;
-        if (!http2Session.isHttp2InputEnabled() && !http2State.isPriReceived()) { // Preface is not received yet
+        if (!http2Session.isHttp2InputEnabled()) { // Preface is not received yet
 
             if (http2State.isHttpUpgradePhase()) {
                 // It's plain HTTP/1.1 data coming with upgrade request
@@ -303,7 +302,10 @@ public class Http2ServerFilter extends Http2BaseFilter {
 
                 return ctx.getInvokeAction();
             }
+        }
 
+        final Buffer framePayload;
+        if (!http2State.isPriReceived()) { // PRI is not received yet
             final HttpRequestPacket httpRequest = (HttpRequestPacket) httpHeader;
 
             // PRI message hasn't been checked
