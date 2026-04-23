@@ -291,7 +291,6 @@ public class Http2ServerFilter extends Http2BaseFilter {
             }
         }
 
-        final Buffer framePayload;
         if (!http2Session.isHttp2InputEnabled()) { // Preface is not received yet
 
             if (http2State.isHttpUpgradePhase()) {
@@ -303,7 +302,10 @@ public class Http2ServerFilter extends Http2BaseFilter {
 
                 return ctx.getInvokeAction();
             }
+        }
 
+        final Buffer framePayload;
+        if (!http2State.isPriReceived()) { // PRI is not received yet
             final HttpRequestPacket httpRequest = (HttpRequestPacket) httpHeader;
 
             // PRI message hasn't been checked
@@ -312,6 +314,7 @@ public class Http2ServerFilter extends Http2BaseFilter {
                     // Not enough PRI content read
                     return ctx.getStopAction(httpContent);
                 }
+                http2State.setPriReceived(true);
             } catch (Exception e) {
                 httpRequest.getProcessingState().setError(true);
                 httpRequest.getProcessingState().setKeepAlive(false);

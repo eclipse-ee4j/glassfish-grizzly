@@ -69,6 +69,8 @@ class Http2State {
 
     private Http2Session http2Session;
 
+    private boolean isPriReceived;
+
     private boolean isClientHttpUpgradeRequestFinished;
     private boolean isClientPrefaceSent;
 
@@ -158,6 +160,14 @@ class Http2State {
     void setHttp2Session(final Http2Session http2Session) {
         this.http2Session = http2Session;
         this.http2Session.http2State = this;
+    }
+
+    boolean isPriReceived() {
+        return isPriReceived;
+    }
+
+    void setPriReceived(boolean isPriReceived) {
+        this.isPriReceived = isPriReceived;
     }
 
     /**
