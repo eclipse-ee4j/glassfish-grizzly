@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
- * Copyright (c) 2010, 2024 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025,2026 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2010,2024 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -50,6 +50,7 @@ import org.glassfish.grizzly.utils.ChunkingFilter;
 import org.glassfish.grizzly.utils.Pair;
 
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -74,45 +75,29 @@ public class HttpRequestParseTest {
 
     public static final int PORT = 19000;
 
-    private final boolean isStrictHeaderNameValidationSet;
-    private final boolean isStrictHeaderValueValidationSet;
-    private final String isStrictHeaderNameValidationSetBefore;
-    private final String isStrictHeaderValueValidationSetBefore;
+    private final TestUtils.SystemPropertyToggle strictHeaderNameValidation;
+    private final TestUtils.SystemPropertyToggle strictHeaderValueValidation;
 
     @Parameterized.Parameters
     public static Collection<Object[]> getMode() {
-        return asList(new Object[][] { { FALSE, FALSE }, { FALSE, TRUE }, { TRUE, FALSE }, { TRUE, TRUE } });
+        return asList(new Object[][] { { null, null }, { FALSE, FALSE }, { FALSE, TRUE }, { TRUE, FALSE }, { TRUE, TRUE } });
+    }
+
+    public HttpRequestParseTest(Boolean isStrictHeaderNameValidationSet, Boolean isStrictHeaderValueValidationSet) {
+        this.strictHeaderNameValidation = new TestUtils.SystemPropertyToggle(STRICT_HEADER_NAME_VALIDATION_RFC_9110, isStrictHeaderNameValidationSet, true);
+        this.strictHeaderValueValidation = new TestUtils.SystemPropertyToggle(STRICT_HEADER_VALUE_VALIDATION_RFC_9110, isStrictHeaderValueValidationSet, true);
     }
 
     @Before
     public void before() throws Exception {
-        if (isStrictHeaderNameValidationSet) {
-            System.setProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110, String.valueOf(Boolean.TRUE));
-        } else {
-            System.setProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110, String.valueOf(Boolean.FALSE));
-        }
-        if (isStrictHeaderValueValidationSet) {
-            System.setProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110, String.valueOf(Boolean.TRUE));
-        } else {
-            System.setProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110, String.valueOf(Boolean.FALSE));
-        }
+        strictHeaderNameValidation.set();
+        strictHeaderValueValidation.set();
     }
 
     @After
     public void after() throws Exception {
-        System.setProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110,
-                           isStrictHeaderNameValidationSetBefore != null ? isStrictHeaderNameValidationSetBefore :
-                           String.valueOf(Boolean.FALSE));
-        System.setProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110,
-                           isStrictHeaderValueValidationSetBefore != null ? isStrictHeaderValueValidationSetBefore :
-                           String.valueOf(Boolean.FALSE));
-    }
-
-    public HttpRequestParseTest(boolean isStrictHeaderNameValidationSet, boolean isStrictHeaderValueValidationSet) {
-        this.isStrictHeaderNameValidationSet = isStrictHeaderNameValidationSet;
-        this.isStrictHeaderValueValidationSet = isStrictHeaderValueValidationSet;
-        this.isStrictHeaderNameValidationSetBefore = System.getProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110);
-        this.isStrictHeaderValueValidationSetBefore = System.getProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110);
+        strictHeaderNameValidation.unset();
+        strictHeaderValueValidation.unset();
     }
 
     @Test
@@ -156,9 +141,8 @@ public class HttpRequestParseTest {
 
     @Test
     public void testDisallowedCharactersForHeaderNames() {
-        if (!isStrictHeaderNameValidationSet) {
-            return;
-        }
+        Assume.assumeTrue(strictHeaderNameValidation.isEnabled());
+
         final StringBuilder sb = new StringBuilder("GET / HTTP/1.1\r\n");
         sb.append("Host: localhost\r\n");
         sb.append(new char[]{0x00, 0x01, 0x02, '\t', '\n', '\r', ' ', '\"', '(', ')', '/', ';', '<', '=', '>', '?', '@',
@@ -186,9 +170,8 @@ public class HttpRequestParseTest {
 
     @Test
     public void testDisallowedCharactersForHeaderContentValues() {
-        if (!isStrictHeaderValueValidationSet) {
-            return;
-        }
+        Assume.assumeTrue(strictHeaderValueValidation.isEnabled());
+
         final StringBuilder sb = new StringBuilder("GET / HTTP/1.1\r\n");
         sb.append("Host: localhost\r\n");
         sb.append("Some-Header: some-");
@@ -224,9 +207,8 @@ public class HttpRequestParseTest {
 
     @Test
     public void testIgnoredHeaders() throws Exception {
-        if (!isStrictHeaderNameValidationSet) {
-            return;
-        }
+        Assume.assumeTrue(strictHeaderNameValidation.isEnabled());
+
         final Map<String, Pair<String, String>> headers = new HashMap<>();
         headers.put("Host", new Pair<>("localhost", "localhost"));
         headers.put("Ignore\r\nContent-length", new Pair<>("2345", "2345"));
@@ -238,10 +220,9 @@ public class HttpRequestParseTest {
 
     @Test
     public void testMultiLineHeaders() throws Exception {
-        if (isStrictHeaderValueValidationSet) {
             // Multiline headers should not be supported
-            return;
-        }
+        Assume.assumeFalse(strictHeaderValueValidation.isEnabled());
+
         Map<String, Pair<String, String>> headers = new HashMap<>();
         headers.put("Host", new Pair<>("localhost", "localhost"));
         headers.put("Multi-line", new Pair<>("first\r\n          second\r\n       third", "first second third"));
@@ -251,10 +232,9 @@ public class HttpRequestParseTest {
 
     @Test
     public void testHeadersN() throws Exception {
-        if (isStrictHeaderValueValidationSet) {
             // Multiline headers should not be supported
-            return;
-        }
+        Assume.assumeFalse(strictHeaderValueValidation.isEnabled());
+
         Map<String, Pair<String, String>> headers = new HashMap<>();
         headers.put("Host", new Pair<>("localhost", "localhost"));
         headers.put("Multi-line", new Pair<>("first\r\n          second\n       third", "first second third"));
@@ -454,6 +434,8 @@ public class HttpRequestParseTest {
             }
 
             transport.shutdownNow();
+            // wait until the port is unbound
+            Thread.sleep(10);
         }
     }
 

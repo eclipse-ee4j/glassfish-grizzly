@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
- * Copyright (c) 2010, 2024 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025,2026 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2010,2024 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -113,13 +113,13 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
      * @see #setRemoveHandledContentEncodingHeaders
      */
     private boolean removeHandledContentEncodingHeaders = false;
-    
+
     public static final String STRICT_HEADER_NAME_VALIDATION_RFC_9110 = "org.glassfish.grizzly.http.STRICT_HEADER_NAME_VALIDATION_RFC_9110";
-    
+
     public static final String STRICT_HEADER_VALUE_VALIDATION_RFC_9110 = "org.glassfish.grizzly.http.STRICT_HEADER_VALUE_VALIDATION_RFC_9110";
-    
+
     private final boolean strictHeaderNameValidation;
-    
+
     private final boolean strictHeaderValueValidation;
 
     /**
@@ -179,7 +179,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
     /**
      * Callback method, called when {@link HttpPacket} parsing has been completed.
-     * 
+     *
      * @param httpHeader {@link HttpHeader}, which represents parsed HTTP packet header
      * @param ctx processing context.
      *
@@ -205,7 +205,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
      * Invoked when either the request line or status line has been parsed.
      *
      * </p>
-     * 
+     *
      * @param httpHeader {@link HttpHeader}, which represents HTTP packet header
      * @param ctx processing context.
      */
@@ -319,9 +319,9 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         this.chunkingEnabled = chunkingEnabled;
         final Properties properties = Objects.requireNonNullElse(props, System.getProperties());
         this.strictHeaderNameValidation =
-                Boolean.parseBoolean(properties.getProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110, "false"));
+                Boolean.parseBoolean(properties.getProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110, "true"));
         this.strictHeaderValueValidation =
-                Boolean.parseBoolean(properties.getProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110, "false"));
+                Boolean.parseBoolean(properties.getProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110, "true"));
         this.preserveHeaderCase = Boolean.parseBoolean(properties.getProperty(PRESERVE_HEADER_CASE, "false"));
         transferEncodings.addAll(new FixedLengthTransferEncoding(), new ChunkedTransferEncoding(maxHeadersSize, props));
     }
