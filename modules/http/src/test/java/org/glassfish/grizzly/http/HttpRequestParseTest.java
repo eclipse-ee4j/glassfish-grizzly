@@ -27,6 +27,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.HashMap;
+
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.Connection;
 import org.glassfish.grizzly.SocketConnectorHandler;
@@ -58,6 +59,7 @@ import org.junit.runners.Parameterized;
 
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
+import static java.time.Duration.ofSeconds;
 import static java.util.Arrays.asList;
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_NAME_VALIDATION_RFC_9110;
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_VALUE_VALIDATION_RFC_9110;
@@ -397,7 +399,8 @@ public class HttpRequestParseTest {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            // we retry because it may take a short while until the port is unbound after previous tests
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             FilterChainBuilder clientFilterChainBuilder = FilterChainBuilder.stateless().add(new TransportFilter());
@@ -434,8 +437,6 @@ public class HttpRequestParseTest {
             }
 
             transport.shutdownNow();
-            // wait until the port is unbound
-            Thread.sleep(10);
         }
     }
 

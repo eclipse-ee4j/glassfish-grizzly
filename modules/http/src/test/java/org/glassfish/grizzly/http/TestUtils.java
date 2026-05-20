@@ -15,11 +15,19 @@
  */
 package org.glassfish.grizzly.http;
 
+import java.time.Duration;
+import java.util.concurrent.Callable;
+
 /**
  *
  * @author Ondro Mihalyi
  */
 public class TestUtils {
+
+    private TestUtils() {
+        // Prevent instantiation
+    }
+
     public static class SystemPropertyToggle {
         private final String propertyName;
         private final Boolean propertyEnabled;
@@ -51,10 +59,40 @@ public class TestUtils {
 
         private void setOrUnsetProperty(String value) {
             if (value == null) {
-                System.getProperties().remove(propertyName);
+                System.clearProperty(propertyName);
             } else {
                 System.setProperty(propertyName, value);
             }
         }
+    }
+
+    /**
+     * Repeatedly attempts to execute the given action. If the action throws an exception or assertion error,
+     * it pauses and retries until the timeout is reached.
+     *
+     * @param action        the task to execute
+     * @param timeoutMillis the maximum time to wait in milliseconds
+     * @param sleepMillis   the pause duration between retries in milliseconds
+     * @param <T>           the type of the result
+     * @return the result of the action if it succeeds before the timeout
+     * @throws Exception if the timeout is exceeded, the last thrown exception is rethrown
+     */
+    @SuppressWarnings("SleepWhileInLoop")
+    public static <T> T retryUntilSuccess(Callable<T> action, Duration timeout, Duration sleep) throws Exception {
+        final long startTime = System.currentTimeMillis();
+        Exception lastException = null;
+        final long timeoutMillis = timeout.toMillis();
+        final long sleepMillis = sleep.toMillis();
+
+        while (System.currentTimeMillis() - startTime <= timeoutMillis) {
+            try {
+                return action.call();
+            } catch (Exception t) {
+                lastException = t;
+            }
+            Thread.sleep(sleepMillis);
+        }
+
+        throw lastException;
     }
 }
