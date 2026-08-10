@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2024 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -667,6 +668,37 @@ public class HttpSemanticsTest extends TestCase {
         result.setStatusCode(400);
         result.addHeader("!Transfer-Encoding", null);
         result.addHeader("Content-Length", "0");
+        result.setStatusMessage("Bad request");
+        doTest(request, result);
+    }
+
+    /**
+     * The bad request has to be answered even when the request line carried a protocol token this implementation does
+     * not recognize. Such a request never reaches prepareRequest(), which is where an unrecognized token is otherwise
+     * turned into a 505, so the token is still in the packet when the error response gets encoded.
+     */
+    public void testHttpHeadersLimitWithUnrecognizedProtocol() throws Throwable {
+        // chunked(false) is left out on purpose - the builder resolves the protocol to apply it, which an
+        // unrecognized token cannot survive on the client side either
+        final Builder builder = HttpRequestPacket.builder().method("GET").uri("/path").header("Host", "localhost:" + PORT).protocol("HTTP/1.2")
+                .maxNumHeaders(-1);
+
+        int i = 1;
+        int headerSize = MAX_HEADERS_SIZE;
+        while (headerSize >= 0) {
+            final String name = "Header-" + i;
+            final String value = "Value-" + i;
+
+            builder.header(name, value);
+            i++;
+            headerSize -= name.length() + value.length();
+        }
+
+        final HttpRequestPacket request = builder.build();
+
+        ExpectedResult result = new ExpectedResult();
+        result.setProtocol("HTTP/1.1");
+        result.setStatusCode(400);
         result.setStatusMessage("Bad request");
         doTest(request, result);
     }
