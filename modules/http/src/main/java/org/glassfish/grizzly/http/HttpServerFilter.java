@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -1088,7 +1088,22 @@ public class HttpServerFilter extends HttpCodecFilter {
             // 400 - Bad request
             HttpStatus.BAD_REQUEST_400.setValues(response);
         }
+        ensureSerializableProtocol(response.getRequest());
         commitAndCloseAsError(ctx, response);
+    }
+
+    /**
+     * The error response has to be serializable whatever the client sent. When the request line carried a protocol
+     * token this implementation does not recognize, {@link HttpHeader#getProtocol()} throws, and here it would throw
+     * from {@link #prepareResponse} while the error response is being encoded - losing the response altogether.
+     * Assume HTTP/1.1 in that case, as {@link #prepareRequest} already does for the 505 it answers.
+     */
+    private static void ensureSerializableProtocol(final HttpRequestPacket request) {
+        try {
+            request.getProtocol();
+        } catch (IllegalStateException unrecognizedProtocol) {
+            request.setProtocol(Protocol.HTTP_1_1);
+        }
     }
 
     /*
