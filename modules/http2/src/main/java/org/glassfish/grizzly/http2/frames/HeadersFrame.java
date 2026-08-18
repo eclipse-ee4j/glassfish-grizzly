@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -143,9 +144,10 @@ public class HeadersFrame extends HeaderBlockHead {
             return;
         }
 
-        padLength = 0;
+        exclusive = false;
         streamDependency = 0;
         weight = 0;
+        compressedHeadersLen = 0;
 
         super.recycle();
         ThreadCache.putToCache(CACHE_IDX, this);
