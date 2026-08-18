@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -55,6 +56,7 @@ public abstract class HeaderBlockHead extends HeaderBlockFragment {
             return;
         }
 
+        padLength = 0;
         super.recycle();
     }
 
