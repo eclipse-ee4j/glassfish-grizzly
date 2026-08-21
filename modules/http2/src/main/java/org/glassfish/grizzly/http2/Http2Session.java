@@ -941,7 +941,7 @@ public class Http2Session {
                 return null; // if the session is closed is set - return null to ignore stream creation
             }
 
-            if (concurrentStreamsCount.get() >= getLocalMaxConcurrentStreams()) {
+            if (concurrentStreamsCount.get() > getLocalMaxConcurrentStreams()) {
                 // throw Session level exception because headers were not decompressed,
                 // so compression context is lost
                 throw new Http2SessionException(ErrorCode.REFUSED_STREAM);
@@ -990,7 +990,7 @@ public class Http2Session {
                 throw new Http2StreamException(streamId, ErrorCode.REFUSED_STREAM, "Session is closed");
             }
 
-            if (concurrentStreamsCount.get() >= getLocalMaxConcurrentStreams()) {
+            if (concurrentStreamsCount.get() > getLocalMaxConcurrentStreams()) {
                 throw new Http2StreamException(streamId, ErrorCode.REFUSED_STREAM);
             }
 
