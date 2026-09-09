@@ -285,7 +285,8 @@ public class SafeFutureImpl<R> implements FutureImpl<R> {
         private Throwable exception;
 
         private boolean ranOrCancelled() {
-            return (getState() & (RAN | CANCELLED)) != 0;
+            int state = getState();
+            return state == RAN || state == CANCELLED;
         }
 
         /**
