@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates and others.
  * All rights reserved.
  *
@@ -932,7 +932,7 @@ public class Http2Session {
 
     @SuppressWarnings("SameParameterValue")
     Http2Stream acceptStream(final HttpRequestPacket request, final int streamId, final int parentStreamId, final boolean exclusive, final int priority)
-            throws Http2SessionException {
+            throws Http2SessionException, Http2StreamException {
 
         final Http2Stream stream = newStream(request, streamId, parentStreamId, exclusive, priority);
 
@@ -941,11 +941,6 @@ public class Http2Session {
                 return null; // if the session is closed is set - return null to ignore stream creation
             }
 
-            if (concurrentStreamsCount.get() >= getLocalMaxConcurrentStreams()) {
-                // throw Session level exception because headers were not decompressed,
-                // so compression context is lost
-                throw new Http2SessionException(ErrorCode.REFUSED_STREAM);
-            }
             if (isServer()) {
                 if (streamId > 0 && (streamId & 1) == 0) {
                     throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR);
@@ -958,6 +953,14 @@ public class Http2Session {
 
             if (streamId < lastPeerStreamId) {
                 throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR);
+            }
+
+            if (concurrentStreamsCount.get() >= getLocalMaxConcurrentStreams()) {
+                // RFC 9113, section 5.1.2: a stream over the advertised limit is a stream error, not a connection error.
+                // The caller still has to decode the stream's header block to keep the HPACK context in sync.
+                // The stream ID is used up, so frames still arriving for it are handled as for a closed stream.
+                lastPeerStreamId = streamId;
+                throw new Http2StreamException(streamId, ErrorCode.REFUSED_STREAM, "Maximum number of concurrent streams exceeded");
             }
 
             registerStream(streamId, stream);

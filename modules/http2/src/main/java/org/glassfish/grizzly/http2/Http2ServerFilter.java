@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2015, 2020 Oracle and/or its affiliates and others.
  * All rights reserved.
  * Copyright (c) 2021 Contributors to the Eclipse Foundation
@@ -627,7 +627,13 @@ public class Http2ServerFilter extends Http2BaseFilter {
             return;
         }
 
-        stream = http2Session.acceptStream(request, headersFrame.getStreamId(), headersFrame.getStreamDependency(), headersFrame.isExclusive(), 0);
+        try {
+            stream = http2Session.acceptStream(request, headersFrame.getStreamId(), headersFrame.getStreamDependency(), headersFrame.isExclusive(), 0);
+        } catch (Http2StreamException e) {
+            request.recycle();
+            DecoderUtils.skipHeaders(http2Session);
+            throw e;
+        }
         if (stream == null) { // GOAWAY has been sent, so ignoring this request
             request.recycle();
             return;

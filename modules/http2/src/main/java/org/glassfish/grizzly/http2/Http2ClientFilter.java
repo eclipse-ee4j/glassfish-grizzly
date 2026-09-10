@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2015, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -613,7 +614,14 @@ public class Http2ClientFilter extends Http2BaseFilter {
             throw new Http2StreamException(refStreamId, ErrorCode.REFUSED_STREAM, "PushPromise is sent over unknown stream: " + refStreamId);
         }
 
-        final Http2Stream stream = http2Session.acceptStream(request, pushPromiseFrame.getPromisedStreamId(), refStreamId, false, 0);
+        final Http2Stream stream;
+        try {
+            stream = http2Session.acceptStream(request, pushPromiseFrame.getPromisedStreamId(), refStreamId, false, 0);
+        } catch (Http2StreamException e) {
+            request.recycle();
+            DecoderUtils.skipHeaders(http2Session);
+            throw e;
+        }
 
         final Map<String, String> capture = NetLogger.isActive() ? new LinkedHashMap<>() : null;
         DecoderUtils.decodeRequestHeaders(http2Session, request, capture);
