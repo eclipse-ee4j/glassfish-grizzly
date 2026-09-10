@@ -20,6 +20,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.IOException;
 import java.util.Map;
@@ -27,10 +28,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.glassfish.grizzly.Connection;
 import org.glassfish.grizzly.SocketConnectorHandler;
 import org.glassfish.grizzly.filterchain.BaseFilter;
+import org.glassfish.grizzly.filterchain.Filter;
 import org.glassfish.grizzly.filterchain.FilterChain;
 import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.filterchain.NextAction;
@@ -50,12 +54,14 @@ import org.junit.After;
 import org.junit.Test;
 
 /**
- * Tests that a stream exceeding {@code SETTINGS_MAX_CONCURRENT_STREAMS} is refused on its own (RFC 9113, section
- * 5.1.2) instead of terminating the whole connection together with the streams still in progress on it.
+ * Tests the handling of the local {@code SETTINGS_MAX_CONCURRENT_STREAMS} limit: a stream exceeding it is refused on its
+ * own (RFC 9113, section 5.1.2) instead of terminating the whole connection, and a stream stops counting toward it
+ * before the peer can see the stream closed.
  */
 public class Http2MaxConcurrentStreamsTest extends AbstractHttp2Test {
 
     private static final int PORT = 18906;
+    private static final int SEQUENTIAL_REQUESTS = 5000;
     private static final String TEST_HEADER = "x-refused-stream-test";
     private static final String TEST_HEADER_VALUE = "hpack-dynamic-table-entry";
 
@@ -108,6 +114,57 @@ public class Http2MaxConcurrentStreamsTest extends AbstractHttp2Test {
         assertTrue(connection.isOpen());
     }
 
+    /**
+     * The client opens each stream only once the previous one is complete, so it never has more than the single
+     * permitted stream open, and none of the streams may be refused. The server used to lower its stream count only
+     * after the END_STREAM frame had been written, so a stream opened right after that frame arrived could be refused.
+     * That race does not show on every request, hence the number of requests.
+     */
+    @Test
+    public void testStreamOpenedAfterPreviousOneCompletedIsNotRefused() throws Exception {
+        startServer(new HttpHandler() {
+            @Override
+            public void service(final Request request, final Response response) throws Exception {
+                response.setContentType("text/plain");
+                response.getWriter().write("ok");
+            }
+        });
+
+        final AtomicInteger completed = new AtomicInteger();
+        final AtomicReference<HttpContent> lastRequest = new AtomicReference<>();
+        final CountDownLatch allCompleted = new CountDownLatch(1);
+        final Connection<?> connection = connect(new BaseFilter() {
+            @Override
+            public NextAction handleRead(final FilterChainContext ctx) throws IOException {
+                final HttpContent httpContent = ctx.getMessage();
+                if (httpContent.isLast()) {
+                    if (completed.incrementAndGet() == SEQUENTIAL_REQUESTS) {
+                        allCompleted.countDown();
+                    } else {
+                        send(ctx.getConnection(), lastRequest);
+                    }
+                }
+                return ctx.getStopAction();
+            }
+        });
+
+        send(connection, lastRequest);
+
+        int completedBefore = -1;
+        long lastProgress = System.nanoTime();
+        while (!allCompleted.await(100, TimeUnit.MILLISECONDS)) {
+            final int completedNow = completed.get();
+            if (completedNow != completedBefore) {
+                completedBefore = completedNow;
+                lastProgress = System.nanoTime();
+            } else if (System.nanoTime() - lastProgress > TimeUnit.SECONDS.toNanos(10)) {
+                final Http2Stream stream = Http2Stream.getStreamFor(lastRequest.get().getHttpHeader());
+                fail("request " + (completedNow + 1) + " got no response" + (stream != null && !stream.isOpen() ? ", its stream was reset" : ""));
+            }
+        }
+        assertTrue(connection.isOpen());
+    }
+
     // -------------------------------------------------------- Private Methods
 
     private void startServer(final HttpHandler handler) throws Exception {
@@ -118,8 +175,15 @@ public class Http2MaxConcurrentStreamsTest extends AbstractHttp2Test {
         httpServer.start();
     }
 
-    private Connection<?> connect(final ResponseCollector responses) throws Exception {
-        final FilterChain clientChain = createClientFilterChainAsBuilder(false, true, responses).build();
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static void send(final Connection connection, final AtomicReference<HttpContent> lastRequest) {
+        final HttpContent request = get("/sequential");
+        lastRequest.set(request);
+        connection.write(request);
+    }
+
+    private Connection<?> connect(final Filter clientFilter) throws Exception {
+        final FilterChain clientChain = createClientFilterChainAsBuilder(false, true, clientFilter).build();
         final TCPNIOTransport transport = httpServer.getListener("grizzly").getTransport();
         final SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(transport).processor(clientChain).build();
         final Future<Connection> connectFuture = connectorHandler.connect("localhost", PORT);
