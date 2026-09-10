@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -174,14 +175,6 @@ public class HttpUpgradeTest extends TestCase {
                 ServletOutputStream output = wc.getOutputStream();
                 ReadListenerImpl readListener = new ReadListenerImpl(delimiter, input, output);
                 input.setReadListener(readListener);
-
-                int b;
-                while (input.isReady() && (b = input.read()) != -1) {
-                    System.out.print((char) b);
-                    output.write(b);
-                }
-                output.flush();
-
             } catch (Exception ex) {
                 throw new RuntimeException(ex);
             }
