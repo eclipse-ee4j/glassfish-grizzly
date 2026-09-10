@@ -106,6 +106,9 @@ public class Http2Session {
     private volatile FilterChain htt2SessionChain;
 
     private final AtomicInteger concurrentStreamsCount = new AtomicInteger(0);
+    // streams which are still registered, but no longer count toward the local concurrent streams limit,
+    // see onSendEndOfStream(Http2Stream); guarded by sessionLock
+    private int closingStreamsCount;
 
     private final TreeMap<Integer, Http2Stream> streamsMap = new TreeMap<>();
 
@@ -645,7 +648,7 @@ public class Http2Session {
             List<Http2Stream> closedStreams = new ArrayList<>(invalidStreams.values());
             for (final Http2Stream stream : closedStreams) {
                 stream.closedRemotely();
-                deregisterStream();
+                deregisterStream(stream);
             }
         }
     }
@@ -955,7 +958,7 @@ public class Http2Session {
                 throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR);
             }
 
-            if (concurrentStreamsCount.get() >= getLocalMaxConcurrentStreams()) {
+            if (concurrentStreamsCount.get() - closingStreamsCount >= getLocalMaxConcurrentStreams()) {
                 // RFC 9113, section 5.1.2: a stream over the advertised limit is a stream error, not a connection error.
                 // The caller still has to decode the stream's header block to keep the HPACK context in sync.
                 // The stream ID is used up, so frames still arriving for it are handled as for a closed stream.
@@ -993,7 +996,7 @@ public class Http2Session {
                 throw new Http2StreamException(streamId, ErrorCode.REFUSED_STREAM, "Session is closed");
             }
 
-            if (concurrentStreamsCount.get() >= getLocalMaxConcurrentStreams()) {
+            if (concurrentStreamsCount.get() - closingStreamsCount >= getLocalMaxConcurrentStreams()) {
                 throw new Http2StreamException(streamId, ErrorCode.REFUSED_STREAM);
             }
 
@@ -1083,13 +1086,36 @@ public class Http2Session {
     }
 
     /**
+     * Called right before a frame with the END_STREAM flag is written for the stream. If the stream input is already
+     * closed, the peer considers the stream closed as soon as this frame arrives and may open another stream in its
+     * place right away. The stream is deregistered only after the write, so it stops counting toward the concurrent
+     * streams limit now, otherwise such a new stream could be refused although the peer respects the limit.
+     */
+    void onSendEndOfStream(final Http2Stream stream) {
+        if (!stream.inputBuffer.isClosed()) {
+            return;
+        }
+        synchronized (sessionLock) {
+            if (!stream.isClosing && !stream.isDeregistered) {
+                stream.isClosing = true;
+                closingStreamsCount++;
+            }
+        }
+    }
+
+    /**
      * Called from {@link Http2Stream} once stream is completely closed.
      */
-    void deregisterStream() {
+    void deregisterStream(final Http2Stream stream) {
         LOGGER.fine("deregisterStream()");
         final boolean isCloseSession;
         synchronized (sessionLock) {
             decStreamCount();
+            if (stream.isClosing) {
+                stream.isClosing = false;
+                closingStreamsCount--;
+            }
+            stream.isDeregistered = true;
             // If we're in GOAWAY state and there are no streams left - close this session
             isCloseSession = isGoingAway() && concurrentStreamsCount.get() <= 0;
             if (!isCloseSession) {

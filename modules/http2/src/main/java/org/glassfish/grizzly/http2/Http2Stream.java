@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -116,6 +117,11 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
 
     // flag, which is indicating if Http2Stream processing has been marked as complete by external code
     volatile boolean isProcessingComplete;
+
+    // the stream no longer counts toward the concurrent streams limit (see Http2Session.onSendEndOfStream),
+    // and the stream has been deregistered from the session; both guarded by the session lock
+    boolean isClosing;
+    boolean isDeregistered;
 
     // the counter for inbound HeaderFrames
     private int inboundHeaderFramesCounter;
@@ -634,7 +640,7 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
     private void closeStream() {
         // TODO ensure stream proper transitions to CLOSED state
         // Http2StreamState.close(this);
-        http2Session.deregisterStream();
+        http2Session.deregisterStream(this);
     }
 
     HttpHeader getInputHttpHeader() {
