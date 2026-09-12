@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -16,6 +17,9 @@
 
 package org.glassfish.grizzly.http.server;
 
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
@@ -25,6 +29,12 @@ import java.util.concurrent.ConcurrentMap;
  * @author Jeanfrancois Arcand
  */
 public class Session {
+
+    /**
+     * Largest shift {@link #setTimestamp(long)} applies to the monotonic access time, keeping the nanosecond arithmetic
+     * in {@link #isExpired(long)} free of overflow.
+     */
+    private static final long MAX_TIMESTAMP_SHIFT_MILLIS = NANOSECONDS.toMillis(Long.MAX_VALUE / 4);
 
     /**
      * Cache attribute (thread safe)
@@ -39,12 +49,12 @@ public class Session {
     /**
      * Is this Session valid.
      */
-    private boolean isValid = true;
+    private volatile boolean isValid = true;
 
     /**
      * Is this session new.
      */
-    private boolean isNew = true;
+    private volatile boolean isNew = true;
 
     /**
      * When this session was created.
@@ -54,12 +64,18 @@ public class Session {
     /**
      * Timeout
      */
-    private long sessionTimeout = -1;
+    private volatile long sessionTimeout = -1;
 
     /**
      * Creation time stamp.
      */
-    private long timestamp = -1;
+    private volatile long timestamp = -1;
+
+    /**
+     * {@link System#nanoTime()} of the last access. Used for expiration, so that system clock changes neither shorten nor
+     * extend the session.
+     */
+    private volatile long lastAccessedNanos;
 
     public Session() {
         this(null);
@@ -72,6 +88,7 @@ public class Session {
      */
     public Session(String id) {
         this.id = id;
+        lastAccessedNanos = System.nanoTime();
         creationTime = timestamp = System.currentTimeMillis();
     }
 
@@ -198,11 +215,16 @@ public class Session {
     }
 
     /**
-     * Set the timestamp when this session was accessed the last time.
+     * Set the timestamp when this session was accessed the last time. The idle time used for expiration is shifted by the
+     * same amount.
      * 
      * @param timestamp a long representing when the session was accessed the last time
      */
     public void setTimestamp(long timestamp) {
+        final long nowMillis = System.currentTimeMillis();
+        final long boundedTimestamp = Math.max(nowMillis - MAX_TIMESTAMP_SHIFT_MILLIS,
+                Math.min(nowMillis + MAX_TIMESTAMP_SHIFT_MILLIS, timestamp));
+        lastAccessedNanos = System.nanoTime() - MILLISECONDS.toNanos(nowMillis - boundedTimestamp);
         this.timestamp = timestamp;
     }
 
@@ -213,9 +235,23 @@ public class Session {
      */
     public long access() {
         final long localTimeStamp = System.currentTimeMillis();
+        lastAccessedNanos = System.nanoTime();
         timestamp = localTimeStamp;
         isNew = false;
 
         return localTimeStamp;
+    }
+
+    /**
+     * Returns <code>true</code> if this session has a positive {@link #getSessionTimeout() timeout} and has not been
+     * accessed for longer than that. The idle time is measured with {@link System#nanoTime()}, so system clock changes do
+     * not affect it.
+     *
+     * @param nowNanos the current {@link System#nanoTime()} value
+     * @return <code>true</code> if the session has expired
+     */
+    public boolean isExpired(final long nowNanos) {
+        final long timeout = sessionTimeout;
+        return timeout > 0 && nowNanos - lastAccessedNanos > MILLISECONDS.toNanos(timeout);
     }
 }

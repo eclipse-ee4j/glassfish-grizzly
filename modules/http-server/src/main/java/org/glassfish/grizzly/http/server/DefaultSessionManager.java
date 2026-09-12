@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -71,14 +72,14 @@ public class DefaultSessionManager implements SessionManager {
 
             @Override
             public void run() {
-                long currentTime = System.currentTimeMillis();
+                final long nowNanos = System.nanoTime();
                 Iterator<Map.Entry<String, Session>> iterator = sessions.entrySet().iterator();
                 Map.Entry<String, Session> entry;
                 while (iterator.hasNext()) {
                     entry = iterator.next();
                     final Session session = entry.getValue();
 
-                    if (!session.isValid() || session.getSessionTimeout() > 0 && currentTime - session.getTimestamp() > session.getSessionTimeout()) {
+                    if (!session.isValid() || session.isExpired(nowNanos)) {
                         session.setValid(false);
                         iterator.remove();
                     }
@@ -96,7 +97,13 @@ public class DefaultSessionManager implements SessionManager {
         if (requestedSessionId != null) {
             final Session session = sessions.get(requestedSessionId);
             if (session != null && session.isValid()) {
-                return session;
+                if (!session.isExpired(System.nanoTime())) {
+                    return session;
+                }
+
+                // Expired since the last sweep
+                session.setValid(false);
+                sessions.remove(requestedSessionId, session);
             }
         }
 
