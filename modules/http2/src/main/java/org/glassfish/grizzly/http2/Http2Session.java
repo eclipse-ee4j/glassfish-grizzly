@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates and others.
  * All rights reserved.
  *
@@ -579,32 +579,51 @@ public class Http2Session {
     }
 
     private void sendGoAwayAndClose(final Http2Frame frame) {
-        if (frame != null) {
-            outputSink.writeDownStream(frame, new EmptyCompletionHandler<WriteResult>() {
-
-                private void close() {
-                    connection.closeSilently();
-                    outputSink.close();
-                }
-
-                @Override
-                public void failed(final Throwable throwable) {
-                    LOGGER.log(Level.WARNING, "Unable to write GOAWAY.  Terminating session.", throwable);
-                    close();
-                }
-
-                @Override
-                public void completed(final WriteResult result) {
-                    close();
-                }
-
-                @Override
-                public void cancelled() {
-                    LOGGER.log(Level.FINE, "GOAWAY write cancelled.  Terminating session.");
-                    close();
-                }
-            }, null);
+        if (frame == null) {
+            return;
         }
+
+        if (!connection.isOpen()) {
+            // The peer is already gone, so there's nobody left to receive the
+            // GOAWAY. Writing it would only fail with the IOException the
+            // connection was closed with, which is not a problem worth reporting.
+            LOGGER.log(Level.FINE, "Connection is already closed.  Skipping GOAWAY and terminating session.");
+            frame.recycle();
+            closeConnectionAndOutputSink();
+            return;
+        }
+
+        outputSink.writeDownStream(frame, new EmptyCompletionHandler<WriteResult>() {
+
+            @Override
+            public void failed(final Throwable throwable) {
+                // The connection may have been closed by the peer in between the
+                // check above and the actual write, in which case the failure is
+                // expected and the reported cause is the connection's close reason.
+                if (!connection.isOpen()) {
+                    LOGGER.log(Level.FINE, "Connection has been closed while writing GOAWAY.  Terminating session.");
+                } else {
+                    LOGGER.log(Level.WARNING, "Unable to write GOAWAY.  Terminating session.", throwable);
+                }
+                closeConnectionAndOutputSink();
+            }
+
+            @Override
+            public void completed(final WriteResult result) {
+                closeConnectionAndOutputSink();
+            }
+
+            @Override
+            public void cancelled() {
+                LOGGER.log(Level.FINE, "GOAWAY write cancelled.  Terminating session.");
+                closeConnectionAndOutputSink();
+            }
+        }, null);
+    }
+
+    private void closeConnectionAndOutputSink() {
+        connection.closeSilently();
+        outputSink.close();
     }
 
     private GoAwayFrame setGoAwayLocally(final ErrorCode errorCode, final String detail, final boolean graceful) {
