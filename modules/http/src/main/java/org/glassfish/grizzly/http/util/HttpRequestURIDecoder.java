@@ -44,7 +44,8 @@ import org.glassfish.grizzly.Grizzly;
  */
 public class HttpRequestURIDecoder {
 
-    protected static final boolean ALLOW_BACKSLASH = false;
+    // When true, a %5C that decoded to '\' is kept as path data (RFC 3986) instead of rejecting the URI.
+    protected static final boolean ALLOW_BACKSLASH = Boolean.parseBoolean(System.getProperty("com.sun.enterprise.web.allowBackslash", "false"));
     private static final boolean COLLAPSE_ADJACENT_SLASHES = Boolean.valueOf(System.getProperty("com.sun.enterprise.web.collapseAdjacentSlashes", "true"));
     private static final Logger LOGGER = Grizzly.logger(HttpRequestURIDecoder.class);
 
@@ -137,7 +138,10 @@ public class HttpRequestURIDecoder {
         // %xx decoding of the URL
         URLDecoder.decode(originalURI, targetDecodedURI, isSlashAllowed);
 
-        if (!normalize(targetDecodedURI)) {
+        // ALLOW_BACKSLASH admits *encoded* backslashes (%5C) as data; a literal '\' is
+        // not a URI character (RFC 3986), so it is still rejected. Checked on the raw
+        // URI because after decoding the two are indistinguishable.
+        if (!normalize(targetDecodedURI) || (ALLOW_BACKSLASH && originalURI.indexOf('\\', 0) != -1)) {
             throw new CharConversionException("Invalid URI character encoding");
         }
 
@@ -280,7 +284,7 @@ public class HttpRequestURIDecoder {
 
         // Check for '\' and 0
         for (pos = start; pos < end; pos++) {
-            if (c[pos] == '\\') {
+            if (!ALLOW_BACKSLASH && c[pos] == '\\') {
                 return false;
             }
             if (c[pos] == 0) {
@@ -328,9 +332,7 @@ public class HttpRequestURIDecoder {
         // Check for null char
         for (pos = start; pos < end; pos++) {
             if (c[pos] == '\\') {
-                if (ALLOW_BACKSLASH) {
-                    c[pos] = '/';
-                } else {
+                if (!ALLOW_BACKSLASH) {
                     return false;
                 }
             }
@@ -512,9 +514,7 @@ public class HttpRequestURIDecoder {
                 return false;
             }
             if (bs[pos] == (byte) '\\') {
-                if (ALLOW_BACKSLASH) {
-                    bs[pos] = (byte) '/';
-                } else {
+                if (!ALLOW_BACKSLASH) {
                     return false;
                 }
             }
@@ -614,9 +614,7 @@ public class HttpRequestURIDecoder {
                 return false;
             }
             if (b == (byte) '\\') {
-                if (ALLOW_BACKSLASH) {
-                    bs.put(pos, (byte) '/');
-                } else {
+                if (!ALLOW_BACKSLASH) {
                     return false;
                 }
             }
