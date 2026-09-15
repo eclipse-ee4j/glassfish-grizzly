@@ -588,6 +588,7 @@ public class Http2Session {
             // GOAWAY. Writing it would only fail with the IOException the
             // connection was closed with, which is not a problem worth reporting.
             LOGGER.log(Level.FINE, "Connection is already closed.  Skipping GOAWAY and terminating session.");
+            // writeDownStream() recycles the frame as part of serialization, this branch bypasses it.
             frame.recycle();
             closeConnectionAndOutputSink();
             return;
