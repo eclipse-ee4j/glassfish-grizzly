@@ -54,7 +54,7 @@ public class Session {
     /**
      * Is this session new.
      */
-    private volatile boolean isNew = true;
+    private boolean isNew = true;
 
     /**
      * When this session was created.
@@ -69,7 +69,7 @@ public class Session {
     /**
      * Creation time stamp.
      */
-    private volatile long timestamp = -1;
+    private long timestamp = -1;
 
     /**
      * {@link System#nanoTime()} of the last access. Used for expiration, so that system clock changes neither shorten nor
