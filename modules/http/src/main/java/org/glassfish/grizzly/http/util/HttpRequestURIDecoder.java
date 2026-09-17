@@ -45,7 +45,8 @@ import org.glassfish.grizzly.Grizzly;
 public class HttpRequestURIDecoder {
 
     // When true, a %5C that decoded to '\' is kept as path data (RFC 3986) instead of rejecting the URI.
-    protected static final boolean ALLOW_BACKSLASH = Boolean.parseBoolean(System.getProperty("com.sun.enterprise.web.allowBackslash", "false"));
+    protected static final boolean ALLOW_BACKSLASH = Boolean.parseBoolean(
+            System.getProperty(HttpRequestURIDecoder.class.getName() + ".ALLOW_BACKSLASH", "false"));
     private static final boolean COLLAPSE_ADJACENT_SLASHES = Boolean.valueOf(System.getProperty("com.sun.enterprise.web.collapseAdjacentSlashes", "true"));
     private static final Logger LOGGER = Grizzly.logger(HttpRequestURIDecoder.class);
 
@@ -135,13 +136,15 @@ public class HttpRequestURIDecoder {
     public static void decode(final DataChunk originalURI, final DataChunk targetDecodedURI, final boolean isSlashAllowed, final Charset encoding)
             throws CharConversionException {
 
-        // %xx decoding of the URL
-        URLDecoder.decode(originalURI, targetDecodedURI, isSlashAllowed);
-
         // ALLOW_BACKSLASH admits *encoded* backslashes (%5C) as data; a literal '\' is
         // not a URI character (RFC 3986), so it is still rejected. Checked on the raw
         // URI because after decoding the two are indistinguishable.
-        if (!normalize(targetDecodedURI) || (ALLOW_BACKSLASH && originalURI.indexOf('\\', 0) != -1)) {
+        boolean invalidBackslash = ALLOW_BACKSLASH && originalURI.indexOf('\\', 0) != -1;
+
+        // %xx decoding of the URL
+        URLDecoder.decode(originalURI, targetDecodedURI, isSlashAllowed);
+
+        if (!normalize(targetDecodedURI) || invalidBackslash) {
             throw new CharConversionException("Invalid URI character encoding");
         }
 
@@ -328,13 +331,10 @@ public class HttpRequestURIDecoder {
         int pos;
         int index;
 
-        // Replace '\' with '/'
         // Check for null char
         for (pos = start; pos < end; pos++) {
-            if (c[pos] == '\\') {
-                if (!ALLOW_BACKSLASH) {
-                    return false;
-                }
+            if (c[pos] == '\\' && !ALLOW_BACKSLASH) {
+                return false;
             }
             if (c[pos] == (char) 0) {
                 return false;
@@ -513,10 +513,8 @@ public class HttpRequestURIDecoder {
             if (bs[pos] == (byte) 0) {
                 return false;
             }
-            if (bs[pos] == (byte) '\\') {
-                if (!ALLOW_BACKSLASH) {
-                    return false;
-                }
+            if (bs[pos] == (byte) '\\' && !ALLOW_BACKSLASH) {
+                return false;
             }
             if (bs[pos] == '/') {
                 if (state == STATE_CHAR) {
@@ -613,10 +611,8 @@ public class HttpRequestURIDecoder {
             if (b == (byte) 0) {
                 return false;
             }
-            if (b == (byte) '\\') {
-                if (!ALLOW_BACKSLASH) {
-                    return false;
-                }
+            if (b == (byte) '\\' && !ALLOW_BACKSLASH) {
+                return false;
             }
 
             if (b == '/') {
