@@ -17,6 +17,7 @@
 
 package org.glassfish.grizzly.http;
 
+import java.io.CharConversionException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -38,7 +39,9 @@ import org.glassfish.grizzly.filterchain.FilterChainBuilder;
 import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.filterchain.TransportFilter;
+import org.glassfish.grizzly.http.util.HttpRequestURIDecoder;
 import org.glassfish.grizzly.http.util.MimeHeaders;
+import org.glassfish.grizzly.http.util.RequestURIRef;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.impl.SafeFutureImpl;
 import org.glassfish.grizzly.memory.Buffers;
@@ -333,6 +336,41 @@ public class HttpRequestParseTest {
         assertTrue(packet.getHttpHeader().isChunked());
     }
 
+    /**
+     * Issue #2028: a percent-encoded backslash is path data, not a delimiter.
+     * <p>
+     * {@code ALLOW_BACKSLASH} is captured once when {@link HttpRequestURIDecoder} is initialized,
+     * so a JVM is in exactly one mode. This asserts the contract of whichever mode was captured;
+     * the pom runs this class a second time with {@code -Dcom.sun.enterprise.web.allowBackslash=true}
+     * so both branches are covered.
+     */
+    @Test
+    public void testEncodedBackslashInRequestURI() throws Exception {
+        if (DecoderProbe.allowBackslash()) {
+            // kept verbatim, not rewritten to '/'
+            assertEquals("/a\\b", decodedRequestURI("/a%5Cb"));
+            // still data, so no traversal is resolved through it
+            assertEquals("/x\\..\\y", decodedRequestURI("/x%5C..%5Cy"));
+            // ordinary '/' normalization is unaffected
+            assertEquals("/y", decodedRequestURI("/x/../y"));
+        } else {
+            // legacy behavior: rejected outright
+            assertDecodeRejected("/a%5Cb");
+        }
+    }
+
+    /**
+     * A literal (unencoded) backslash is not a URI character and is rejected regardless of
+     * {@code ALLOW_BACKSLASH}; only {@code %5C} is affected by the flag.
+     */
+    @Test
+    public void testLiteralBackslashInRequestURIIsAlwaysRejected() {
+        assertDecodeRejected("/a\\b");
+        assertDecodeRejected("/a\\..\\b");
+        // mixed: one literal is enough to reject, even if another is encoded
+        assertDecodeRejected("/a\\b%5Cc");
+    }
+
     @SuppressWarnings({ "unchecked" })
     private HttpPacket doTestDecoder(String request, int limit) {
 
@@ -559,6 +597,34 @@ public class HttpRequestParseTest {
         @Override
         public boolean canWrite(int length) {
             throw new UnsupportedOperationException("Not supported yet.");
+        }
+    }
+
+    /**
+     * Parses a request line and returns the decoded, normalized URI via the same
+     * {@link RequestURIRef} path the server uses.
+     */
+    private String decodedRequestURI(final String rawURI) throws CharConversionException {
+        final HttpPacket packet = doTestDecoder("GET " + rawURI + " HTTP/1.1\r\nHost: localhost\r\n\r\n", 4096);
+        return ((HttpRequestPacket) packet.getHttpHeader()).getRequestURIRef().getDecodedURI();
+    }
+
+    private void assertDecodeRejected(final String rawURI) {
+        try {
+            final String decoded = decodedRequestURI(rawURI);
+            fail("Expected " + rawURI + " to be rejected, but it decoded to " + decoded);
+        } catch (CharConversionException expected) {
+            // expected
+        }
+    }
+
+    /**
+     * Exposes the {@code ALLOW_BACKSLASH} value {@link HttpRequestURIDecoder} actually captured
+     * at class-init time, which is what governs this JVM regardless of the current property value.
+     */
+    private static final class DecoderProbe extends HttpRequestURIDecoder {
+        static boolean allowBackslash() {
+            return ALLOW_BACKSLASH;
         }
     }
 }

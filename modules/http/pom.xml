@@ -71,6 +71,25 @@
                     </execution>
                 </executions>
             </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>allow-backslash</id>
+                        <goals>
+                            <goal>test</goal>
+                        </goals>
+                        <configuration>
+                            <test>HttpRequestParseTest</test>
+                            <reportNameSuffix>allowBackslash</reportNameSuffix>
+                            <systemPropertyVariables>
+                                <org.glassfish.grizzly.http.util.HttpRequestURIDecoder.ALLOW_BACKSLASH>true</org.glassfish.grizzly.http.util.HttpRequestURIDecoder.ALLOW_BACKSLASH>
+                            </systemPropertyVariables>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>
