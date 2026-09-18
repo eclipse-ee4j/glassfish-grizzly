@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -512,6 +513,9 @@ class DefaultOutputSink implements StreamOutputSink {
             final MessageCloner<Buffer> messageCloner,
             final boolean sendFIN) {
 
+        if (sendFIN) {
+            http2Session.onSendEndOfStream(stream);
+        }
         http2Session.getOutputSink().writeDataDownStream(
             stream, headerFrames, data, completionHandler, messageCloner, sendFIN);
 
