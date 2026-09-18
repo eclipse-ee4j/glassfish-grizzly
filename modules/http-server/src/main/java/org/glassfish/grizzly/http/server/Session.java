@@ -32,7 +32,7 @@ public class Session {
 
     /**
      * Largest shift {@link #setTimestamp(long)} applies to the monotonic access time, keeping the nanosecond arithmetic
-     * in {@link #isExpired(long)} free of overflow.
+     * in {@link #isExpired(long)} free of overflow. The shift only moves the access time back, never forward.
      */
     private static final long MAX_TIMESTAMP_SHIFT_MILLIS = NANOSECONDS.toMillis(Long.MAX_VALUE / 4);
 
@@ -215,15 +215,15 @@ public class Session {
     }
 
     /**
-     * Set the timestamp when this session was accessed the last time. The idle time used for expiration is shifted by the
-     * same amount.
+     * Set the timestamp when this session was accessed the last time. The idle time used for expiration is moved back by
+     * the same amount. A timestamp in the future is treated as the current time, so the session still expires at most one
+     * {@link #getSessionTimeout() timeout} from now. {@link #getTimestamp()} returns the value as given.
      * 
      * @param timestamp a long representing when the session was accessed the last time
      */
     public void setTimestamp(long timestamp) {
         final long nowMillis = System.currentTimeMillis();
-        final long boundedTimestamp = Math.max(nowMillis - MAX_TIMESTAMP_SHIFT_MILLIS,
-                Math.min(nowMillis + MAX_TIMESTAMP_SHIFT_MILLIS, timestamp));
+        final long boundedTimestamp = Math.max(nowMillis - MAX_TIMESTAMP_SHIFT_MILLIS, Math.min(nowMillis, timestamp));
         lastAccessedNanos = System.nanoTime() - MILLISECONDS.toNanos(nowMillis - boundedTimestamp);
         this.timestamp = timestamp;
     }
