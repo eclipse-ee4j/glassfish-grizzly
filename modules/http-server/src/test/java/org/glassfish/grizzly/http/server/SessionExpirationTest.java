@@ -77,6 +77,19 @@ public class SessionExpirationTest {
     }
 
     @Test
+    public void setTimestampInFutureDoesNotExtendBeyondTimeout() {
+        final Session session = new Session();
+        session.setSessionTimeout(TIMEOUT_MILLIS);
+
+        final long before = System.nanoTime();
+        session.setTimestamp(System.currentTimeMillis() + 5 * TIMEOUT_MILLIS);
+        final long after = System.nanoTime();
+
+        assertFalse(session.isExpired(before + TIMEOUT_NANOS));
+        assertTrue(session.isExpired(after + TIMEOUT_NANOS + 1));
+    }
+
+    @Test
     public void setTimestampWithExtremeValuesDoesNotOverflow() {
         final Session session = new Session();
         session.setSessionTimeout(TIMEOUT_MILLIS);
