@@ -67,7 +67,7 @@ public final class ChunkedTransferEncoding implements TransferEncoding {
         this.strictLineTerminator = Boolean.parseBoolean(Objects.requireNonNullElse(props, System.getProperties())
                                                                 .getProperty(
                                                                         STRICT_CHUNKED_TRANSFER_CODING_LINE_TERMINATOR_RFC_9112,
-                                                                        "false"));
+                                                                        "true"));
     }
 
     /**
