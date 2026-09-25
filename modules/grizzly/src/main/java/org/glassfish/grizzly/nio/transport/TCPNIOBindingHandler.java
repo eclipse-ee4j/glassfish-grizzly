@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -17,6 +18,7 @@
 package org.glassfish.grizzly.nio.transport;
 
 import java.io.IOException;
+import java.net.BindException;
 import java.net.ServerSocket;
 import java.net.SocketAddress;
 import java.nio.channels.ServerSocketChannel;
@@ -32,7 +34,7 @@ import org.glassfish.grizzly.utils.Exceptions;
  * be done using the {@link TCPNIOTransport} alone.
  *
  * Example usage:
- * 
+ *
  * <pre>
  * TCPNIOBindingHandler handler = TCPNIOBindingHandler.builder(transport).setProcessor(custom).build();
  * handler.bind(socketAddress);
@@ -92,7 +94,14 @@ public class TCPNIOBindingHandler extends AbstractBindingHandler {
             tcpTransport.getChannelConfigurator().preConfigure(transport, serverSocketChannel);
 
             if (socketAddress != null) {
-                serverSocket.bind(socketAddress, backlog);
+                try {
+                    serverSocket.bind(socketAddress, backlog);
+                } catch (BindException e) {
+                    // The JDK 25 BindException still doesn't tell which address we tried to use.
+                    BindException be = new BindException("Cannot bind to requested socket address " + socketAddress);
+                    be.initCause(e);
+                    throw be;
+                }
             }
 
             tcpTransport.getChannelConfigurator().postConfigure(transport, serverSocketChannel);
@@ -117,6 +126,7 @@ public class TCPNIOBindingHandler extends AbstractBindingHandler {
                 try {
                     serverSocketChannel.close();
                 } catch (IOException ignored) {
+                    e.addSuppressed(ignored);
                 }
             }
 
