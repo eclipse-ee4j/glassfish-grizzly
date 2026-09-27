@@ -1,5 +1,5 @@
 /*
- * Copyright 2021, 2025 Contributors to the Eclipse Foundation.
+ * Copyright 2021, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -17,14 +17,6 @@
 
 package org.glassfish.grizzly.http.server.accesslog;
 
-import static java.util.concurrent.TimeUnit.MICROSECONDS;
-import static java.util.concurrent.TimeUnit.MILLISECONDS;
-import static java.util.concurrent.TimeUnit.NANOSECONDS;
-import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.glassfish.grizzly.http.Method.GET;
-import static org.glassfish.grizzly.http.Protocol.HTTP_1_1;
-import static org.junit.Assert.assertEquals;
-
 import java.time.ZoneId;
 import java.util.Date;
 import java.util.Locale;
@@ -39,6 +31,14 @@ import org.glassfish.grizzly.http.util.MimeHeaders;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.mockito.internal.stubbing.answers.ThrowsException;
+
+import static java.util.concurrent.TimeUnit.MICROSECONDS;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.NANOSECONDS;
+import static java.util.concurrent.TimeUnit.SECONDS;
+import static org.glassfish.grizzly.http.Method.GET;
+import static org.glassfish.grizzly.http.Protocol.HTTP_1_1;
+import static org.junit.Assert.assertEquals;
 
 /**
  * Test for {@link ApacheLogFormat}
