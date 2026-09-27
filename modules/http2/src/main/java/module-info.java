@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -25,8 +26,8 @@ module org.glassfish.grizzly.http2 {
     opens org.glassfish.grizzly.http2.frames;
     opens org.glassfish.grizzly.http2.hpack;
     opens org.glassfish.grizzly.http2.utils;
-    
-    requires static grizzly.npn.api;
+
+    requires static org.glassfish.grizzly.npn;
     requires java.logging;
     requires org.glassfish.grizzly.http;
     requires org.glassfish.grizzly;
