@@ -1,6 +1,6 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
- * Copyright (c) 2010, 2024 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025,2026 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2010,2024 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -17,6 +17,7 @@
 
 package org.glassfish.grizzly.http;
 
+import java.io.CharConversionException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
@@ -27,6 +28,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.HashMap;
+
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.Connection;
 import org.glassfish.grizzly.SocketConnectorHandler;
@@ -37,7 +39,9 @@ import org.glassfish.grizzly.filterchain.FilterChainBuilder;
 import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.filterchain.TransportFilter;
+import org.glassfish.grizzly.http.util.HttpRequestURIDecoder;
 import org.glassfish.grizzly.http.util.MimeHeaders;
+import org.glassfish.grizzly.http.util.RequestURIRef;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.impl.SafeFutureImpl;
 import org.glassfish.grizzly.memory.Buffers;
@@ -50,6 +54,7 @@ import org.glassfish.grizzly.utils.ChunkingFilter;
 import org.glassfish.grizzly.utils.Pair;
 
 import org.junit.After;
+import org.junit.Assume;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -57,6 +62,7 @@ import org.junit.runners.Parameterized;
 
 import static java.lang.Boolean.FALSE;
 import static java.lang.Boolean.TRUE;
+import static java.time.Duration.ofSeconds;
 import static java.util.Arrays.asList;
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_NAME_VALIDATION_RFC_9110;
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_VALUE_VALIDATION_RFC_9110;
@@ -74,45 +80,29 @@ public class HttpRequestParseTest {
 
     public static final int PORT = 19000;
 
-    private final boolean isStrictHeaderNameValidationSet;
-    private final boolean isStrictHeaderValueValidationSet;
-    private final String isStrictHeaderNameValidationSetBefore;
-    private final String isStrictHeaderValueValidationSetBefore;
+    private final TestUtils.SystemPropertyToggle strictHeaderNameValidation;
+    private final TestUtils.SystemPropertyToggle strictHeaderValueValidation;
 
     @Parameterized.Parameters
     public static Collection<Object[]> getMode() {
-        return asList(new Object[][] { { FALSE, FALSE }, { FALSE, TRUE }, { TRUE, FALSE }, { TRUE, TRUE } });
+        return asList(new Object[][] { { null, null }, { FALSE, FALSE }, { FALSE, TRUE }, { TRUE, FALSE }, { TRUE, TRUE } });
+    }
+
+    public HttpRequestParseTest(Boolean isStrictHeaderNameValidationSet, Boolean isStrictHeaderValueValidationSet) {
+        this.strictHeaderNameValidation = new TestUtils.SystemPropertyToggle(STRICT_HEADER_NAME_VALIDATION_RFC_9110, isStrictHeaderNameValidationSet, true);
+        this.strictHeaderValueValidation = new TestUtils.SystemPropertyToggle(STRICT_HEADER_VALUE_VALIDATION_RFC_9110, isStrictHeaderValueValidationSet, true);
     }
 
     @Before
     public void before() throws Exception {
-        if (isStrictHeaderNameValidationSet) {
-            System.setProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110, String.valueOf(Boolean.TRUE));
-        } else {
-            System.setProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110, String.valueOf(Boolean.FALSE));
-        }
-        if (isStrictHeaderValueValidationSet) {
-            System.setProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110, String.valueOf(Boolean.TRUE));
-        } else {
-            System.setProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110, String.valueOf(Boolean.FALSE));
-        }
+        strictHeaderNameValidation.set();
+        strictHeaderValueValidation.set();
     }
 
     @After
     public void after() throws Exception {
-        System.setProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110,
-                           isStrictHeaderNameValidationSetBefore != null ? isStrictHeaderNameValidationSetBefore :
-                           String.valueOf(Boolean.FALSE));
-        System.setProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110,
-                           isStrictHeaderValueValidationSetBefore != null ? isStrictHeaderValueValidationSetBefore :
-                           String.valueOf(Boolean.FALSE));
-    }
-
-    public HttpRequestParseTest(boolean isStrictHeaderNameValidationSet, boolean isStrictHeaderValueValidationSet) {
-        this.isStrictHeaderNameValidationSet = isStrictHeaderNameValidationSet;
-        this.isStrictHeaderValueValidationSet = isStrictHeaderValueValidationSet;
-        this.isStrictHeaderNameValidationSetBefore = System.getProperty(STRICT_HEADER_NAME_VALIDATION_RFC_9110);
-        this.isStrictHeaderValueValidationSetBefore = System.getProperty(STRICT_HEADER_VALUE_VALIDATION_RFC_9110);
+        strictHeaderNameValidation.unset();
+        strictHeaderValueValidation.unset();
     }
 
     @Test
@@ -156,9 +146,8 @@ public class HttpRequestParseTest {
 
     @Test
     public void testDisallowedCharactersForHeaderNames() {
-        if (!isStrictHeaderNameValidationSet) {
-            return;
-        }
+        Assume.assumeTrue(strictHeaderNameValidation.isEnabled());
+
         final StringBuilder sb = new StringBuilder("GET / HTTP/1.1\r\n");
         sb.append("Host: localhost\r\n");
         sb.append(new char[]{0x00, 0x01, 0x02, '\t', '\n', '\r', ' ', '\"', '(', ')', '/', ';', '<', '=', '>', '?', '@',
@@ -186,9 +175,8 @@ public class HttpRequestParseTest {
 
     @Test
     public void testDisallowedCharactersForHeaderContentValues() {
-        if (!isStrictHeaderValueValidationSet) {
-            return;
-        }
+        Assume.assumeTrue(strictHeaderValueValidation.isEnabled());
+
         final StringBuilder sb = new StringBuilder("GET / HTTP/1.1\r\n");
         sb.append("Host: localhost\r\n");
         sb.append("Some-Header: some-");
@@ -224,9 +212,8 @@ public class HttpRequestParseTest {
 
     @Test
     public void testIgnoredHeaders() throws Exception {
-        if (!isStrictHeaderNameValidationSet) {
-            return;
-        }
+        Assume.assumeTrue(strictHeaderNameValidation.isEnabled());
+
         final Map<String, Pair<String, String>> headers = new HashMap<>();
         headers.put("Host", new Pair<>("localhost", "localhost"));
         headers.put("Ignore\r\nContent-length", new Pair<>("2345", "2345"));
@@ -238,10 +225,9 @@ public class HttpRequestParseTest {
 
     @Test
     public void testMultiLineHeaders() throws Exception {
-        if (isStrictHeaderValueValidationSet) {
             // Multiline headers should not be supported
-            return;
-        }
+        Assume.assumeFalse(strictHeaderValueValidation.isEnabled());
+
         Map<String, Pair<String, String>> headers = new HashMap<>();
         headers.put("Host", new Pair<>("localhost", "localhost"));
         headers.put("Multi-line", new Pair<>("first\r\n          second\r\n       third", "first second third"));
@@ -251,10 +237,9 @@ public class HttpRequestParseTest {
 
     @Test
     public void testHeadersN() throws Exception {
-        if (isStrictHeaderValueValidationSet) {
             // Multiline headers should not be supported
-            return;
-        }
+        Assume.assumeFalse(strictHeaderValueValidation.isEnabled());
+
         Map<String, Pair<String, String>> headers = new HashMap<>();
         headers.put("Host", new Pair<>("localhost", "localhost"));
         headers.put("Multi-line", new Pair<>("first\r\n          second\n       third", "first second third"));
@@ -351,6 +336,41 @@ public class HttpRequestParseTest {
         assertTrue(packet.getHttpHeader().isChunked());
     }
 
+    /**
+     * Issue #2028: a percent-encoded backslash is path data, not a delimiter.
+     * <p>
+     * {@code ALLOW_BACKSLASH} is captured once when {@link HttpRequestURIDecoder} is initialized,
+     * so a JVM is in exactly one mode. This asserts the contract of whichever mode was captured;
+     * the pom runs this class a second time with {@code -Dcom.sun.enterprise.web.allowBackslash=true}
+     * so both branches are covered.
+     */
+    @Test
+    public void testEncodedBackslashInRequestURI() throws Exception {
+        if (DecoderProbe.allowBackslash()) {
+            // kept verbatim, not rewritten to '/'
+            assertEquals("/a\\b", decodedRequestURI("/a%5Cb"));
+            // still data, so no traversal is resolved through it
+            assertEquals("/x\\..\\y", decodedRequestURI("/x%5C..%5Cy"));
+            // ordinary '/' normalization is unaffected
+            assertEquals("/y", decodedRequestURI("/x/../y"));
+        } else {
+            // legacy behavior: rejected outright
+            assertDecodeRejected("/a%5Cb");
+        }
+    }
+
+    /**
+     * A literal (unencoded) backslash is not a URI character and is rejected regardless of
+     * {@code ALLOW_BACKSLASH}; only {@code %5C} is affected by the flag.
+     */
+    @Test
+    public void testLiteralBackslashInRequestURIIsAlwaysRejected() {
+        assertDecodeRejected("/a\\b");
+        assertDecodeRejected("/a\\..\\b");
+        // mixed: one literal is enough to reject, even if another is encoded
+        assertDecodeRejected("/a\\b%5Cc");
+    }
+
     @SuppressWarnings({ "unchecked" })
     private HttpPacket doTestDecoder(String request, int limit) {
 
@@ -417,7 +437,8 @@ public class HttpRequestParseTest {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            // we retry because it may take a short while until the port is unbound after previous tests
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             FilterChainBuilder clientFilterChainBuilder = FilterChainBuilder.stateless().add(new TransportFilter());
@@ -576,6 +597,34 @@ public class HttpRequestParseTest {
         @Override
         public boolean canWrite(int length) {
             throw new UnsupportedOperationException("Not supported yet.");
+        }
+    }
+
+    /**
+     * Parses a request line and returns the decoded, normalized URI via the same
+     * {@link RequestURIRef} path the server uses.
+     */
+    private String decodedRequestURI(final String rawURI) throws CharConversionException {
+        final HttpPacket packet = doTestDecoder("GET " + rawURI + " HTTP/1.1\r\nHost: localhost\r\n\r\n", 4096);
+        return ((HttpRequestPacket) packet.getHttpHeader()).getRequestURIRef().getDecodedURI();
+    }
+
+    private void assertDecodeRejected(final String rawURI) {
+        try {
+            final String decoded = decodedRequestURI(rawURI);
+            fail("Expected " + rawURI + " to be rejected, but it decoded to " + decoded);
+        } catch (CharConversionException expected) {
+            // expected
+        }
+    }
+
+    /**
+     * Exposes the {@code ALLOW_BACKSLASH} value {@link HttpRequestURIDecoder} actually captured
+     * at class-init time, which is what governs this JVM regardless of the current property value.
+     */
+    private static final class DecoderProbe extends HttpRequestURIDecoder {
+        static boolean allowBackslash() {
+            return ALLOW_BACKSLASH;
         }
     }
 }

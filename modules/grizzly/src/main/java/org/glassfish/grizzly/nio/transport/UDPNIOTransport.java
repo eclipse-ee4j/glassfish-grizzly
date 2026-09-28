@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -664,14 +665,14 @@ public final class UDPNIOTransport extends NIOTransport implements FilterChainEn
             try {
                 datagramSocket.setReuseAddress(udpNioTransport.isReuseAddress());
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(udpNioTransport.isReuseAddress()), e);
+                LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEADDRESS_EXCEPTION(udpNioTransport.isReuseAddress(), datagramSocket), e);
             }
             if (udpNioTransport.isReusePortAvailable()) {
                 final boolean reusePort = udpNioTransport.isReusePort();
                 try {
                     datagramSocket.setOption(StandardSocketOptions.SO_REUSEPORT, reusePort);
                 } catch (Throwable t) {
-                    LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort), t);
+                    LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(reusePort, datagramSocket), t);
                 }
             }
         }
@@ -690,7 +691,7 @@ public final class UDPNIOTransport extends NIOTransport implements FilterChainEn
             try {
                 datagramSocket.setSoTimeout(soTimeout);
             } catch (IOException e) {
-                LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_SOCKET_TIMEOUT_EXCEPTION(soTimeout), e);
+                LOGGER.log(Level.FINE, LogMessages.FINE_GRIZZLY_SOCKET_TIMEOUT_EXCEPTION(soTimeout, datagramSocket), e);
             }
         }
     }

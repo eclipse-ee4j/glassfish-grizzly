@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -146,10 +147,6 @@ public class ServletInputStreamImpl extends ServletInputStream {
      */
     @Override
     public boolean isReady() {
-        if (!hasSetReadListener) {
-            throw new IllegalStateException(LogMessages.WARNING_GRIZZLY_HTTP_SERVLET_INPUTSTREAM_ISREADY_ERROR());
-        }
-
         if (!prevIsReady) {
             return false;
         }
@@ -187,6 +184,18 @@ public class ServletInputStreamImpl extends ServletInputStream {
         }
 
         readHandler = new ReadHandlerImpl(readListener);
+
+        // Initial installation of ReadListener that will be notified
+        if (!inputStream.isReady()) {
+            prevIsReady = false;
+        }
+        IS_READY_SCOPE.set(Boolean.TRUE);
+        try {
+            inputStream.notifyAvailable(readHandler);
+        } finally {
+            IS_READY_SCOPE.remove();
+        }
+
         hasSetReadListener = true;
     }
 

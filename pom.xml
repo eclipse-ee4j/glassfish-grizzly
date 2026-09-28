@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
 
-    Copyright 2021, 2025 Contributors to the Eclipse Foundation.
+    Copyright 2021, 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2007, 2020 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -18,7 +18,7 @@
 
 -->
 
-<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
     <parent>
@@ -29,22 +29,10 @@
     </parent>
 
     <artifactId>grizzly-project</artifactId>
-    <version>4.1.0-SNAPSHOT</version>
-    <!-- Version must be repeated so versions-maven-plugin:set works correctly -->
     <packaging>pom</packaging>
 
-    <name>grizzly-project</name>
-    <url>https://projects.eclipse.org/projects/ee4j.glassfish</url>
-    <organization>
-        <name>Oracle Corporation</name>
-        <url>http://www.oracle.com</url>
-    </organization>
-    <licenses>
-        <license>
-            <name>EPL-2.0</name>
-            <url>http://www.eclipse.org/legal/epl-2.0</url>
-        </license>
-    </licenses>
+    <name>Grizzly Parent POM</name>
+    <description>${project.artifactId}</description>
 
     <developers>
         <developer>
@@ -93,40 +81,23 @@
         </contributor>
     </contributors>
 
-    <mailingLists>
-        <mailingList>
-            <name>Mailing list: grizzly-dev</name>
-            <archive>grizzly-dev@eclipse.org</archive>
-        </mailingList>
-    </mailingLists>
-
     <modules>
-        <module>boms/bom/</module>
-        <module>modules/</module>
-        <module>samples/</module>
-        <module>extras/</module>
+        <module>boms/bom</module>
+        <module>modules</module>
+        <module>samples</module>
+        <module>extras</module>
     </modules>
 
-    <scm>
-        <connection>scm:git:https://github.com/eclipse-ee4j/grizzly.git</connection>
-        <developerConnection>scm:git:git@github.com:eclipse-ee4j/grizzly.git</developerConnection>
-        <url>https://github.com/eclipse-ee4j/grizzly</url>
-        <tag>HEAD</tag>
-    </scm>
-    <issueManagement>
-        <system>GitHub</system>
-        <url>https://github.com/eclipse-ee4j/grizzly/issues</url>
-    </issueManagement>
-
     <properties>
+        <java.version>17</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <servlet-version>6.1.0</servlet-version>
         <maven-plugin.version>1.0.0</maven-plugin.version>
         <cobertura.version>2.4</cobertura.version>
-        <gmbal.version>4.1.0</gmbal.version>
-        <grizzly.npn.api.version>2.0.0</grizzly.npn.api.version>
-        <osgi.version>4.2.0</osgi.version>
-        <release.arguments></release.arguments>
+        <gmbal.version>4.1.2</gmbal.version>
+        <grizzly.npn.api.version>2.0.1</grizzly.npn.api.version>
+        <osgi.version>8.0.0</osgi.version>
+        <release.arguments />
     </properties>
 
     <dependencyManagement>
@@ -148,22 +119,19 @@
             </dependency>
             <dependency>
                 <groupId>org.osgi</groupId>
-                <artifactId>org.osgi.core</artifactId>
-                <version>6.0.0</version>
+                <artifactId>osgi.core</artifactId>
+                <version>${osgi.version}</version>
                 <scope>provided</scope>
             </dependency>
             <dependency>
-                <groupId>org.osgi</groupId>
-                <artifactId>org.osgi.compendium</artifactId>
-                <version>5.0.0</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.felix</groupId>
-                <artifactId>org.osgi.foundation</artifactId>
-                <version>1.2.0</version>
+                <groupId>org.mockito</groupId>
+                <artifactId>mockito-core</artifactId>
+                <version>5.23.0</version>
+                <scope>test</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>junit</groupId>
@@ -174,8 +142,6 @@
     </dependencies>
 
     <build>
-        <defaultGoal>install</defaultGoal>
-        <directory>target</directory>
         <finalName>${project.artifactId}-${project.version}</finalName>
         <resources>
             <resource>
@@ -190,28 +156,87 @@
         <pluginManagement>
             <plugins>
                 <plugin>
+                    <groupId>org.codehaus.mojo</groupId>
+                    <artifactId>build-helper-maven-plugin</artifactId>
+                    <version>3.6.1</version>
+                </plugin>
+                <plugin>
                     <artifactId>maven-compiler-plugin</artifactId>
-                    <version>3.13.0</version>
+                    <version>3.15.0</version>
                     <configuration>
-                        <release>17</release>
+                        <release>${java.version}</release>
                         <compilerArgument>-Xlint:unchecked,deprecation,fallthrough,finally,cast,dep-ann,empty,overrides</compilerArgument>
                     </configuration>
                 </plugin>
                 <plugin>
+                    <artifactId>maven-dependency-plugin</artifactId>
+                    <version>3.11.0</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-resources-plugin</artifactId>
+                    <version>3.5.0</version>
+                    <configuration>
+                        <encoding>UTF-8</encoding>
+                        <propertiesEncoding>ISO-8859-1</propertiesEncoding>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-source-plugin</artifactId>
+                    <version>3.4.0</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-javadoc-plugin</artifactId>
+                    <version>3.12.0</version>
+                    <configuration>
+                        <doclint>none</doclint>
+                        <notimestamp>true</notimestamp>
+                        <splitindex>true</splitindex>
+                        <doctitle>${project.name} ${project.version}</doctitle>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.5.6</version>
+                    <configuration>
+                        <reuseForks>false</reuseForks>
+                        <useModulePath>false</useModulePath>
+                        <argLine>-XX:+HeapDumpOnOutOfMemoryError</argLine>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-surefire-report-plugin</artifactId>
+                    <version>3.5.6</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-install-plugin</artifactId>
+                    <version>3.1.4</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-deploy-plugin</artifactId>
+                    <version>3.1.4</version>
+                </plugin>
+                <plugin>
                     <groupId>org.apache.felix</groupId>
                     <artifactId>maven-bundle-plugin</artifactId>
-                    <version>5.1.9</version>
+                    <version>6.0.2</version>
                     <configuration>
+                        <niceManifest>true</niceManifest>
+                        <url>${project.url}</url>
                         <instructions>
                             <_noimportjava>true</_noimportjava>
-                            <_runee>JavaSE-17</_runee>
+                            <_runee>JavaSE-${java.version}</_runee>
+                            <Import-Package>
+                                !android.os,
+                                *,
+                            </Import-Package>
+                            <!-- Grizzly exports even impl packages -->
+                            <Export-Package>*</Export-Package>
                         </instructions>
                     </configuration>
                 </plugin>
             </plugins>
         </pluginManagement>
         <plugins>
-            <!-- Sets minimal Maven version to 3.8.9 -->
             <plugin>
                 <artifactId>maven-enforcer-plugin</artifactId>
                 <executions>
@@ -223,10 +248,10 @@
                         <configuration>
                             <rules>
                                 <requireJavaVersion>
-                                    <version>[17,)</version>
+                                    <version>[${java.version},)</version>
                                 </requireJavaVersion>
                                 <requireMavenVersion>
-                                    <version>3.8.9</version>
+                                    <version>3.9.16</version>
                                 </requireMavenVersion>
                             </rules>
                         </configuration>
@@ -238,18 +263,15 @@
                 <artifactId>maven-jar-plugin</artifactId>
                 <configuration>
                     <archive>
-                        <manifestEntries>
-                            <mode>development</mode>
-                            <url>${project.url}</url>
-                            <implementation-version>${project.version}</implementation-version>
-                            <package>org.glassfish.grizzly</package>
-                        </manifestEntries>
+                        <manifest>
+                            <addClasspath>false</addClasspath>
+                        </manifest>
+                        <manifestFile>${project.build.outputDirectory}/META-INF/MANIFEST.MF</manifestFile>
                     </archive>
                 </configuration>
             </plugin>
 
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-source-plugin</artifactId>
                 <executions>
                     <execution>
@@ -261,16 +283,8 @@
                 </executions>
             </plugin>
 
-            <!-- Configure the jar with the javadoc -->
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-javadoc-plugin</artifactId>
-                <configuration>
-                    <doclint>none</doclint>
-                    <notimestamp>true</notimestamp>
-                    <splitindex>true</splitindex>
-                    <doctitle>${project.name} ${project.version}</doctitle>
-                </configuration>
             </plugin>
 
             <plugin>

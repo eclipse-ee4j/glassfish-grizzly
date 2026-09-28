@@ -1,6 +1,5 @@
 /*
- * Copyright (c) 2026 Contributors to the Eclipse Foundation.
- * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2025 Contributors to the Eclipse Foundation
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -15,21 +14,17 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  */
 
-module org.glassfish.grizzly.http2 {
+/**
+ * @author David Matejcek
+ */
+module org.glassfish.grizzly.samples.httpmultipart {
 
-    exports org.glassfish.grizzly.http2;
-    exports org.glassfish.grizzly.http2.frames;
-    exports org.glassfish.grizzly.http2.hpack;
-    exports org.glassfish.grizzly.http2.utils;
-
-    opens org.glassfish.grizzly.http2;
-    opens org.glassfish.grizzly.http2.frames;
-    opens org.glassfish.grizzly.http2.hpack;
-    opens org.glassfish.grizzly.http2.utils;
-
-    requires static org.glassfish.grizzly.npn;
     requires java.logging;
-    requires org.glassfish.grizzly.http;
+
     requires org.glassfish.grizzly;
+    requires org.glassfish.grizzly.http;
+    requires org.glassfish.grizzly.http.server.multipart;
     requires org.glassfish.grizzly.http.server;
+
+    exports org.glassfish.grizzly.samples.httpmultipart;
 }

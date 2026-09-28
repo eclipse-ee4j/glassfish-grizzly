@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2015, 2020 Oracle and/or its affiliates and others.
  * All rights reserved.
  * Copyright (c) 2021 Contributors to the Eclipse Foundation
@@ -291,7 +291,6 @@ public class Http2ServerFilter extends Http2BaseFilter {
             }
         }
 
-        final Buffer framePayload;
         if (!http2Session.isHttp2InputEnabled()) { // Preface is not received yet
 
             if (http2State.isHttpUpgradePhase()) {
@@ -303,7 +302,10 @@ public class Http2ServerFilter extends Http2BaseFilter {
 
                 return ctx.getInvokeAction();
             }
+        }
 
+        final Buffer framePayload;
+        if (!http2State.isPriReceived()) { // PRI is not received yet
             final HttpRequestPacket httpRequest = (HttpRequestPacket) httpHeader;
 
             // PRI message hasn't been checked
@@ -312,6 +314,7 @@ public class Http2ServerFilter extends Http2BaseFilter {
                     // Not enough PRI content read
                     return ctx.getStopAction(httpContent);
                 }
+                http2State.setPriReceived(true);
             } catch (Exception e) {
                 httpRequest.getProcessingState().setError(true);
                 httpRequest.getProcessingState().setKeepAlive(false);
@@ -624,7 +627,13 @@ public class Http2ServerFilter extends Http2BaseFilter {
             return;
         }
 
-        stream = http2Session.acceptStream(request, headersFrame.getStreamId(), headersFrame.getStreamDependency(), headersFrame.isExclusive(), 0);
+        try {
+            stream = http2Session.acceptStream(request, headersFrame.getStreamId(), headersFrame.getStreamDependency(), headersFrame.isExclusive(), 0);
+        } catch (Http2StreamException e) {
+            request.recycle();
+            DecoderUtils.skipHeaders(http2Session);
+            throw e;
+        }
         if (stream == null) { // GOAWAY has been sent, so ignoring this request
             request.recycle();
             return;

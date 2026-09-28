@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2024, 2025 Contributors to the Eclipse Foundation
+ * Copyright (c) 2024, 2026 Contributors to the Eclipse Foundation
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -1759,6 +1759,10 @@ public class Response {
         suspendStatus.suspend();
 
         suspendedContext.init(completionHandler, timeoutHandler);
+
+        if (!ctx.isSuspended()) {
+            ctx.suspend();
+        }
 
         HttpServerProbeNotifier.notifyRequestSuspend(request.httpServerFilter, ctx.getConnection(), request);
 

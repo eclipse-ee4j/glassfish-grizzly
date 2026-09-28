@@ -1,5 +1,6 @@
 <!--
 
+    Copyright (c) 2026 Contributors to the Eclipse Foundation.
     Copyright (c) 2011, 2017 Oracle and/or its affiliates. All rights reserved.
 
     This program and the accompanying materials are made available under the
@@ -83,7 +84,6 @@
         <Bug pattern="UG_SYNC_SET_UNSYNC_GET"/>
         <Or>
             <Class name="org.glassfish.grizzly.utils.Holder$LazyHolder"/>
-            <Class name="org.glassfish.grizzly.utils.Holder$LazyIntHolder"/>
         </Or>
     </Match>
 
@@ -92,7 +92,6 @@
         <Bug pattern="IS2_INCONSISTENT_SYNC"/>
         <Or>
             <Class name="org.glassfish.grizzly.utils.Holder$LazyHolder"/>
-            <Class name="org.glassfish.grizzly.utils.Holder$LazyIntHolder"/>
             <Class name="org.glassfish.grizzly.websockets.WebSocketEngine" />
             <Class name="org.glassfish.grizzly.http.server.NetworkListener" />
             <Class name="org.glassfish.grizzly.http2.Http2State" />

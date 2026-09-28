@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Contributors to the Eclipse Foundation
+ * Copyright (c) 2022, 2026 Contributors to the Eclipse Foundation
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -166,7 +166,7 @@ public class FilterChainContext implements AttributeStorage {
             @Override
             public void run() {
                 try {
-                    if (state == State.SUSPEND) {
+                    if (isSuspended()) {
                         state = State.RUNNING;
                     }
 
@@ -214,7 +214,7 @@ public class FilterChainContext implements AttributeStorage {
     public void resume(final NextAction nextAction) {
         internalContext.resume();
         try {
-            if (state == State.SUSPEND) {
+            if (isSuspended()) {
                 state = State.RUNNING;
             }
 
@@ -260,6 +260,10 @@ public class FilterChainContext implements AttributeStorage {
      */
     public State state() {
         return state;
+    }
+    
+    public boolean isSuspended() {
+        return state == State.SUSPEND;
     }
 
     public int nextFilterIdx() {

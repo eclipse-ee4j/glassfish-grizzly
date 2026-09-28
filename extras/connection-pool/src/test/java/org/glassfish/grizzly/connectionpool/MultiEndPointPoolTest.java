@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -18,12 +18,16 @@
 package org.glassfish.grizzly.connectionpool;
 
 import java.io.IOException;
+import java.lang.System.Logger;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.SocketAddress;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeoutException;
@@ -42,7 +46,10 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import static java.lang.System.Logger.Level.DEBUG;
+import static java.lang.System.Logger.Level.INFO;
 import static java.util.Collections.newSetFromMap;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -56,6 +63,7 @@ import static org.junit.Assert.fail;
  * @author Alexey Stashok
  */
 public class MultiEndPointPoolTest {
+    private static final Logger LOG = System.getLogger(MultiEndPointPoolTest.class.getName());
     private static final Integer[] PORTS = getFreePorts(3);
 
     private Set<Connection<?>> serverSideConnections = newSetFromMap(new ConcurrentHashMap<>());
@@ -71,12 +79,14 @@ public class MultiEndPointPoolTest {
 
             @Override
             public NextAction handleAccept(FilterChainContext ctx) throws IOException {
+                LOG.log(DEBUG, "handleAccept(ctx={0})", ctx);
                 serverSideConnections.add(ctx.getConnection());
                 return ctx.getStopAction();
             }
 
             @Override
             public NextAction handleClose(FilterChainContext ctx) throws IOException {
+                LOG.log(DEBUG, "handleClose(ctx={0})", ctx);
                 serverSideConnections.remove(ctx.getConnection());
                 return ctx.getStopAction();
             }
@@ -93,10 +103,33 @@ public class MultiEndPointPoolTest {
 
     @After
     public void tearDown() throws IOException {
-        serverSideConnections.clear();
         if (transport != null) {
             transport.shutdownNow();
         }
+        final List<CompletableFuture<Void>> closeFutures = new ArrayList<>();
+        for (Connection<?> connection : serverSideConnections) {
+            if (connection.isOpen()) {
+                // For connections not managed by the Pool (not returned to the Pool), the connection may persist even if the Pool closes.
+                // These connections are terminated in a separate thread during the Selector shutdown process when the Transport is shut down.
+                // Therefore, connection's termination cannot be assumed to be immediate; it may take some time to complete depending on the timing.
+                LOG.log(INFO,
+                        "Pool is closed, but connection is still open. We will explicitly close that connection: {0}",
+                        connection);
+                closeFutures.add(CompletableFuture.runAsync(() -> {
+                    try {
+                        connection.close().get(200, MILLISECONDS);
+                    } catch (Exception ignore) {
+                    }
+                    assertFalse(connection.isOpen());
+                }));
+            }
+        }
+        try {
+            CompletableFuture.allOf(closeFutures.toArray(new CompletableFuture[0])).get(1, SECONDS);
+        } catch (Exception e) {
+            fail(e.toString());
+        }
+        serverSideConnections.clear();
     }
 
     @Test
@@ -113,9 +146,12 @@ public class MultiEndPointPoolTest {
         try {
             Connection<?> c1 = pool.take(key1).get();
             assertEquals(localAddress, c1.getLocalAddress());
+            assertTrue("Connection could not be released: " + c1, pool.release(c1));
+            assertEquals(1, pool.size());
         } finally {
             pool.close();
         }
+        assertEquals(0, pool.size());
     }
 
     @Test
@@ -250,7 +286,7 @@ public class MultiEndPointPoolTest {
 
     @Test
     public void testSingleEndpointClose() throws Exception {
-        int maxConnectionsPerEndpoint = 4;
+        final int maxConnectionsPerEndpoint = 10;
 
         MultiEndpointPool<SocketAddress> pool =
             MultiEndpointPool.builder(SocketAddress.class)
@@ -300,9 +336,29 @@ public class MultiEndPointPoolTest {
             for (int i = numberOfReleasedConnections; i < maxConnectionsPerEndpoint; i++) {
                 assertFalse(e1Connections[i].isOpen());
             }
+
+            for (int i = 0; i < maxConnectionsPerEndpoint; i++) {
+                pool.release(e2Connections[i]);
+            }
+
+            for (int i = 0; i < maxConnectionsPerEndpoint; i++) {
+                assertTrue(e2Connections[i].isOpen());
+            }
         } finally {
             pool.close();
         }
+        assertEquals(0, pool.size());
+        // After the pool is terminated, it waits for all managed connections to be closed.
+        for (int i = 0; i < 10; i++) {
+            if (serverSideConnections.isEmpty()) {
+                break;
+            }
+            LOG.log(DEBUG, "Waiting for server-side connections to be closed. Remaining connections: {0}",
+                    serverSideConnections.toString());
+            Thread.sleep(100);
+        }
+        assertTrue("Pool is closed, but connection is still open: " + serverSideConnections,
+                   serverSideConnections.isEmpty());
     }
 
     @Test
@@ -351,6 +407,7 @@ public class MultiEndPointPoolTest {
         } finally {
             pool.close();
         }
+        assertEquals(0, pool.size());
     }
 
     @Test
@@ -395,6 +452,7 @@ public class MultiEndPointPoolTest {
         } finally {
             pool.close();
         }
+        assertEquals(0, pool.size());
     }
 
     /**

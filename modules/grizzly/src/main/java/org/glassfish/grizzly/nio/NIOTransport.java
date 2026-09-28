@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -77,8 +78,8 @@ public abstract class NIOTransport extends AbstractTransport
     private static final Holder<Boolean> REUSEPORT_AVAILABLE_HOLDER = Holder.lazyHolder(new Supplier<Boolean>() {
         @Override
         public Boolean get() {
-            try {
-                return new Socket().supportedOptions().contains(StandardSocketOptions.SO_REUSEPORT);
+            try (Socket socket = new Socket()) {
+                return socket.supportedOptions().contains(StandardSocketOptions.SO_REUSEPORT);
             } catch (Throwable t) {
                 LOGGER.log(Level.INFO, LogMessages.INFO_GRIZZLY_SOCKET_REUSEPORT_EXCEPTION(), t);
                 return false;

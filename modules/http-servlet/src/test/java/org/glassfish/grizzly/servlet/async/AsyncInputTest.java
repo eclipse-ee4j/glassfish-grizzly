@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -44,6 +45,7 @@ import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.junit.Test;
 
 /**
  * Basic Servlet 3.1 non-blocking input tests.
@@ -51,12 +53,12 @@ import jakarta.servlet.http.HttpServletResponse;
 public class AsyncInputTest extends HttpServerAbstractTest {
     private static Logger LOGGER = Grizzly.logger(AsyncInputTest.class);
 
-    public static int PORT = PORT();
-
+    @Test
     public void testNonBlockingInput() throws IOException {
         System.out.println("testNonBlockingInput");
         try {
-            newHttpServer(PORT);
+            final int port = PORT();
+            newHttpServer(port);
             WebappContext ctx = new WebappContext("Test", "/contextPath");
             addServlet(ctx, "foobar", "/servletPath/*", new HttpServlet() {
 
@@ -71,18 +73,13 @@ public class AsyncInputTest extends HttpServerAbstractTest {
 
                     ReadListener readListener = new ReadListenerImpl(asyncCtx, buffer);
                     input.setReadListener(readListener);
-
-                    int len;
-                    while (input.isReady() && (len = input.read(buffer)) != -1) {
-                        output.write(buffer, 0, len);
-                    }
                 }
             });
 
             ctx.deploy(httpServer);
             httpServer.start();
 
-            HttpURLConnection conn = createConnection("/contextPath/servletPath/pathInfo", PORT);
+            HttpURLConnection conn = createConnection("/contextPath/servletPath/pathInfo", port);
             conn.setChunkedStreamingMode(5);
             conn.setDoOutput(true);
             conn.connect();
