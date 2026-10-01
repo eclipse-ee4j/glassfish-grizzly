@@ -33,7 +33,7 @@
     <name>Grizzly HTTP Servlet Implementation</name>
 
     <properties>
-        <jersey-version>4.0.2</jersey-version>
+        <jersey-version>4.0.3</jersey-version>
         <maven.compiler.argument>-Xlint:unchecked,-deprecation,fallthrough,finally,cast,dep-ann,empty,overrides</maven.compiler.argument>
     </properties>
 
