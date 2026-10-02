@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -56,7 +57,6 @@ import org.junit.runners.Parameterized;
  */
 @RunWith(Parameterized.class)
 public class GZipTest {
-    private static final int PORT = 7786;
     private final MemoryManager manager;
 
     public GZipTest(MemoryManager manager) {
@@ -116,6 +116,7 @@ public class GZipTest {
     }
 
     void doTest(boolean applyChunking, String... messages) throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         Connection connection = null;
 
         FilterChainBuilder serverChainBuilder = FilterChainBuilder.stateless();
@@ -135,7 +136,7 @@ public class GZipTest {
         transport.getAsyncQueueIO().getWriter().setMaxPendingBytesPerConnection(-1);
 
         try {
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
             FutureImpl<Boolean> completeFuture = SafeFutureImpl.create();
@@ -147,7 +148,7 @@ public class GZipTest {
 
             SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(transport).processor(clientChainBuilder.build()).build();
 
-            Future<Connection> future = connectorHandler.connect("localhost", PORT);
+            Future<Connection> future = connectorHandler.connect("localhost", port);
 
             connection = future.get(10, TimeUnit.SECONDS);
             assertTrue(connection != null);

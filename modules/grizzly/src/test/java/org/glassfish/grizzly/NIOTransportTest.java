@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -16,6 +17,7 @@
 
 package org.glassfish.grizzly;
 
+import static java.time.Duration.ofSeconds;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -85,11 +87,11 @@ public class NIOTransportTest {
     // ------------------------------------------------------------ Test Methods
 
     @Test
-    public void testStartStop() throws IOException {
+    public void testStartStop() throws Exception {
         LOGGER.log(Level.INFO, "Running: testStartStop ({0})", transport.getName());
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
         } finally {
             transport.shutdownNow();
@@ -101,7 +103,7 @@ public class NIOTransportTest {
         LOGGER.log(Level.INFO, "Running: testStartStopStart ({0})", transport.getName());
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
             Future<Connection> future = transport.connect("localhost", PORT);
             Connection connection = future.get(10, TimeUnit.SECONDS);
@@ -111,7 +113,7 @@ public class NIOTransportTest {
             transport.shutdownNow();
             assertTrue(transport.isStopped());
 
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
             assertTrue(!transport.isStopped());
 
@@ -146,7 +148,7 @@ public class NIOTransportTest {
         Connection connection = null;
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             Future<Connection> future = transport.connect("localhost", PORT);
@@ -238,7 +240,7 @@ public class NIOTransportTest {
         StreamWriter writer = null;
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             final FutureImpl<Connection> connectFuture = Futures.createSafeFuture();
@@ -289,7 +291,7 @@ public class NIOTransportTest {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             final FutureImpl<Connection> connectFuture = Futures.createSafeFuture();
@@ -344,7 +346,7 @@ public class NIOTransportTest {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
             transport.configureBlocking(true);
 
@@ -402,7 +404,7 @@ public class NIOTransportTest {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             final FutureImpl<Connection> connectFuture = Futures.createSafeFuture();
@@ -462,7 +464,7 @@ public class NIOTransportTest {
             transport.setReadBufferSize(2048);
             transport.setWriteBufferSize(2048);
 
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
 
             transport.start();
 
@@ -547,7 +549,7 @@ public class NIOTransportTest {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             final FutureImpl<Connection> connectFuture = Futures.createSafeFuture();

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -45,7 +46,6 @@ import org.glassfish.grizzly.utils.StringFilter;
 @SuppressWarnings("unchecked")
 public class ProtocolChainCodecTest extends GrizzlyTestCase {
     private static final Logger logger = Grizzly.logger(ProtocolChainCodecTest.class);
-    public static final int PORT = 7784;
 
     public void testSyncSingleStringEcho() throws Exception {
         doTestStringEcho(true, 1);
@@ -100,6 +100,7 @@ public class ProtocolChainCodecTest extends GrizzlyTestCase {
     }
 
     protected final void doTestStringEcho(boolean blocking, int messageNum, Filter... filters) throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         Connection connection = null;
 
         final String clientMessage = "Hello server! It's a client";
@@ -132,7 +133,7 @@ public class ProtocolChainCodecTest extends GrizzlyTestCase {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
             final BlockingQueue<String> resultQueue = new LinkedTransferQueue<>();
@@ -153,7 +154,7 @@ public class ProtocolChainCodecTest extends GrizzlyTestCase {
 
             SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(transport).processor(clientFilterChain).build();
 
-            Future<Connection> future = connectorHandler.connect("localhost", PORT);
+            Future<Connection> future = connectorHandler.connect("localhost", port);
             connection = future.get(10, TimeUnit.SECONDS);
             assertTrue(connection != null);
 

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -49,6 +50,8 @@ import org.glassfish.grizzly.utils.Charsets;
 import org.glassfish.grizzly.utils.ChunkingFilter;
 
 import junit.framework.TestCase;
+
+import static java.time.Duration.ofSeconds;
 
 /**
  *
@@ -355,7 +358,7 @@ public class CompressionSemanticsTest extends TestCase {
 
         TCPNIOTransport ctransport = TCPNIOTransportBuilder.newInstance().build();
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             FilterChainBuilder clientFilterChainBuilder = FilterChainBuilder.stateless();
