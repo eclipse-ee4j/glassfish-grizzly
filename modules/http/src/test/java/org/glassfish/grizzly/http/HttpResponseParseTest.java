@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2024 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -71,8 +72,6 @@ import static org.junit.Assert.assertTrue;
 @RunWith(Parameterized.class)
 public class HttpResponseParseTest {
     private static final Logger logger = Grizzly.logger(HttpResponseParseTest.class);
-
-    public static final int PORT = 19021;
 
     private final boolean isStrictHeaderNameValidationSet;
     private final boolean isStrictHeaderValueValidationSet;
@@ -235,7 +234,7 @@ public class HttpResponseParseTest {
     }
 
     private void doHttpResponseTest(String protocol, int code, String phrase, Map<String, Pair<String, String>> headers, String eol) throws Exception {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final FutureImpl<Boolean> parseResult = SafeFutureImpl.create();
 
         Connection<SocketAddress> connection = null;
@@ -251,10 +250,10 @@ public class HttpResponseParseTest {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
-            Future<Connection> future = transport.connect("localhost", PORT);
+            Future<Connection> future = transport.connect("localhost", port);
             connection = future.get(10, TimeUnit.SECONDS);
             assertTrue(connection != null);
 

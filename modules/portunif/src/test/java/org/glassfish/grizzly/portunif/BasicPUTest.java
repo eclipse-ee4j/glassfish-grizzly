@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -16,6 +17,7 @@
 
 package org.glassfish.grizzly.portunif;
 
+import static java.time.Duration.ofSeconds;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -128,7 +130,7 @@ public class BasicPUTest {
         transport.setProcessor(puFilterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             FutureImpl<String> resultFuture = SafeFutureImpl.create();
@@ -183,7 +185,7 @@ public class BasicPUTest {
         transport.setProcessor(puFilterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             FutureImpl<String> resultFuture = SafeFutureImpl.create();

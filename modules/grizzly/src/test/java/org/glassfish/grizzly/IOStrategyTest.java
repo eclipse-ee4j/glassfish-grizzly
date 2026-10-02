@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -61,7 +62,6 @@ import org.junit.runners.Parameterized.Parameters;
 @RunWith(Parameterized.class)
 @SuppressWarnings("unchecked")
 public class IOStrategyTest {
-    private static final int PORT = 7789;
     private static final Logger LOGGER = Grizzly.logger(IOStrategyTest.class);
 
     private final IOStrategy strategy;
@@ -83,6 +83,7 @@ public class IOStrategyTest {
 
     @Test
     public void testSimplePackets() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         final Integer msgNum = 200;
         final String pattern = "Message #";
         final int clientsNum = Runtime.getRuntime().availableProcessors() * 16;
@@ -99,7 +100,7 @@ public class IOStrategyTest {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
             for (int i = 0; i < clientsNum; i++) {
@@ -117,7 +118,7 @@ public class IOStrategyTest {
 
                 SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(transport).processor(clientChain).build();
 
-                Future<Connection> connectFuture = connectorHandler.connect(new InetSocketAddress("localhost", PORT));
+                Future<Connection> connectFuture = connectorHandler.connect(new InetSocketAddress("localhost", port));
 
                 connection = connectFuture.get(10, TimeUnit.SECONDS);
                 assertTrue(connection != null);

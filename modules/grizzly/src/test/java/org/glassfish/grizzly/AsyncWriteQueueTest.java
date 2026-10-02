@@ -76,8 +76,6 @@ import org.junit.runners.Parameterized.Parameters;
 @SuppressWarnings("unchecked")
 @RunWith(Parameterized.class)
 public class AsyncWriteQueueTest {
-    public static final int PORT = 7781;
-
     private static final Logger LOGGER = Grizzly.logger(AsyncWriteQueueTest.class);
 
     @Parameters
@@ -98,6 +96,7 @@ public class AsyncWriteQueueTest {
 
     @Test
     public void testParallelWrites() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         Connection connection = null;
 
         final AtomicInteger serverRcvdMessages = new AtomicInteger();
@@ -119,7 +118,7 @@ public class AsyncWriteQueueTest {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
             FilterChain clientFilterChain = FilterChainBuilder.stateless().add(new TransportFilter()).add(new StringFilter(Charsets.UTF8_CHARSET))
@@ -134,7 +133,7 @@ public class AsyncWriteQueueTest {
 
             SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(transport).processor(clientFilterChain).build();
 
-            Future<Connection> future = connectorHandler.connect("localhost", PORT);
+            Future<Connection> future = connectorHandler.connect("localhost", port);
             connection = future.get(10, TimeUnit.SECONDS);
             assertTrue(connection != null);
 
@@ -220,6 +219,7 @@ public class AsyncWriteQueueTest {
 
     @Test
     public void testAsyncWriteQueueEcho() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         Connection connection = null;
         StreamReader reader;
 
@@ -246,10 +246,10 @@ public class AsyncWriteQueueTest {
             final AsyncQueueWriter<SocketAddress> asyncQueueWriter = transport.getAsyncQueueIO().getWriter();
             asyncQueueWriter.setMaxPendingBytesPerConnection(-1);
 
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
-            Future<Connection> future = transport.connect("localhost", PORT);
+            Future<Connection> future = transport.connect("localhost", port);
             connection = future.get(10, TimeUnit.SECONDS);
             assertTrue(connection != null);
 
@@ -345,7 +345,7 @@ public class AsyncWriteQueueTest {
 
     @Test
     public void testQueueNotification() throws Exception {
-
+        final int port = TestUtils.findAvailableTcpPort();
         Connection connection = null;
         final int packetSize = 256000;
 
@@ -360,10 +360,10 @@ public class AsyncWriteQueueTest {
             asyncQueueWriter.setMaxPendingBytesPerConnection(256000 * 10);
             System.out.println("Max Space: " + asyncQueueWriter.getMaxPendingBytesPerConnection());
 
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
-            Future<Connection> future = transport.connect("localhost", PORT);
+            Future<Connection> future = transport.connect("localhost", port);
             connection = future.get(10, TimeUnit.SECONDS);
             assertTrue(connection != null);
             connection.configureStandalone(true);
@@ -418,6 +418,7 @@ public class AsyncWriteQueueTest {
 
     @Test
     public void testAsyncWriteQueueReentrants() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         Connection connection = null;
 
         final AtomicInteger serverRcvdBytes = new AtomicInteger();
@@ -438,10 +439,10 @@ public class AsyncWriteQueueTest {
         transport.setProcessor(filterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
-            Future<Connection> future = transport.connect("localhost", PORT);
+            Future<Connection> future = transport.connect("localhost", port);
             connection = future.get(10, TimeUnit.SECONDS);
             assertTrue(connection != null);
 
@@ -526,6 +527,7 @@ public class AsyncWriteQueueTest {
     @SuppressWarnings({"rawtypes", "deprecation"})
     @Test
     public void testPendingBytesHardLimit() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         Connection connection = null;
         final int packetSize = 256000;
 
@@ -543,10 +545,10 @@ public class AsyncWriteQueueTest {
             System.out.println("Soft limit Space: " + softLimit);
             System.out.println("Hard limit Space: " + hardLimit);
 
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
-            final Future<Connection> future = transport.connect("localhost", PORT);
+            final Future<Connection> future = transport.connect("localhost", port);
             connection = future.get(10, TimeUnit.SECONDS);
             assertNotNull(connection);
             connection.configureStandalone(true);

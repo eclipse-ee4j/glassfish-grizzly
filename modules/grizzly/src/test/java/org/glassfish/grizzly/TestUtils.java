@@ -13,7 +13,7 @@
  *
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  */
-package org.glassfish.grizzly.http;
+package org.glassfish.grizzly;
 
 import java.io.IOException;
 import java.net.DatagramSocket;
@@ -22,10 +22,6 @@ import java.net.ServerSocket;
 import java.time.Duration;
 import java.util.concurrent.Callable;
 
-/**
- *
- * @author Ondro Mihalyi
- */
 public class TestUtils {
 
     private TestUtils() {

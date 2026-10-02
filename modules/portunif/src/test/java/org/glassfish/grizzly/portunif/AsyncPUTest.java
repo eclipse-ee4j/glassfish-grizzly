@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -56,7 +57,6 @@ import org.junit.Test;
  */
 @SuppressWarnings("unchecked")
 public class AsyncPUTest {
-    public static final int PORT = 17400;
     public static final Charset CHARSET = Charset.forName("UTF-8");
 
     private static final Logger LOGGER = Grizzly.logger(AsyncPUTest.class);
@@ -83,6 +83,7 @@ public class AsyncPUTest {
 
     @Test
     public void asyncTest() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         final String[] protocols = { "X", "Y", "Z" };
 
         Connection connection = null;
@@ -98,7 +99,7 @@ public class AsyncPUTest {
         transport.setProcessor(puFilterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
             for (final String protocol : protocols) {
@@ -109,7 +110,7 @@ public class AsyncPUTest {
 
                 final SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(transport).processor(clientFilterChain).build();
 
-                Future<Connection> future = connectorHandler.connect("localhost", PORT);
+                Future<Connection> future = connectorHandler.connect("localhost", port);
                 connection = future.get(10, TimeUnit.SECONDS);
                 assertTrue(connection != null);
 
@@ -138,6 +139,7 @@ public class AsyncPUTest {
     }
 
     private void doAsyncWithRemainder(final long scheduleDelayMillis, long exitDelayMillis) throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         final String[] protocols = { "X", "Y", "Z" };
 
         Connection connection = null;
@@ -153,7 +155,7 @@ public class AsyncPUTest {
         transport.setProcessor(puFilterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            transport.bind(port);
             transport.start();
 
             for (final String protocol : protocols) {
@@ -164,7 +166,7 @@ public class AsyncPUTest {
 
                 final SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(transport).processor(clientFilterChain).build();
 
-                Future<Connection> future = connectorHandler.connect("localhost", PORT);
+                Future<Connection> future = connectorHandler.connect("localhost", port);
                 connection = future.get(10, TimeUnit.SECONDS);
                 assertTrue(connection != null);
 
