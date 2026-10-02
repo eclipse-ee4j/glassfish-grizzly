@@ -43,7 +43,6 @@ jobs:
       run: |
         ./apache-maven-$MAVEN_VERSION/bin/mvn --show-version \
             --no-transfer-progress \
-            --activate-profiles staging \
             --define skipTests=true \
             install
 
@@ -75,12 +74,10 @@ jobs:
         ./apache-maven-$MAVEN_VERSION/bin/mvn --show-version \
             --no-transfer-progress \
             --fail-at-end \
-            --activate-profiles staging \
             --define maven.test.redirectTestOutputToFile=true \
             --define forkCount=1 \
             --define reuseForks=false \
             --define surefire.reportFormat=plain \
-            --define surefire.rerunFailingTestsCount=5 \
             install
 
 
