@@ -259,6 +259,10 @@ public final class TCPNIOTransport extends NIOTransport implements AsyncQueueEna
      */
     @Override
     public void unbind(Connection connection) {
+        unbind(connection, 1000, TimeUnit.MILLISECONDS);
+    }
+
+    public void unbind(Connection connection, long timeout, TimeUnit unit) {
         final Lock lock = state.getStateLocker().writeLock();
         lock.lock();
         try {
@@ -266,7 +270,7 @@ public final class TCPNIOTransport extends NIOTransport implements AsyncQueueEna
             if (connection != null && serverConnections.remove(connection)) {
                 final GrizzlyFuture future = connection.close();
                 try {
-                    future.get(1000, TimeUnit.MILLISECONDS);
+                    future.get(timeout, unit);
                     future.recycle(false);
                 } catch (Exception e) {
                     LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_TRANSPORT_UNBINDING_CONNECTION_EXCEPTION(connection), e);
@@ -279,12 +283,16 @@ public final class TCPNIOTransport extends NIOTransport implements AsyncQueueEna
 
     @Override
     public void unbindAll() {
+        unbindAll(1000, TimeUnit.MILLISECONDS);
+    }
+
+    public void unbindAll(long timeout, TimeUnit unit) {
         final Lock lock = state.getStateLocker().writeLock();
         lock.lock();
         try {
             for (Connection serverConnection : serverConnections) {
                 try {
-                    unbind(serverConnection);
+                    unbind(serverConnection, timeout, unit);
                 } catch (Exception e) {
                     LOGGER.log(Level.FINE, "Exception occurred when closing server connection: " + serverConnection, e);
                 }

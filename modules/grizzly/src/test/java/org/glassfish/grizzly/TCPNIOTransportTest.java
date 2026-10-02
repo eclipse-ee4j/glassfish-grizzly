@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Contributors to the Eclipse Foundation
+ * Copyright (c) 2022, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -65,6 +65,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import static java.lang.Boolean.TRUE;
+import static java.time.Duration.ofSeconds;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.glassfish.grizzly.IOEvent.READ;
 import static org.glassfish.grizzly.IOEvent.SERVER_ACCEPT;
@@ -119,7 +120,7 @@ public class TCPNIOTransportTest {
             connection.closeSilently();
             assertFalse("connection.isOpen", connection.isOpen());
 
-            transport.unbindAll();
+            transport.unbindAll(5, SECONDS);
 
             future = transport.connect("localhost", PORT);
             try {
@@ -130,7 +131,7 @@ public class TCPNIOTransportTest {
             }
 
             logger.log(Level.INFO, "Binding to port {0}", PORT);
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
 
             future = transport.connect("localhost", PORT);
             connection = future.get(10, SECONDS);
@@ -144,29 +145,31 @@ public class TCPNIOTransportTest {
     public void testMultiBind() throws Exception {
         logger.info("Starting test");
 
+        final int port1 = TestUtils.findAvailableTcpPort();
+        final int port2 = TestUtils.findAvailableTcpPort();
         Connection<?> connection = null;
         try {
-            logger.log(Level.INFO, "Binding to port {0}", PORT);
-            final Connection<?> serverConnection1 = transport.bind(PORT);
+            logger.log(Level.INFO, "Binding to port {0}", port1);
+            final Connection<?> serverConnection1 = transport.bind(port1);
 
-            logger.log(Level.INFO, "Binding to port {0}", PORT + 1);
-            final Connection<?> serverConnection2 = transport.bind(PORT + 1);
+            logger.log(Level.INFO, "Binding to port {0}", port2);
+            final Connection<?> serverConnection2 = transport.bind(port2);
 
             transport.start();
 
-            Future<Connection> future = transport.connect("localhost", PORT);
+            Future<Connection> future = transport.connect("localhost", port1);
             connection = future.get(10, SECONDS);
             assertNotNull(connection);
             close(connection);
 
-            future = transport.connect("localhost", PORT + 1);
+            future = transport.connect("localhost", port2);
             connection = future.get(10, SECONDS);
             assertNotNull(connection);
             close(connection);
 
-            transport.unbind(serverConnection1);
+            transport.unbind(serverConnection1, 5, SECONDS);
 
-            future = transport.connect("localhost", PORT);
+            future = transport.connect("localhost", port1);
             try {
                 connection = future.get(10, SECONDS);
                 close(connection);
@@ -175,8 +178,8 @@ public class TCPNIOTransportTest {
                 assertThat(e.getCause(), CoreMatchers.instanceOf(IOException.class));
             }
 
-            transport.unbind(serverConnection2);
-            future = transport.connect("localhost", PORT + 1);
+            transport.unbind(serverConnection2, 5, SECONDS);
+            future = transport.connect("localhost", port2);
             try {
                 connection = future.get(10, SECONDS);
                 close(connection);
@@ -496,7 +499,7 @@ public class TCPNIOTransportTest {
     private static void bindToPort(TCPNIOTransport transport) throws Exception {
         logger.log(Level.INFO, "Binding to port {0}", PORT);
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
         } catch (Exception e) {
             logger.log(Level.SEVERE, "", e);

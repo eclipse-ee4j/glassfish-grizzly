@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -16,6 +17,7 @@
 
 package org.glassfish.grizzly.connectionpool;
 
+import static java.time.Duration.ofSeconds;
 import static java.util.Collections.newSetFromMap;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -76,7 +78,7 @@ public class SingleEndPointPoolTest {
     private TCPNIOTransport transport;
 
     @Before
-    public void init() throws IOException {
+    public void init() throws Exception {
         FilterChain filterChain = FilterChainBuilder.stateless().add(new TransportFilter()).add(new BaseFilter() {
 
             @Override
@@ -100,7 +102,7 @@ public class SingleEndPointPoolTest {
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
-        transport.bind(PORT);
+        TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
         transport.start();
     }
 
@@ -349,7 +351,7 @@ public class SingleEndPointPoolTest {
 
                 try {
                     init();
-                } catch (IOException e) {
+                } catch (Exception e) {
                 }
             }
         };

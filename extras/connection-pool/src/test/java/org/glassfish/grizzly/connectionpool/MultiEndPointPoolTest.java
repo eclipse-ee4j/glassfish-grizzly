@@ -48,6 +48,7 @@ import org.junit.Test;
 
 import static java.lang.System.Logger.Level.DEBUG;
 import static java.lang.System.Logger.Level.INFO;
+import static java.time.Duration.ofSeconds;
 import static java.util.Collections.newSetFromMap;
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -96,7 +97,7 @@ public class MultiEndPointPoolTest {
         transport.setProcessor(filterChain);
 
         for (Integer port : PORTS) {
-            transport.bind(port);
+            TestUtils.retryUntilSuccess(() -> transport.bind(port), ofSeconds(10), ofSeconds(1));
         }
         transport.start();
     }
