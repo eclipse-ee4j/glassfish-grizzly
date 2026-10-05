@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -756,12 +757,14 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
         if (threadPool == null) {
             // mark this thread as a service to let filters upstream know, that
             // it must not be blocked, because otherwise entire HTTP2 connection
-            // can stall
+            // can stall. The previous value is restored afterwards: a selector thread that is
+            // already marked as a service thread has to stay one.
+            final boolean wasService = Threads.isService();
             Threads.setService(true);
             try {
                 http2Session.sendMessageUpstream(stream, content);
             } finally {
-                Threads.setService(false);
+                Threads.setService(wasService);
             }
         } else {
             threadPool.execute(new Runnable() {
