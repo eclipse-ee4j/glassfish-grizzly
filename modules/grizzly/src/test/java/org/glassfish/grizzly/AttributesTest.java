@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -22,24 +22,17 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
-import java.time.Duration;
-import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Set;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import org.glassfish.grizzly.attributes.Attribute;
 import org.glassfish.grizzly.attributes.AttributeBuilder;
 import org.glassfish.grizzly.attributes.AttributeHolder;
 import org.glassfish.grizzly.attributes.DefaultAttributeBuilder;
-import org.glassfish.grizzly.attributes.IndexedAttributeHolder;
-import org.junit.Ignore;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -212,61 +205,5 @@ public class AttributesTest {
             assertEquals(attr.toString(), value, attr.remove(holder));
             assertNull(attr.toString(), attr.get(holder));
         }));
-    }
-
-    @Test
-    @Ignore("Performance test")
-    public void testAttributesForPerformance() {
-        if (!isSafe) {
-            return;
-        }
-        final AttributeBuilder builder = new DefaultAttributeBuilder();
-        final AttributeHolder holder = builder.createSafeAttributeHolder();
-        final AttributeHolder holder2 = new IndexedAttributeHolder(builder); // for comparison
-        final AttributeHolder holder3 = builder.createUnsafeAttributeHolder(); // for comparison
-
-        final int attrCount = 100;
-        final int numberOfTryCountPerThread = 20000;
-        final int repeatCount = 2;
-
-        final Attribute[] attrs = new Attribute[attrCount];
-        IntStream.range(0, attrCount).forEach(i -> attrs[i] = builder.createAttribute("attribute-" + i));
-
-        for (int i = 0; i < repeatCount; i++) {
-            System.out.println("Performance test iteration #" + (i + 1));
-            long timeElapsed = getMeasureTimeInMillis(attrs, holder, numberOfTryCountPerThread);
-            System.out.println("Time elapsed for Attributes test1 with " + attrs.length + " attributes and " +
-                               numberOfTryCountPerThread + " tries per attribute: " + timeElapsed + " ms");
-            timeElapsed = getMeasureTimeInMillis(attrs, holder2, numberOfTryCountPerThread);
-            System.out.println("Time elapsed for Attributes test2 with " + attrs.length + " attributes and " +
-                               numberOfTryCountPerThread + " tries per attribute: " + timeElapsed + " ms");
-            timeElapsed = getMeasureTimeInMillis(attrs, holder3, numberOfTryCountPerThread);
-            System.out.println("Time elapsed for Attributes test3 with " + attrs.length + " attributes and " +
-                               numberOfTryCountPerThread + " tries per attribute: " + timeElapsed + " ms");
-        }
-    }
-
-    private static long getMeasureTimeInMillis(final Attribute[] attrs, final AttributeHolder holder,
-                                               final int numberOfTryCountPerThread) {
-        final Instant start = Instant.now();
-        // Each thread tries to set/get/remove each attribute multiple times.
-        final CompletableFuture[] futures = Arrays.stream(attrs).map(attr -> CompletableFuture.runAsync(
-                () -> IntStream.range(0, numberOfTryCountPerThread).forEach(i -> {
-                    final String value = "value-" + i;
-                    attr.set(holder, value);
-                    Object result = attr.get(holder);
-                    //assertEquals(attr.toString(), value, result);
-                    result = attr.remove(holder);
-                    //assertEquals(attr.toString(), value, result);
-                    result = attr.get(holder);
-                    //assertNull(attr.toString(), result);
-                }))).toArray(CompletableFuture[]::new);
-        try {
-            CompletableFuture.allOf(futures).orTimeout(30, TimeUnit.SECONDS).join();
-        } catch (Exception e) {
-            fail(e.getMessage());
-        }
-        final Instant finish = Instant.now();
-        return Duration.between(start, finish).toMillis();
     }
 }
