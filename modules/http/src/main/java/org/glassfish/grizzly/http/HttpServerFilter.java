@@ -742,6 +742,10 @@ public class HttpServerFilter extends HttpCodecFilter {
         final ServerHttpRequestImpl request = (ServerHttpRequestImpl) httpHeader;
         final HttpResponsePacket response = request.getResponse();
 
+        if (t instanceof HttpHeaderTooLargeException && response.getHttpStatus().getStatusCode() < 400) {
+            // 431 - Request Header Fields Too Large (RFC 6585, section 5)
+            HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE.setValues(response);
+        }
         sendBadRequestResponse(ctx, response);
     }
 
