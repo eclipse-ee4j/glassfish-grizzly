@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -86,7 +87,7 @@ import org.junit.runners.Parameterized.Parameters;
  */
 @RunWith(Parameterized.class)
 public class ChunkedTransferEncodingTest {
-    private static final int PORT = 18898;
+    private int port = 18898;
 
     private final boolean isChunkWhenParsing;
     private final boolean isAsyncHttpHandler;
@@ -106,7 +107,8 @@ public class ChunkedTransferEncodingTest {
     public void before() throws Exception {
         Grizzly.setTrackingThreadCache(true);
         echoHandler = new EchoHandler();
-        configureHttpServer();
+        port = TestUtils.findAvailableTcpPort();
+        configureHttpServer(port);
         startHttpServer(echoHandler);
     }
 
@@ -190,7 +192,7 @@ public class ChunkedTransferEncodingTest {
 
         SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(transport).processor(clientFilterChainBuilder.build()).build();
 
-        Future<Connection> future = connectorHandler.connect("localhost", PORT);
+        Future<Connection> future = connectorHandler.connect("localhost", port);
         connection = future.get(10, TimeUnit.SECONDS);
         assertTrue(connection != null);
 
@@ -294,9 +296,9 @@ public class ChunkedTransferEncodingTest {
         }
     }
 
-    private void configureHttpServer() throws Exception {
+    private void configureHttpServer(final int port) throws Exception {
         httpServer = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         listener.setMaxRequestHeaders(-1);
         listener.setMaxResponseHeaders(-1);
         listener.getTransport().getAsyncQueueIO().getWriter().setMaxPendingBytesPerConnection(-1);
