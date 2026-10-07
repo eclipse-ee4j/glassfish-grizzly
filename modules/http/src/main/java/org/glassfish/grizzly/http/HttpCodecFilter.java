@@ -696,7 +696,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
         case 1: { // parsing headers
             if (!parseHeadersFromBytes((HttpHeader) httpPacket, httpPacket.getHeaders(), parsingState, input, end)) {
-                parsingState.checkOverflow(inputBuffer.limit(), "HTTP packet header is too large");
+                parsingState.checkHeadersOverflow(inputBuffer.limit());
                 return false;
             }
 
@@ -993,7 +993,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
         case 1: { // parsing headers
             if (!parseHeadersFromBuffer((HttpHeader) httpPacket, httpPacket.getHeaders(), parsingState, input)) {
-                parsingState.checkOverflow(input.limit(), "HTTP packet header is too large");
+                parsingState.checkHeadersOverflow(input.limit());
                 return false;
             }
 
@@ -1975,6 +1975,17 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
             }
 
             throw new IllegalStateException(errorDescriptionIfOverflow);
+        }
+
+        /**
+         * @throws HttpHeaderTooLargeException if the header fields parsed up to <code>pos</code> exceed the limit
+         */
+        public void checkHeadersOverflow(final int pos) {
+            if (pos < packetLimit) {
+                return;
+            }
+
+            throw new HttpHeaderTooLargeException("HTTP packet header is too large");
         }
     }
 
