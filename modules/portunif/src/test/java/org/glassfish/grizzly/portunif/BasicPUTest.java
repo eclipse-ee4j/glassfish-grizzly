@@ -92,7 +92,7 @@ public class BasicPUTest {
         transport.setProcessor(puFilterChainBuilder.build());
 
         try {
-            transport.bind(PORT);
+            TestUtils.retryUntilSuccess(() -> transport.bind(PORT), ofSeconds(10), ofSeconds(1));
             transport.start();
 
             for (final String protocol : protocols) {

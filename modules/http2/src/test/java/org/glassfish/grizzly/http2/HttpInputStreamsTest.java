@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -65,8 +66,6 @@ import org.junit.runners.Parameterized.Parameters;
 @RunWith(Parameterized.class)
 public class HttpInputStreamsTest extends AbstractHttp2Test {
 
-    private static final int PORT = 18300;
-
     private final boolean isSecure;
     private final boolean priorKnowledge;
 
@@ -84,7 +83,7 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
 
     @Test
     public void testBinaryWithGet() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         ReadStrategy reader = new ReadStrategy() {
             @Override
             public boolean doRead(Request request) throws IOException {
@@ -101,13 +100,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("GET", null), reader, 1024);
+        doTest(createRequest(port, "GET", null), reader, 1024, port);
 
     }
 
     @Test
     public void testBinaryResetNoMark() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -123,13 +122,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testBinaryMarkReset001() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -162,13 +161,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testBinaryMarkReset002() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -197,13 +196,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testBinaryMarkReset003() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -246,13 +245,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testBinarySkip001() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -277,13 +276,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testBinarySkip002() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -299,13 +298,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testBinary002() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -321,13 +320,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testBinary003() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String content = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -342,13 +341,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", content), reader, 1024);
+        doTest(createRequest(port, "POST", content), reader, 1024, port);
 
     }
 
     @Test
     public void testBinary004() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -366,13 +365,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testBinary005() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final StringBuilder b = new StringBuilder(8192);
         for (int i = 0, let = 'a'; i < 8192; i++, let++) {
             b.append((char) let);
@@ -397,13 +396,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", b.toString()), reader, 1024);
+        doTest(createRequest(port, "POST", b.toString()), reader, 1024, port);
 
     }
 
     @Test
     public void testBinary006() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         int len = 1024 * 17;
         final StringBuilder b = new StringBuilder(len);
         for (int i = 0, let = 'a'; i < len; i++, let++) {
@@ -429,7 +428,7 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", b.toString()), reader, 1024);
+        doTest(createRequest(port, "POST", b.toString()), reader, 1024, port);
 
     }
 
@@ -437,7 +436,7 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
 
     @Test
     public void testCharacterResetNoMark() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -453,13 +452,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacterMarkReset001() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -492,13 +491,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testMultiByteCharacterMarkReset001() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -531,13 +530,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected, "UTF-16"), reader, 1024);
+        doTest(createRequest(port, "POST", expected, "UTF-16"), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacterMarkReset002() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -565,13 +564,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testMultiByteCharacterMarkReset002() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -599,13 +598,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected, "UTF-16"), reader, 1024);
+        doTest(createRequest(port, "POST", expected, "UTF-16"), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacterMarkReset003() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -647,13 +646,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testMultiByteCharacterMarkReset003() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -695,13 +694,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected, "UTF-16"), reader, 1024);
+        doTest(createRequest(port, "POST", expected, "UTF-16"), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacter001() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -719,12 +718,12 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 2);
+        doTest(createRequest(port, "POST", expected), reader, 2, port);
     }
 
     @Test
     public void testCharacter002() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -739,12 +738,12 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
     }
 
     @Test
     public void testCharacter003() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String content = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -758,13 +757,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", content), reader, 1024);
+        doTest(createRequest(port, "POST", content), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacter004() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -781,13 +780,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacter005() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         int len = 1024 * 8;
         final StringBuilder b = new StringBuilder(len);
         for (int i = 0, let = 'a'; i < len; i++, let++) {
@@ -813,13 +812,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", b.toString()), reader, 1024);
+        doTest(createRequest(port, "POST", b.toString()), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacter006() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         int len = 1024 * 17;
         final StringBuilder b = new StringBuilder(len);
         for (int i = 0, let = 'a'; i < len; i++, let++) {
@@ -844,13 +843,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", b.toString()), reader, 1024);
+        doTest(createRequest(port, "POST", b.toString()), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacter007() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final int len = 1024 * 57;
         final StringBuilder b = new StringBuilder(len);
         for (int i = 0, let = 'a'; i < len; i++, let++) {
@@ -876,13 +875,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", b.toString()), reader, 1024 * 9);
+        doTest(createRequest(port, "POST", b.toString()), reader, 1024 * 9, port);
 
     }
 
     @Test
     public void testCharacter008() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -899,13 +898,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacter009() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -924,13 +923,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacter010() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final int len = 1024 * 57;
         final StringBuilder b = new StringBuilder(len);
         for (int i = 0, let = 'a'; i < len; i++, let++) {
@@ -957,12 +956,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", b.toString()), reader, 1024);
+        doTest(createRequest(port, "POST", b.toString()), reader, 1024, port);
 
     }
 
     @Test
     public void testMultiByteCharacter01() throws Throwable {
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771\u0041\u00DF\u6771";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -980,13 +980,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected, "UTF-16"), reader, 1024);
+        doTest(createRequest(port, "POST", expected, "UTF-16"), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacterReady001() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -1005,7 +1005,7 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
@@ -1033,7 +1033,7 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
 
     @Test
     public void testCharacterSkip001() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
 
@@ -1063,13 +1063,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacterSkip002() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final String expected = "abcdefghijklmnopqrstuvwxyz";
         ReadStrategy reader = new ReadStrategy() {
             @Override
@@ -1084,13 +1084,13 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", expected), reader, 1024);
+        doTest(createRequest(port, "POST", expected), reader, 1024, port);
 
     }
 
     @Test
     public void testCharacterSkip003() throws Throwable {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final int len = 1024 * 9;
         final StringBuilder b = new StringBuilder(len);
         for (int i = 0, let = 'a'; i < len; i++, let++) {
@@ -1122,27 +1122,22 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
             }
         };
 
-        doTest(createRequest("POST", b.toString()), reader, 1024);
+        doTest(createRequest(port, "POST", b.toString()), reader, 1024, port);
 
     }
 
     // --------------------------------------------------------- Private Methods
 
-    private HttpPacket createRequest(final String method, final String content) {
-        return createRequest(method, content, "ISO-8859-1");
+    private HttpPacket createRequest(final int port, final String method, final String content) {
+        return createRequest(port, method, content, "ISO-8859-1");
     }
 
-    @SuppressWarnings({ "unchecked" })
-    private HttpPacket createRequest(final String method, final String content, final String encoding) {
-        return createRequest(PORT, method, content, encoding);
-    }
-
-    private void doTest(HttpPacket request, ReadStrategy strategy, int chunkSize) throws Throwable {
+    private void doTest(HttpPacket request, ReadStrategy strategy, int chunkSize, final int port) throws Throwable {
 
         final FutureImpl<Boolean> testResult = SafeFutureImpl.create();
         final Filter clientFilter = new ClientFilter(request, chunkSize, testResult);
 
-        final HttpServer server = createServer("/tmp", PORT, isSecure, HttpHandlerRegistration.of(new SimpleResponseHttpHandler(strategy, testResult), "/*"));
+        final HttpServer server = createServer("/tmp", port, isSecure, HttpHandlerRegistration.of(new SimpleResponseHttpHandler(strategy, testResult), "/*"));
 
         TCPNIOTransport ctransport = TCPNIOTransportBuilder.newInstance().build();
 
@@ -1155,7 +1150,7 @@ public class HttpInputStreamsTest extends AbstractHttp2Test {
 
             ctransport.start();
 
-            Future<Connection> connectFuture = ctransport.connect("localhost", PORT);
+            Future<Connection> connectFuture = ctransport.connect("localhost", port);
             Connection connection = null;
             try {
                 connection = connectFuture.get(30, TimeUnit.SECONDS);
