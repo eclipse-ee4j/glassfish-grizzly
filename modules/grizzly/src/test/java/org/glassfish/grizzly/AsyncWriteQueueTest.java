@@ -524,6 +524,88 @@ public class AsyncWriteQueueTest {
         }
     }
 
+    /**
+     * A writer that respects canWrite() must not run into the hard limit, even if a single record is larger than it.
+     * Only a writer that keeps adding to a full queue is stopped.
+     */
+    @SuppressWarnings({"rawtypes", "deprecation"})
+    @Test
+    public void testSingleWriteLargerThanHardLimitIsAccepted() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
+        Connection connection = null;
+        final int packetSize = 256000;
+
+        final FilterChainBuilder filterChainBuilder = FilterChainBuilder.stateless();
+        filterChainBuilder.add(new TransportFilter());
+        final TCPNIOTransport transport = createTransport(isOptimizedForMultiplexing);
+        transport.setProcessor(filterChainBuilder.build());
+
+        try {
+            final AsyncQueueWriter<SocketAddress> asyncQueueWriter = transport.getAsyncQueueIO().getWriter();
+            asyncQueueWriter.setMaxPendingBytesPerConnection(packetSize);
+            asyncQueueWriter.setPendingBytesHardLimitMultiplier(4);
+            final long hardLimit = (long) asyncQueueWriter.getMaxPendingBytesPerConnection() * asyncQueueWriter.getPendingBytesHardLimitMultiplier();
+
+            transport.bind(port);
+            transport.start();
+
+            final Future<Connection> future = transport.connect("localhost", port);
+            connection = future.get(10, TimeUnit.SECONDS);
+            assertNotNull(connection);
+            connection.configureStandalone(true);
+
+            transport.pause();
+
+            final MemoryManager mm = transport.getMemoryManager();
+            final TaskQueue tqueue = ((NIOConnection) connection).getAsyncWriteQueue();
+
+            // one record far larger than the hard limit (and the socket buffers), written while the queue accepts data
+            assertTrue(asyncQueueWriter.canWrite(connection));
+            final byte[] large = new byte[(int) hardLimit * 16];
+            Arrays.fill(large, (byte) 1);
+            asyncQueueWriter.write(connection, Buffers.wrap(mm, large));
+            assertTrue(connection.isOpen());
+            assertTrue(tqueue.spaceInBytes() >= asyncQueueWriter.getMaxPendingBytesPerConnection());
+            assertFalse(asyncQueueWriter.canWrite(connection));
+
+            // writing on although canWrite() is false still hits the hard limit
+            final byte[] more = new byte[packetSize];
+            Arrays.fill(more, (byte) 1);
+            final FutureImpl<Boolean> f = SafeFutureImpl.create();
+            asyncQueueWriter.write(connection, Buffers.wrap(mm, more), new EmptyCompletionHandler<>() {
+
+                @Override
+                public void completed(WriteResult result) {
+                    f.result(Boolean.TRUE);
+                }
+
+                @Override
+                public void failed(Throwable throwable) {
+                    f.failure(throwable);
+                }
+            });
+            try {
+                f.get(10, TimeUnit.SECONDS);
+                fail();
+            } catch (InterruptedException | TimeoutException e) {
+                fail();
+            } catch (ExecutionException e) {
+                // expected
+            }
+            assertFalse(connection.isOpen());
+
+            transport.resume();
+        } finally {
+            if (connection != null) {
+                connection.closeSilently();
+            }
+            if (transport.isPaused()) {
+                transport.resume();
+            }
+            transport.shutdownNow();
+        }
+    }
+
     @SuppressWarnings({"rawtypes", "deprecation"})
     @Test
     public void testPendingBytesHardLimit() throws Exception {

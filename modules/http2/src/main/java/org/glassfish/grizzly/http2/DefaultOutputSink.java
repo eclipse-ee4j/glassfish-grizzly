@@ -104,12 +104,17 @@ class DefaultOutputSink implements StreamOutputSink {
 
     @Override
     public boolean canWrite() {
-        return outputQueue.size() < MAX_OUTPUT_QUEUE_SIZE;
+        return outputQueue.size() < MAX_OUTPUT_QUEUE_SIZE && http2Session.getOutputSink().canWrite();
     }
 
     @Override
     public void notifyWritePossible(final WriteHandler writeHandler) {
-        outputQueue.notifyWritePossible(writeHandler, MAX_OUTPUT_QUEUE_SIZE);
+        // data sent within the stream window goes straight to the session sink, so a backlog there has to block too
+        if (outputQueue.size() < MAX_OUTPUT_QUEUE_SIZE) {
+            http2Session.getOutputSink().notifyCanWrite(writeHandler);
+        } else {
+            outputQueue.notifyWritePossible(writeHandler, MAX_OUTPUT_QUEUE_SIZE);
+        }
     }
 
     private void assertReady() throws IOException {
