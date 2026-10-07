@@ -208,7 +208,10 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
         final int maxPendingBytes = nioConnection.getMaxAsyncWriteQueueSize();
         final long hardLimit = (long) maxPendingBytes * pendingBytesHardLimitMultiplier;
-        if ((maxPendingBytes >= 0 && pendingBytes > hardLimit)) {
+        // A writer that found canWrite() true had the queue below maxPendingBytes, so its record is accepted whatever
+        // its size. Only a writer that keeps adding to a queue that is already full runs into the hard limit.
+        final int pendingBytesBefore = pendingBytes - bytesToReserve;
+        if (maxPendingBytes >= 0 && pendingBytesBefore >= maxPendingBytes && pendingBytes > hardLimit) {
             if (isLogFine) {
                 doFineLog(
                         "Asynchronous write queue hard limit exceeded. connection={0}, record={1}, directWrite={2}, size={3}, isUncountable={4}, bytesToReserve={5}, pendingBytes={6}, maxPendingBytes={7}, hardLimit={8}",
