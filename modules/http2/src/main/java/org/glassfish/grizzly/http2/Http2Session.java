@@ -573,11 +573,16 @@ public class Http2Session {
     /**
      * Terminate the HTTP2 session sending a GOAWAY frame using the specified error code and optional detail. Once the
      * GOAWAY frame is on the wire, the underlying TCP connection will be closed.
+     * <p>
+     * Filter subclasses may call this to end a misbehaving session with a specific error code, e.g.
+     * {@link ErrorCode#ENHANCE_YOUR_CALM} when a peer floods the server with frames. The method returns without waiting
+     * for the GOAWAY to be written and may be called from any thread. Only the first GOAWAY is sent: if the session is
+     * already going away (other than gracefully), the call has no effect.
      *
-     * @param errorCode an RFC 7540 error code.
-     * @param detail optional details.
+     * @param errorCode an RFC 9113 error code.
+     * @param detail optional details, sent as the GOAWAY frame's additional debug data; may be {@code null}.
      */
-    void terminate(final ErrorCode errorCode, final String detail) {
+    public void terminate(final ErrorCode errorCode, final String detail) {
         sendGoAwayAndClose(setGoAwayLocally(errorCode, detail, false));
     }
 
