@@ -63,6 +63,9 @@ public class HttpServerFilter extends HttpCodecFilter {
 
     public static final FilterChainEvent RESPONSE_COMPLETE_EVENT = new HttpEvents.ResponseCompleteEvent();
 
+    private static final String H2C = "h2c";
+    private static final String H2 = "h2";
+
     private final Attribute<ServerHttpRequestImpl> httpRequestInProcessAttr;
     private final Attribute<KeepAliveContext> keepAliveContextAttr;
 
@@ -549,6 +552,23 @@ public class HttpServerFilter extends HttpCodecFilter {
 
         state.offset = offset;
         return found;
+    }
+
+    /**
+     * Serves an HTTP/2 cleartext upgrade request that no filter accepted as plain HTTP/1.1, as though the
+     * <code>Upgrade</code> header were absent (RFC 7540, section 3.2). Otherwise its transfer encoding stays ignored: the
+     * handler gets a chunked body still chunk-encoded, and the request content never ends.
+     */
+    @Override
+    protected void onIncomingUpgrade(final FilterChainContext ctx, final HttpHeader httpHeader) {
+        super.onIncomingUpgrade(ctx, httpHeader);
+
+        // Http2ServerFilter clears the flag for an upgrade it accepts, so a set flag means nobody did
+        final DataChunk upgradeDC = httpHeader.getUpgradeDC();
+        if (httpHeader.isIgnoreContentModifiers() && (upgradeDC.equalsIgnoreCase(H2C) || upgradeDC.equalsIgnoreCase(H2))) {
+            httpHeader.setIgnoreContentModifiers(false);
+            upgradeDC.recycle();
+        }
     }
 
     @Override
