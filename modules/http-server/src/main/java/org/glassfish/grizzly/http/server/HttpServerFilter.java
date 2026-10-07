@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -160,7 +160,7 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
                 final HttpRequestPacket request = (HttpRequestPacket) httpContent.getHttpHeader();
                 final HttpResponsePacket response = request.getResponse();
 
-                handlerRequest = Request.create();
+                handlerRequest = createRequest();
                 handlerRequest.parameters.setLimit(config.getMaxRequestParameters());
                 httpRequestInProgress.set(context, handlerRequest);
                 if (LOGGER.isLoggable(Level.FINEST)) {
@@ -196,7 +196,7 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
                         HtmlHelper.setErrorAndSendErrorPage(handlerRequest, handlerResponse, config.getDefaultErrorPageGenerator(), 413,
                                 HttpStatus.REQUEST_ENTITY_TOO_LARGE_413.getReasonPhrase(), "The request payload size exceeds the max post size limitation",
                                 null);
-                    } else {
+                    } else if (beforeService(handlerRequest, handlerResponse)) {
                         final HttpHandler httpHandlerLocal = httpHandler;
                         if (httpHandlerLocal != null) {
                             wasSuspended = !httpHandlerLocal.doHandle(handlerRequest, handlerResponse);
@@ -351,6 +351,38 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
 
     protected Object createJmxManagementObject() {
         return MonitoringUtils.loadJmxObject("org.glassfish.grizzly.http.server.jmx.HttpServerFilter", this, HttpServerFilter.class);
+    }
+
+    /**
+     * Creates the {@link Request}, together with its {@link Response}, for a new HTTP request. Override to use
+     * {@link Request} and {@link Response} subclasses.
+     * <p>
+     * The filter initializes the returned instance and recycles it once the request is complete.
+     * {@link Request#recycle()} puts every instance into the shared pool used by {@link Request#create()}; a subclass
+     * with a pool of its own has to override {@link Request#recycle()} accordingly.
+     *
+     * @return a new or pooled, uninitialized {@link Request}
+     */
+    protected Request createRequest() {
+        return Request.create();
+    }
+
+    /**
+     * Called for each new request after the built-in checks and right before it is passed to the {@link HttpHandler}.
+     * Override to reject requests early, e.g. with 503 when overloaded or 400 for a forbidden header.
+     * <p>
+     * To reject a request, answer it synchronously via the response and return <tt>false</tt>; the request then
+     * completes as if the {@link HttpHandler} had answered it. The connection is kept alive unless the response's
+     * processing state is marked erroneous or the status implies closing it (e.g. 400, 413, 503). An exception is
+     * handled like one thrown by the {@link HttpHandler}.
+     *
+     * @param request the initialized request
+     * @param response the initialized response
+     * @return <tt>true</tt> to pass the request to the {@link HttpHandler}, <tt>false</tt> if it has been answered
+     * @throws IOException if answering the request fails
+     */
+    protected boolean beforeService(final Request request, final Response response) throws IOException {
+        return true;
     }
 
     protected void onTraceRequest(final Request request, final Response response) throws IOException {
