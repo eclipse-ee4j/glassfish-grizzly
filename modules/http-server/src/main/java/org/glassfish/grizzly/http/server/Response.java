@@ -1263,7 +1263,8 @@ public class Response {
     }
 
     /**
-     * Send a temporary redirect to the specified redirect location URL.
+     * Send a temporary redirect (302) to the specified redirect location URL, replacing any buffered content with a short
+     * hypertext note.
      *
      * @param location Location URL to redirect to
      *
@@ -1271,13 +1272,16 @@ public class Response {
      * @exception java.io.IOException if an input/output error occurs
      */
     public void sendRedirect(String location) throws IOException {
-        sendRedirect(location, 302, appCommitted);
+        sendRedirect(location, HttpStatus.FOUND_302.getStatusCode(), true);
     }
 
     /**
-     * Send a temporary redirect to the specified redirect location URL.
+     * Send a redirect with the given status code to the specified redirect location URL.
      *
      * @param location Location URL to redirect to
+     * @param sc the status code to use for the redirect
+     * @param clearBuffer if <code>true</code>, clear the buffer and replace it with a short hypertext note, otherwise
+     * retain the existing buffer
      *
      * @exception IllegalStateException if this response has already been committed
      * @exception java.io.IOException if an input/output error occurs
@@ -1287,50 +1291,57 @@ public class Response {
             throw new IllegalStateException("Illegal attempt to redirect the response as the response has been committed.");
         }
 
-        // Clear any data content that has been buffered
-        resetBuffer();
+        if (clearBuffer) {
+            // Clear any data content that has been buffered
+            resetBuffer();
+        }
 
-        // Generate a temporary redirect to the specified location
         try {
             String absolute = toAbsolute(location, true);
             // END RIMOD 4642650
             setStatus(HttpStatus.getHttpStatus(sc));
             setHeader(Header.Location, absolute);
 
-            // According to RFC2616 section 10.3.3 302 Found,
-            // the response SHOULD contain a short hypertext note with
-            // a hyperlink to the new URI.
-            setContentType("text/html");
-            setLocale(Locale.getDefault());
-
-            String filteredMsg = filter(absolute);
-            StringBuilder sb = new StringBuilder(150 + absolute.length());
-
-            sb.append("<html>\r\n");
-            sb.append("<head><title>Document moved</title></head>\r\n");
-            sb.append("<body><h1>Document moved</h1>\r\n");
-            sb.append("This document has moved <a href=\"");
-            sb.append(filteredMsg);
-            sb.append("\">here</a>.<p>\r\n");
-            sb.append("</body>\r\n");
-            sb.append("</html>\r\n");
-
-            try {
-                getWriter().write(sb.toString());
-                getWriter().flush();
-            } catch (IllegalStateException ise1) {
-                try {
-                    getOutputStream().write(sb.toString().getBytes(DEFAULT_HTTP_CHARSET));
-                } catch (IllegalStateException ise2) {
-                    // ignore; the RFC says "SHOULD" so it is acceptable
-                    // to omit the body in case of an error
-                }
+            if (clearBuffer) {
+                writeRedirectNote(absolute);
             }
         } catch (IllegalArgumentException e) {
             sendError(404);
         }
 
         finish();
+    }
+
+    private void writeRedirectNote(String absolute) throws IOException {
+        // According to RFC2616 section 10.3.3 302 Found,
+        // the response SHOULD contain a short hypertext note with
+        // a hyperlink to the new URI.
+        setContentType("text/html");
+        setLocale(Locale.getDefault());
+
+        String filteredMsg = filter(absolute);
+        StringBuilder sb = new StringBuilder(150 + absolute.length());
+
+        sb.append("<html>\r\n");
+        sb.append("<head><title>Document moved</title></head>\r\n");
+        sb.append("<body><h1>Document moved</h1>\r\n");
+        sb.append("This document has moved <a href=\"");
+        sb.append(filteredMsg);
+        sb.append("\">here</a>.<p>\r\n");
+        sb.append("</body>\r\n");
+        sb.append("</html>\r\n");
+
+        try {
+            getWriter().write(sb.toString());
+            getWriter().flush();
+        } catch (IllegalStateException ise1) {
+            try {
+                getOutputStream().write(sb.toString().getBytes(DEFAULT_HTTP_CHARSET));
+            } catch (IllegalStateException ise2) {
+                // ignore; the RFC says "SHOULD" so it is acceptable
+                // to omit the body in case of an error
+            }
+        }
     }
 
     /**
