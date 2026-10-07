@@ -133,10 +133,13 @@ public class Session {
 
     /**
      * Sets the session identifier for this session.
-     * 
-     * @param id
+     * <p>
+     * Public so that a custom {@link SessionManager} can assign a new identifier in
+     * {@link SessionManager#changeSessionId(Request, Session)}.
+     *
+     * @param id the new session identifier
      */
-    protected void setIdInternal(String id) {
+    public void setIdInternal(String id) {
         this.id = id;
     }
 
