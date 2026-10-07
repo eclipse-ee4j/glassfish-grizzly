@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -15,6 +16,9 @@
  */
 
 package org.glassfish.grizzly.servlet;
+
+import java.util.Map;
+import java.util.TreeMap;
 
 import org.glassfish.grizzly.http.Cookie;
 
@@ -339,6 +343,28 @@ public class CookieWrapper extends Cookie {
     @Override
     public void setHttpOnly(boolean isHttpOnly) {
         wrappedCookie.setHttpOnly(isHttpOnly);
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void setAttribute(String name, String value) {
+        wrappedCookie.setAttribute(name, value);
+    }
+
+    /**
+     * Returns the attributes of the wrapped cookie, except those with a dedicated property.
+     */
+    @Override
+    public Map<String, String> getAttributes() {
+        Map<String, String> attributes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        wrappedCookie.getAttributes().forEach((name, value) -> {
+            if (!isReservedAttribute(name)) {
+                attributes.put(name, value);
+            }
+        });
+        return attributes;
     }
 
     @SuppressWarnings("UnusedDeclaration")
