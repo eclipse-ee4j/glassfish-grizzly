@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022, 2024 Contributors to the Eclipse Foundation
+ * Copyright (c) 2022, 2026 Contributors to the Eclipse Foundation
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -474,7 +474,7 @@ public class HttpServletResponseImpl implements HttpServletResponse, Holders.Res
         if (isCommitted()) {
             throw new IllegalStateException("Illegal attempt to redirect the response after it has been committed.");
         }
-        response.sendRedirect(location);
+        response.sendRedirect(location, sc, clearBuffer);
     }
 
     /**

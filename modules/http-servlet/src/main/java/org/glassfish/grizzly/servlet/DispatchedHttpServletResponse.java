@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Contributors to the Eclipse Foundation
+ * Copyright (c) 2022, 2026 Contributors to the Eclipse Foundation
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -123,6 +123,30 @@ public class DispatchedHttpServletResponse extends HttpServletResponseWrapper {
             return;
         }
         super.sendRedirect(location);
+    }
+
+    @Override
+    public void sendRedirect(String location, int sc) throws IOException {
+        if (included) {
+            return;
+        }
+        super.sendRedirect(location, sc);
+    }
+
+    @Override
+    public void sendRedirect(String location, boolean clearBuffer) throws IOException {
+        if (included) {
+            return;
+        }
+        super.sendRedirect(location, clearBuffer);
+    }
+
+    @Override
+    public void sendRedirect(String location, int sc, boolean clearBuffer) throws IOException {
+        if (included) {
+            return;
+        }
+        super.sendRedirect(location, sc, clearBuffer);
     }
 
     @Override
