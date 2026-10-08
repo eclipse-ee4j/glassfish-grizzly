@@ -210,7 +210,7 @@ public class Http2SessionOutputSink {
             boolean breakNow = false;
 
             // gather all available output data frames
-            while (availWindowSize > bytesToTransfer && queueSize > queueSizeToFree && maxBytesToTransfer > bytesToTransfer) {
+            while (availWindowSize > bytesToTransfer && queueSize > queueSizeToFree && maxBytesToTransfer > queueSizeToFree) {
 
                 final Http2OutputQueueRecord record = outputQueue.poll();
                 if (record == null) {
