@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -30,6 +30,7 @@ import static org.glassfish.grizzly.http.util.CookieUtils.tspecials2NoSlash;
 
 import java.nio.BufferOverflowException;
 import java.time.Instant;
+import java.util.Map;
 
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.http.Cookie;
@@ -52,6 +53,7 @@ public class CookieSerializerUtils {
 
         serializeServerCookie(buf, versionOneStrictCompliance, rfc6265Support, alwaysAddExpires, cookie.getName(), cookie.getValue(), cookie.getVersion(),
                 cookie.getPath(), cookie.getDomain(), cookie.getComment(), cookie.getMaxAge(), cookie.isSecure(), cookie.isHttpOnly());
+        serializeAttributes(buf, cookie.getAttributes());
     }
 
     // TODO RFC2965 fields also need to be passed
@@ -141,6 +143,7 @@ public class CookieSerializerUtils {
     public static void serializeServerCookie(Buffer buf, boolean versionOneStrictCompliance, boolean alwaysAddExpires, Cookie cookie) {
         serializeServerCookie(buf, versionOneStrictCompliance, alwaysAddExpires, cookie.getName(), cookie.getValue(), cookie.getVersion(), cookie.getPath(),
                 cookie.getDomain(), cookie.getComment(), cookie.getMaxAge(), cookie.isSecure(), cookie.isHttpOnly());
+        serializeAttributes(buf, cookie.getAttributes());
     }
 
     // TODO RFC2965 fields also need to be passed
@@ -219,6 +222,47 @@ public class CookieSerializerUtils {
         // httpOnly
         if (isHttpOnly) {
             put(buf, "; HttpOnly");
+        }
+    }
+
+    /**
+     * Appends further cookie attributes like <code>SameSite</code>, rendering an empty value as a bare attribute name.
+     *
+     * @throws IllegalArgumentException if a name is no token or a value contains a control character or a semicolon
+     */
+    public static void serializeAttributes(StringBuilder buf, Map<String, String> attributes) {
+        for (Map.Entry<String, String> attribute : attributes.entrySet()) {
+            checkAttribute(attribute.getKey(), attribute.getValue());
+            buf.append("; ").append(attribute.getKey());
+            if (!attribute.getValue().isEmpty()) {
+                buf.append('=').append(attribute.getValue());
+            }
+        }
+    }
+
+    /**
+     * Appends further cookie attributes like <code>SameSite</code>, rendering an empty value as a bare attribute name.
+     *
+     * @throws IllegalArgumentException if a name is no token or a value contains a control character or a semicolon
+     */
+    public static void serializeAttributes(Buffer buf, Map<String, String> attributes) {
+        for (Map.Entry<String, String> attribute : attributes.entrySet()) {
+            checkAttribute(attribute.getKey(), attribute.getValue());
+            put(buf, "; ");
+            put(buf, attribute.getKey());
+            if (!attribute.getValue().isEmpty()) {
+                put(buf, '=');
+                put(buf, attribute.getValue());
+            }
+        }
+    }
+
+    private static void checkAttribute(String name, String value) {
+        if (name.isEmpty() || !isToken2(name) || containsCTL(name, 1)) {
+            throw new IllegalArgumentException("Invalid cookie attribute name: " + name);
+        }
+        if (value.indexOf(';') != -1 || containsCTL(value, 1)) {
+            throw new IllegalArgumentException("Invalid value for cookie attribute " + name);
         }
     }
 
