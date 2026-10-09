@@ -742,11 +742,9 @@ public class HttpServerFilter extends HttpCodecFilter {
         final ServerHttpRequestImpl request = (ServerHttpRequestImpl) httpHeader;
         final HttpResponsePacket response = request.getResponse();
 
-        if (t instanceof HttpHeaderTooLargeException && response.getHttpStatus().getStatusCode() < 400) {
-            // 431 - Request Header Fields Too Large (RFC 6585, section 5)
-            HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE.setValues(response);
-        }
-        sendBadRequestResponse(ctx, response);
+        // 431 - Request Header Fields Too Large (RFC 6585, section 5)
+        sendErrorResponse(ctx, response,
+                t instanceof HttpHeaderTooLargeException ? HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE : HttpStatus.BAD_REQUEST_400);
     }
 
     @Override
@@ -754,7 +752,7 @@ public class HttpServerFilter extends HttpCodecFilter {
         final ServerHttpRequestImpl request = (ServerHttpRequestImpl) httpHeader;
         final HttpResponsePacket response = request.getResponse();
         if (!response.isCommitted()) {
-            sendBadRequestResponse(ctx, response);
+            sendErrorResponse(ctx, response, HttpStatus.BAD_REQUEST_400);
         }
         httpHeader.setContentBroken(true);
 
@@ -1107,10 +1105,13 @@ public class HttpServerFilter extends HttpCodecFilter {
         return isKeepAlive;
     }
 
-    private void sendBadRequestResponse(final FilterChainContext ctx, final HttpResponsePacket response) {
+    /**
+     * Commits the response as an error and closes the connection. A status already set to an error is kept,
+     * otherwise <code>fallbackStatus</code> is used.
+     */
+    private void sendErrorResponse(final FilterChainContext ctx, final HttpResponsePacket response, final HttpStatus fallbackStatus) {
         if (response.getHttpStatus().getStatusCode() < 400) {
-            // 400 - Bad request
-            HttpStatus.BAD_REQUEST_400.setValues(response);
+            fallbackStatus.setValues(response);
         }
         ensureSerializableProtocol(response.getRequest());
         commitAndCloseAsError(ctx, response);
@@ -1165,7 +1166,7 @@ public class HttpServerFilter extends HttpCodecFilter {
             }
         } else {
             response.setStatus(HttpStatus.EXPECTATION_FAILED_417);
-            sendBadRequestResponse(ctx, response);
+            sendErrorResponse(ctx, response, HttpStatus.BAD_REQUEST_400);
         }
     }
 
