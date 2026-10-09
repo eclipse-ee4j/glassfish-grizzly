@@ -55,7 +55,7 @@ public interface AsyncQueueWriter<L> extends Writer<L>, AsyncQueue {
      * soft limit by this value. If a write would exceed the hard limit, the write
      * fails and the connection is closed.</p>
      */
-    int DEFAULT_PENDING_BYTES_HARD_LIMIT_MULTIPLIER = 4;
+    int MIN_PENDING_BYTES_HARD_LIMIT_MULTIPLIER = 4;
 
     /**
      * Method writes the {@link Buffer} to the specific address.
@@ -127,11 +127,12 @@ public interface AsyncQueueWriter<L> extends Writer<L>, AsyncQueue {
      * soft limit by this value. If adding a write would cause the reservation size
      * to exceed the calculated hard limit, the write fails and the connection is closed.</p>
      *
-     * <p>The default multiplier is {@code 4}.</p>
+     * <p>A value less than or equal to zero enables automatic configuration,
+     * which calculates the multiplier from the maximum amount of memory
+     * and the maximum asynchronous write queue size.</p>
      *
-     * @param multiplier the hard limit multiplier; must be greater than or equal
-     *        to {@code 1}
-     * @throws IllegalArgumentException if {@code multiplier} is less than {@code 1}
+     * @param multiplier the hard limit multiplier, or a non-positive value to enable automatic configuration
+     *
      */
     void setPendingBytesHardLimitMultiplier(final int multiplier);
 
@@ -141,8 +142,6 @@ public interface AsyncQueueWriter<L> extends Writer<L>, AsyncQueue {
      *
      * <p>If adding a write would cause the reservation size to exceed the
      * calculated hard limit, the write fails and the connection is closed.</p>
-     *
-     * <p>The default multiplier is {@code 4}.</p>
      *
      * @return the hard limit multiplier
      */
