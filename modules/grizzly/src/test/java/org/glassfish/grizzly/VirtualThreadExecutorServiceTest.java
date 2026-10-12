@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025,2026 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  *
  * This program and the accompanying materials are made available under the
  * terms of the Eclipse Public License v. 2.0, which is available at
@@ -52,6 +52,13 @@ public class VirtualThreadExecutorServiceTest extends GrizzlyTestCase {
         ThreadPoolConfig config = ThreadPoolConfig.defaultConfig()
                 .setMaxPoolSize(maxPoolSize)
                 .setQueueLimit(queueLimit);
+        final CountDownLatch allThreadsReleasedLatch = new CountDownLatch(queue);
+        config.getInitialMonitoringConfig().addProbes(new ThreadPoolProbe.Adapter() {
+            @Override
+            public void onThreadReleaseEvent(ThreadPoolInfo threadPool, Thread thread) {
+                allThreadsReleasedLatch.countDown();
+            }
+        });
         VirtualThreadExecutorService r = VirtualThreadExecutorService.createInstance(config);
 
         CyclicBarrier start = new CyclicBarrier(maxPoolSize + 1);
@@ -90,6 +97,8 @@ public class VirtualThreadExecutorServiceTest extends GrizzlyTestCase {
                 break;
             }
         }
+        // Verify the release of all threads that executed the task.
+        Assert.assertTrue(allThreadsReleasedLatch.await(5, TimeUnit.SECONDS));
         // The executor can accept new tasks
         doTest(r, queue);
     }
