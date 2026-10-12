@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -93,7 +93,7 @@ import org.junit.runners.Parameterized.Parameters;
 @SuppressWarnings("unchecked")
 public class FileCacheTest {
 
-    public static final int PORT = 18891;
+    public int port;
     private HttpServer httpServer;
     private final boolean isSslEnabled;
 
@@ -109,6 +109,7 @@ public class FileCacheTest {
     @Before
     public void before() throws Exception {
         ByteBufferWrapper.DEBUG_MODE = true;
+        port = TestUtils.findAvailableTcpPort();
         configureHttpServer();
     }
 
@@ -155,7 +156,7 @@ public class FileCacheTest {
         });
 
         HttpRequestPacket.Builder builder = HttpRequestPacket.builder();
-        builder.method(Method.GET).uri("/somedata").protocol(Protocol.HTTP_1_1).host("localhost:" + PORT);
+        builder.method(Method.GET).uri("/somedata").protocol(Protocol.HTTP_1_1).host("localhost:" + port);
 
         final HttpPacket request1 = builder.build();
 
@@ -167,7 +168,7 @@ public class FileCacheTest {
         boolean isOk = false;
         try {
             final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-            final Connection c = getConnection("localhost", PORT, responseFuture);
+            final Connection c = getConnection("localhost", port, responseFuture);
             c.write(request1);
             final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
 
@@ -245,7 +246,7 @@ public class FileCacheTest {
         });
 
         HttpRequestPacket.Builder builder = HttpRequestPacket.builder();
-        builder.method(Method.GET).uri("/somedata").protocol(Protocol.HTTP_1_1).header("Accept-Encoding", "gzip").host("localhost:" + PORT);
+        builder.method(Method.GET).uri("/somedata").protocol(Protocol.HTTP_1_1).header("Accept-Encoding", "gzip").host("localhost:" + port);
 
         final HttpPacket request1 = builder.build();
 
@@ -257,7 +258,7 @@ public class FileCacheTest {
         boolean isOk = false;
         try {
             final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-            final Connection c = getConnection("localhost", PORT, responseFuture);
+            final Connection c = getConnection("localhost", port, responseFuture);
             c.write(request1);
             final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
 
@@ -331,7 +332,7 @@ public class FileCacheTest {
             fis.close();
             final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
             final String pattern = new String(data);
-            final Connection c = getConnection("localhost", PORT, responseFuture);
+            final Connection c = getConnection("localhost", port, responseFuture);
             c.write(request1);
             final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
 
@@ -395,7 +396,7 @@ public class FileCacheTest {
         boolean isOk = false;
         try {
             final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-            final Connection c = getConnection("localhost", PORT, responseFuture);
+            final Connection c = getConnection("localhost", port, responseFuture);
             c.write(request1);
             final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
 
@@ -462,7 +463,7 @@ public class FileCacheTest {
         boolean isOk = false;
         try {
             final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-            final Connection c = getConnection("localhost", PORT, responseFuture);
+            final Connection c = getConnection("localhost", port, responseFuture);
             c.write(request1);
             final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
 
@@ -513,7 +514,7 @@ public class FileCacheTest {
 
         final String pattern = new String(data);
         final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-        final Connection c = getConnection("localhost", PORT, responseFuture);
+        final Connection c = getConnection("localhost", port, responseFuture);
         c.write(request1);
         final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
         assertEquals("Cached data mismatch. Response=" + response1.getHttpHeader(), pattern, response1.getContent().toStringContent());
@@ -555,7 +556,7 @@ public class FileCacheTest {
 
         final String pattern = new String(data);
         final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-        final Connection c = getConnection("localhost", PORT, responseFuture);
+        final Connection c = getConnection("localhost", port, responseFuture);
         c.write(request1);
         final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
         assertEquals("Cached data mismatch. Response=" + response1.getHttpHeader(), pattern, response1.getContent().toStringContent());
@@ -596,7 +597,7 @@ public class FileCacheTest {
 
         final String pattern = new String(data);
         final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-        final Connection c = getConnection("localhost", PORT, responseFuture);
+        final Connection c = getConnection("localhost", port, responseFuture);
         c.write(request1);
         final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
         assertEquals("Cached data mismatch. Response=" + response1.getHttpHeader(), pattern, response1.getContent().toStringContent());
@@ -666,7 +667,7 @@ public class FileCacheTest {
 
         final String pattern = new String(data);
         final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-        final Connection c = getConnection("localhost", PORT, responseFuture);
+        final Connection c = getConnection("localhost", port, responseFuture);
         c.write(request1);
         final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
         assertEquals("Cached data mismatch. Response=" + response1.getHttpHeader(), pattern, response1.getContent().toStringContent());
@@ -697,7 +698,7 @@ public class FileCacheTest {
 
         final String pattern = new String(data);
         final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-        final Connection c = getConnection("localhost", PORT, responseFuture);
+        final Connection c = getConnection("localhost", port, responseFuture);
         c.write(request1);
         final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
         assertEquals("Cached data mismatch. Response=" + response1.getHttpHeader(), pattern, response1.getContent().toStringContent());
@@ -735,7 +736,7 @@ public class FileCacheTest {
 
         final String pattern = new String(data);
         final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-        final Connection c = getConnection("localhost", PORT, responseFuture);
+        final Connection c = getConnection("localhost", port, responseFuture);
         c.write(request1);
         final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
         assertEquals("Cached data mismatch. Response=" + response1.getHttpHeader(), pattern, response1.getContent().toStringContent());
@@ -771,7 +772,7 @@ public class FileCacheTest {
 
         final String pattern = new String(data);
         final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-        final Connection c = getConnection("localhost", PORT, responseFuture);
+        final Connection c = getConnection("localhost", port, responseFuture);
         c.write(request1);
         final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
         assertEquals("Cached data mismatch. Response=" + response1.getHttpHeader(), pattern, response1.getContent().toStringContent());
@@ -821,7 +822,7 @@ public class FileCacheTest {
 
         final String pattern = new String(data);
         final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-        final Connection c = getConnection("localhost", PORT, responseFuture);
+        final Connection c = getConnection("localhost", port, responseFuture);
         c.write(request1);
         final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
         assertEquals("Cached data mismatch. Response=" + response1.getHttpHeader(), pattern, response1.getContent().toStringContent());
@@ -855,7 +856,7 @@ public class FileCacheTest {
 
         final String pattern = new String(data);
         final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-        final Connection c = getConnection("localhost", PORT, responseFuture);
+        final Connection c = getConnection("localhost", port, responseFuture);
         c.write(request1);
         final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
         assertEquals("Cached data mismatch. Response=" + response1.getHttpHeader(), pattern, response1.getContent().toStringContent());
@@ -889,7 +890,7 @@ public class FileCacheTest {
 
         final String pattern = new String(data);
         final ReusableFuture<HttpContent> responseFuture = new ReusableFuture<>();
-        final Connection c = getConnection("localhost", PORT, responseFuture);
+        final Connection c = getConnection("localhost", port, responseFuture);
         c.write(request1);
         final HttpContent response1 = responseFuture.get(10, TimeUnit.SECONDS);
         assertEquals("Cached data mismatch. Response=" + response1.getHttpHeader(), pattern, response1.getContent().toStringContent());
@@ -910,7 +911,7 @@ public class FileCacheTest {
 
     private void configureHttpServer() throws Exception {
         httpServer = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         if (isSslEnabled) {
             listener.setSecure(true);
             listener.setSSLEngineConfig(createSSLConfig(true));
