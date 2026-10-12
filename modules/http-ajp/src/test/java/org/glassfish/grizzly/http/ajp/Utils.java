@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -22,6 +23,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.InetAddress;
+import java.net.ServerSocket;
 import java.net.URL;
 import java.util.logging.Logger;
 
@@ -221,5 +224,11 @@ public class Utils {
 
     static int getShort(byte[] b, int off) {
         return (short) ((b[off + 1] & 0xFF) + (b[off] << 8)) & 0xFFFF;
+    }
+
+    static int findAvailableTcpPort() throws IOException {
+        try (ServerSocket socket = new ServerSocket(0, 0, InetAddress.getLoopbackAddress())) {
+            return socket.getLocalPort();
+        }
     }
 }

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -95,7 +96,7 @@ public class BasicAjpTest extends AjpTestBase {
 
         startHttpServer(httpHanlder);
 
-        final AjpForwardRequestPacket headersPacket = new AjpForwardRequestPacket("POST", "/myresource", 80, PORT);
+        final AjpForwardRequestPacket headersPacket = new AjpForwardRequestPacket("POST", "/myresource", 80, port);
         headersPacket.addHeader("Content-Length", String.valueOf(size));
         headersPacket.addHeader("Host", "localhost:80");
         headersPacket.addHeader("Expect", "100-continue");
@@ -139,7 +140,7 @@ public class BasicAjpTest extends AjpTestBase {
 
         startHttpServer(httpHanlder);
 
-        final AjpForwardRequestPacket headersPacket = new AjpForwardRequestPacket("GET", "/myresource", 80, PORT);
+        final AjpForwardRequestPacket headersPacket = new AjpForwardRequestPacket("GET", "/myresource", 80, port);
         headersPacket.addHeader("Content-Length", "0");
         headersPacket.addHeader("Host", "localhost:80");
 
@@ -189,7 +190,7 @@ public class BasicAjpTest extends AjpTestBase {
 
         startHttpServer(httpHanlder);
 
-        final AjpForwardRequestPacket headersPacket = new AjpForwardRequestPacket("POST", "/myresource", 80, PORT);
+        final AjpForwardRequestPacket headersPacket = new AjpForwardRequestPacket("POST", "/myresource", 80, port);
         headersPacket.addHeader("Content-Length", "0");
         headersPacket.addHeader("Host", "localhost:80");
 
@@ -234,7 +235,7 @@ public class BasicAjpTest extends AjpTestBase {
         request.put(AjpConstants.JK_AJP13_CPING_REQUEST);
         request.flip();
 
-        final Future<Buffer> responseFuture = send("localhost", PORT, request);
+        final Future<Buffer> responseFuture = send("localhost", port, request);
         Buffer response = responseFuture.get(10, TimeUnit.SECONDS);
 
         assertEquals('A', response.get());
@@ -242,7 +243,7 @@ public class BasicAjpTest extends AjpTestBase {
         assertEquals((short) 1, response.getShort());
         assertEquals(AjpConstants.JK_AJP13_CPONG_REPLY, response.get());
 
-        final AjpForwardRequestPacket headersPacket = new AjpForwardRequestPacket("GET", "/TestServlet/normal", 80, PORT);
+        final AjpForwardRequestPacket headersPacket = new AjpForwardRequestPacket("GET", "/TestServlet/normal", 80, port);
         headersPacket.addHeader("Host", "localhost:80");
         send(headersPacket.toByteArray());
 
@@ -287,7 +288,7 @@ public class BasicAjpTest extends AjpTestBase {
 
         Buffer request = Buffers.wrap(listener.getTransport().getMemoryManager(), new AjpShutdownPacket(null).toByteArray());
 
-        send("localhost", PORT, request);
+        send("localhost", port, request);
         final Boolean b = shutdownFuture.get(10, TimeUnit.SECONDS);
         assertTrue(b);
     }
@@ -331,7 +332,7 @@ public class BasicAjpTest extends AjpTestBase {
 
         Buffer request = Buffers.wrap(listener.getTransport().getMemoryManager(), new AjpShutdownPacket(secretKey).toByteArray());
 
-        send("localhost", PORT, request);
+        send("localhost", port, request);
         final Boolean b = shutdownFuture.get(10, TimeUnit.SECONDS);
         assertTrue(b);
     }
@@ -376,7 +377,7 @@ public class BasicAjpTest extends AjpTestBase {
 
         Buffer request = Buffers.wrap(listener.getTransport().getMemoryManager(), new AjpShutdownPacket(incorrectSecretKey).toByteArray());
 
-        Future<Buffer> f = send("localhost", PORT, request);
+        Future<Buffer> f = send("localhost", port, request);
         try {
             f.get(10, TimeUnit.SECONDS);
             fail("Supposed to fail");
@@ -412,7 +413,7 @@ public class BasicAjpTest extends AjpTestBase {
         final MemoryManager mm = listener.getTransport().getMemoryManager();
         final Buffer request = Buffers.wrap(mm, Utils.loadResourceFile("null-attr-payload.dat"));
 
-        Buffer responseBuffer = send("localhost", PORT, request).get(10, TimeUnit.SECONDS);
+        Buffer responseBuffer = send("localhost", port, request).get(10, TimeUnit.SECONDS);
 
         // Successful response length is 16 bytes. This includes the status
         // line and a content-length
@@ -468,7 +469,7 @@ public class BasicAjpTest extends AjpTestBase {
         final Buffer requestPart1 = Buffers.wrap(mm, Utils.loadResourceFile("form-params-payload1.dat"));
         final Buffer requestPart2 = Buffers.wrap(mm, Utils.loadResourceFile("form-params-payload2.dat"));
 
-        Buffer responseBuffer = send("localhost", PORT, Buffers.appendBuffers(mm, requestPart1, requestPart2)).get(10, TimeUnit.SECONDS);
+        Buffer responseBuffer = send("localhost", port, Buffers.appendBuffers(mm, requestPart1, requestPart2)).get(10, TimeUnit.SECONDS);
 
         // Successful response length is 16 bytes. This includes the status
         // line and a content-length
@@ -517,7 +518,7 @@ public class BasicAjpTest extends AjpTestBase {
         final MemoryManager mm = listener.getTransport().getMemoryManager();
         final Buffer request = Buffers.wrap(mm, Utils.loadResourceFile("get-secured.dat"));
 
-        Buffer responseBuffer = send("localhost", PORT, request).get(10, TimeUnit.SECONDS);
+        Buffer responseBuffer = send("localhost", port, request).get(10, TimeUnit.SECONDS);
 
         // Successful response length is 16 bytes. This includes the status
         // line and a content-length
@@ -574,7 +575,7 @@ public class BasicAjpTest extends AjpTestBase {
         final MemoryManager mm = listener.getTransport().getMemoryManager();
         final Buffer request = Buffers.wrap(mm, Utils.loadResourceFile("peer-addr-check.dat"));
 
-        Buffer responseBuffer = send("localhost", PORT, request).get(60, TimeUnit.SECONDS);
+        Buffer responseBuffer = send("localhost", port, request).get(60, TimeUnit.SECONDS);
 
         // Successful response length is 16 bytes. This includes the status
         // line and a content-length

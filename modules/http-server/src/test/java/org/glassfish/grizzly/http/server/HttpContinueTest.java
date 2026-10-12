@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -41,8 +42,6 @@ import org.junit.runners.Parameterized.Parameters;
 @RunWith(Parameterized.class)
 public class HttpContinueTest {
 
-    private static final int PORT = 9495;
-
     private final int numberOfExtraHttpHandlers;
     private final boolean chunkedTransferEncoding;
 
@@ -60,7 +59,7 @@ public class HttpContinueTest {
 
     @Test
     public void test100Continue() throws Exception {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final SafeFutureImpl<String> future = new SafeFutureImpl<>();
         HttpServer server = createServer(new HttpHandler() {
 
@@ -69,19 +68,19 @@ public class HttpContinueTest {
                 future.result(request.getParameter("a"));
             }
 
-        }, "/path");
+        }, port, "/path");
 
         Socket s = null;
         try {
             server.start();
-            s = SocketFactory.getDefault().createSocket("localhost", PORT);
+            s = SocketFactory.getDefault().createSocket("localhost", port);
             s.setSoTimeout(10 * 1000);
 
             OutputStream out = s.getOutputStream();
             InputStream in = s.getInputStream();
 
             out.write("POST /path HTTP/1.1\r\n".getBytes());
-            out.write(("Host: localhost:" + PORT + "\r\n").getBytes());
+            out.write(("Host: localhost:" + port + "\r\n").getBytes());
             out.write("Content-Type: application/x-www-form-urlencoded\r\n".getBytes());
             if (chunkedTransferEncoding) {
                 out.write("Transfer-Encoding: chunked\r\n".getBytes());
@@ -137,19 +136,19 @@ public class HttpContinueTest {
 
     @Test
     public void testExpectationIgnored() throws Exception {
-
-        HttpServer server = createServer(new StaticHttpHandler(Collections.<String>emptySet()), "/path");
+        final int port = TestUtils.findAvailableTcpPort();
+        HttpServer server = createServer(new StaticHttpHandler(Collections.<String>emptySet()), port, "/path");
 
         Socket s = null;
         try {
             server.start();
-            s = SocketFactory.getDefault().createSocket("localhost", PORT);
+            s = SocketFactory.getDefault().createSocket("localhost", port);
             s.setSoTimeout(10 * 1000);
             OutputStream out = s.getOutputStream();
             InputStream in = s.getInputStream();
             StringBuilder post = new StringBuilder();
             post.append("POST /path HTTP/1.1\r\n");
-            post.append("Host: localhost:").append(PORT).append("\r\n");
+            post.append("Host: localhost:").append(port).append("\r\n");
             post.append("Expect: 100-continue\r\n");
             post.append("Content-Type: application/x-www-form-urlencoded\r\n");
             if (chunkedTransferEncoding) {
@@ -187,19 +186,19 @@ public class HttpContinueTest {
 
     @Test
     public void testFailedExpectation() throws Exception {
-
-        HttpServer server = createServer(new StaticHttpHandler(), "/path");
+        final int port = TestUtils.findAvailableTcpPort();
+        HttpServer server = createServer(new StaticHttpHandler(), port, "/path");
 
         Socket s = null;
         try {
             server.start();
-            s = SocketFactory.getDefault().createSocket("localhost", PORT);
+            s = SocketFactory.getDefault().createSocket("localhost", port);
             s.setSoTimeout(10 * 1000);
             OutputStream out = s.getOutputStream();
             InputStream in = s.getInputStream();
 
             out.write("POST /path HTTP/1.1\r\n".getBytes());
-            out.write(("Host: localhost:" + PORT + "\r\n").getBytes());
+            out.write(("Host: localhost:" + port + "\r\n").getBytes());
             out.write("Content-Type: application/x-www-form-urlencoded\r\n".getBytes());
             if (chunkedTransferEncoding) {
                 out.write("Transfer-Encoding: chunked\r\n".getBytes());
@@ -232,7 +231,7 @@ public class HttpContinueTest {
 
     @Test
     public void testCustomFailedExpectation() throws Exception {
-
+        final int port = TestUtils.findAvailableTcpPort();
         HttpServer server = createServer(new StaticHttpHandler() {
 
             @Override
@@ -241,18 +240,18 @@ public class HttpContinueTest {
                 return false;
             }
 
-        }, "/path");
+        }, port, "/path");
 
         Socket s = null;
         try {
             server.start();
-            s = SocketFactory.getDefault().createSocket("localhost", PORT);
+            s = SocketFactory.getDefault().createSocket("localhost", port);
             s.setSoTimeout(10 * 1000);
             OutputStream out = s.getOutputStream();
             InputStream in = s.getInputStream();
 
             out.write("POST /path HTTP/1.1\r\n".getBytes());
-            out.write(("Host: localhost:" + PORT + "\r\n").getBytes());
+            out.write(("Host: localhost:" + port + "\r\n").getBytes());
             out.write("Content-Type: application/x-www-form-urlencoded\r\n".getBytes());
             if (chunkedTransferEncoding) {
                 out.write("Transfer-Encoding: chunked\r\n".getBytes());
@@ -289,10 +288,10 @@ public class HttpContinueTest {
     }
     // --------------------------------------------------------- Private Methods
 
-    private HttpServer createServer(final HttpHandler httpHandler, final String... mappings) {
+    private HttpServer createServer(final HttpHandler httpHandler, final int port, final String... mappings) {
 
         HttpServer server = new HttpServer();
-        NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         server.addListener(listener);
         server.getServerConfiguration().addHttpHandler(httpHandler, mappings);
 

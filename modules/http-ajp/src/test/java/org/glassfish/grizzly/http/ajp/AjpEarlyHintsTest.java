@@ -45,7 +45,7 @@ public class AjpEarlyHintsTest extends AjpTestBase {
             }
         });
 
-        send(new AjpForwardRequestPacket("GET", "/path", 80, PORT).toByteArray());
+        send(new AjpForwardRequestPacket("GET", "/path", 80, port).toByteArray());
 
         final AjpResponse interim = Utils.parseResponse(readAjpMessage());
         assertEquals(AjpConstants.JK_AJP13_SEND_HEADERS, interim.getType());
@@ -80,7 +80,7 @@ public class AjpEarlyHintsTest extends AjpTestBase {
             }
         });
 
-        send(new AjpForwardRequestPacket("GET", "/path", 80, PORT).toByteArray());
+        send(new AjpForwardRequestPacket("GET", "/path", 80, port).toByteArray());
 
         assertEquals(103, Utils.parseResponse(readAjpMessage()).getResponseCode());
         assertEquals(103, Utils.parseResponse(readAjpMessage()).getResponseCode());

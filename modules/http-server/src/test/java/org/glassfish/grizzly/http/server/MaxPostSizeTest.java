@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -62,14 +63,15 @@ import org.junit.Test;
  * @author Alexey Stashok
  */
 public class MaxPostSizeTest {
-    private static final int PORT = 18907;
+    private int port;
 
     private HttpServer httpServer;
 
     @Before
     public void before() throws Exception {
+        port = TestUtils.findAvailableTcpPort();
         ByteBufferWrapper.DEBUG_MODE = true;
-        configureHttpServer();
+        configureHttpServer(port);
     }
 
     @After
@@ -96,7 +98,7 @@ public class MaxPostSizeTest {
                 .contentLength(message1.length()).build();
         final HttpContent content1 = HttpContent.builder(request1).content(Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, message1)).build();
 
-        final Future<HttpContent> responseFuture1 = send("localhost", PORT, content1);
+        final Future<HttpContent> responseFuture1 = send("localhost", port, content1);
         final HttpContent response1 = responseFuture1.get(10, TimeUnit.SECONDS);
         assertEquals(200, ((HttpResponsePacket) response1.getHttpHeader()).getStatus());
 
@@ -104,7 +106,7 @@ public class MaxPostSizeTest {
                 .contentLength(message2.length()).build();
         final HttpContent content2 = HttpContent.builder(request2).content(Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, message2)).build();
 
-        final Future<HttpContent> responseFuture2 = send("localhost", PORT, content2);
+        final Future<HttpContent> responseFuture2 = send("localhost", port, content2);
         final HttpContent response2 = responseFuture2.get(10, TimeUnit.SECONDS);
         assertEquals(413, ((HttpResponsePacket) response2.getHttpHeader()).getStatus());
     }
@@ -138,7 +140,7 @@ public class MaxPostSizeTest {
         }, "/test");
 
         final FutureImpl<HttpContent> responseFuture = Futures.createSafeFuture();
-        final Connection c = createConnection(responseFuture, "localhost", PORT);
+        final Connection c = createConnection(responseFuture, "localhost", port);
 
         final HttpRequestPacket request = HttpRequestPacket.builder().method("POST").uri("/test").protocol("HTTP/1.1").header("Host", "localhost").chunked(true)
                 .build();
@@ -217,7 +219,7 @@ public class MaxPostSizeTest {
         }, "/test");
 
         final FutureImpl<HttpContent> responseFuture = Futures.createSafeFuture();
-        final Connection c = createConnection(responseFuture, "localhost", PORT);
+        final Connection c = createConnection(responseFuture, "localhost", port);
 
         final HttpRequestPacket request = HttpRequestPacket.builder().method("POST").uri("/test").protocol("HTTP/1.1").header("Host", "localhost").chunked(true)
                 .build();
@@ -246,9 +248,9 @@ public class MaxPostSizeTest {
         assertEquals(400, ((HttpResponsePacket) response2.getHttpHeader()).getStatus());
     }
 
-    private void configureHttpServer() throws Exception {
+    private void configureHttpServer(final int port) throws Exception {
         httpServer = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
 
         httpServer.addListener(listener);
     }

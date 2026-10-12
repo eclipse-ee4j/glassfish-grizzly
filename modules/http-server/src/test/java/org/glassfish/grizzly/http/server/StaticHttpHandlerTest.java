@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -72,7 +73,7 @@ import org.junit.runners.Parameterized;
  */
 @RunWith(Parameterized.class)
 public class StaticHttpHandlerTest {
-    private static final int PORT = 18900;
+    private int port;
     private static final Logger LOGGER = Grizzly.logger(StaticHttpHandlerTest.class);
 
     @Parameterized.Parameters
@@ -96,7 +97,8 @@ public class StaticHttpHandlerTest {
 
     @Before
     public void before() throws Exception {
-        httpServer = createServer(isFileSendEnabled, isSslEnabled, memoryManager);
+        port = TestUtils.findAvailableTcpPort();
+        httpServer = createServer(isFileSendEnabled, isSslEnabled, memoryManager, port);
         httpServer.start();
     }
 
@@ -127,10 +129,10 @@ public class StaticHttpHandlerTest {
         BigInteger controlSum = getMDSum(control);
         try {
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
 
             HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + control.getName()).method(Method.GET).protocol(Protocol.HTTP_1_1)
-                    .header("Host", "localhost:" + PORT).build();
+                    .header("Host", "localhost:" + port).build();
             c.write(request);
             File fResult = result.get(20, TimeUnit.SECONDS);
             BigInteger resultSum = getMDSum(fResult);
@@ -159,10 +161,10 @@ public class StaticHttpHandlerTest {
         }, isSslEnabled);
         try {
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
 
             HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + control.getName()).method(Method.POST).protocol(Protocol.HTTP_1_1)
-                    .header("Host", "localhost:" + PORT).build();
+                    .header("Host", "localhost:" + port).build();
             c.write(request);
             File fResult = result.get(20, TimeUnit.SECONDS);
             // assertEquals(0, fResult.length());
@@ -194,10 +196,10 @@ public class StaticHttpHandlerTest {
         }, isSslEnabled);
         try {
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
 
             HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + tmpDir.getName()).method(Method.POST).protocol(Protocol.HTTP_1_1)
-                    .header("Host", "localhost:" + PORT).build();
+                    .header("Host", "localhost:" + port).build();
             c.write(request);
             File fResult = result.get(20, TimeUnit.SECONDS);
             // assertEquals(0, fResult.length());
@@ -280,10 +282,10 @@ public class StaticHttpHandlerTest {
         return transport;
     }
 
-    private static HttpServer createServer(boolean isFileSendEnabled, boolean isSslEnabled, MemoryManager<?> memoryManager) throws Exception {
+    private static HttpServer createServer(boolean isFileSendEnabled, boolean isSslEnabled, MemoryManager<?> memoryManager, final int port) throws Exception {
 
         final HttpServer server = new HttpServer();
-        final NetworkListener listener = new NetworkListener("test", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("test", NetworkListener.DEFAULT_NETWORK_HOST, port);
 
         listener.getTransport().setMemoryManager(memoryManager);
 

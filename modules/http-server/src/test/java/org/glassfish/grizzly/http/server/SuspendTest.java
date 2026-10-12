@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -70,7 +71,7 @@ public class SuspendTest {
 
     private static final Logger LOGGER = Grizzly.logger(SuspendTest.class);
 
-    public static final int PORT = 18890;
+    public int port;
     private ScheduledThreadPoolExecutor scheduledThreadPool;
     private final String testString = "blabla test.";
     private final byte[] testData = testString.getBytes();
@@ -88,8 +89,9 @@ public class SuspendTest {
 
     @Before
     public void before() throws Exception {
+        port = TestUtils.findAvailableTcpPort();
         scheduledThreadPool = new ScheduledThreadPoolExecutor(1);
-        configureHttpServer();
+        configureHttpServer(port);
     }
 
     @After
@@ -101,9 +103,9 @@ public class SuspendTest {
         scheduledThreadPool.shutdown();
     }
 
-    private void configureHttpServer() throws Exception {
+    private void configureHttpServer(final int port) throws Exception {
         httpServer = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         if (isSslEnabled) {
             listener.setSecure(true);
             listener.setSSLEngineConfig(createSSLConfig(true));
@@ -597,7 +599,7 @@ public class SuspendTest {
         SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(httpServer.getListener("grizzly").getTransport()).processor(builder.build())
                 .build();
 
-        Future<Connection> connectFuture = connectorHandler.connect("localhost", PORT);
+        Future<Connection> connectFuture = connectorHandler.connect("localhost", port);
         return connectFuture.get(10, TimeUnit.SECONDS);
     }
 
@@ -670,7 +672,7 @@ public class SuspendTest {
         }
     }
 
-    private static class ClientFilter extends BaseFilter {
+    private class ClientFilter extends BaseFilter {
 
         private final String testString;
         private final boolean checkResponse;
@@ -685,7 +687,7 @@ public class SuspendTest {
         @Override
         public NextAction handleConnect(FilterChainContext ctx) throws IOException {
             final HttpRequestPacket request = HttpRequestPacket.builder().method("GET").uri("/non-static").protocol("HTTP/1.1")
-                    .header("Host", "localhost:" + PORT).build();
+                    .header("Host", "localhost:" + port).build();
 
             ctx.write(request);
             return ctx.getStopAction();

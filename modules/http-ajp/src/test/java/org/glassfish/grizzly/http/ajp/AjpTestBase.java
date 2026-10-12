@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -34,7 +35,7 @@ import org.junit.After;
 import org.junit.Before;
 
 public class AjpTestBase {
-    static final int PORT = 19012;
+    int port;
     static final String LISTENER_NAME = "ajp";
     HttpServer httpServer;
 
@@ -44,8 +45,9 @@ public class AjpTestBase {
 
     @Before
     public void before() throws Exception {
+        port = Utils.findAvailableTcpPort();
         ByteBufferWrapper.DEBUG_MODE = true;
-        configureHttpServer();
+        configureHttpServer(port);
     }
 
     @After
@@ -98,7 +100,7 @@ public class AjpTestBase {
     @SuppressWarnings({ "unchecked" })
     protected void send(byte[] request) throws IOException {
         if (socket == null || socket.isClosed()) {
-            socket = new Socket("localhost", PORT);
+            socket = new Socket("localhost", port);
             socket.setSoTimeout(5000);
         }
         final OutputStream os = socket.getOutputStream();
@@ -138,9 +140,9 @@ public class AjpTestBase {
         return ajpMessage;
     }
 
-    private void configureHttpServer() throws Exception {
+    private void configureHttpServer(final int port) throws Exception {
         httpServer = new HttpServer();
-        final NetworkListener listener = new NetworkListener(LISTENER_NAME, NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener(LISTENER_NAME, NetworkListener.DEFAULT_NETWORK_HOST, port);
 
         ajpAddon = new AjpAddOn();
         listener.registerAddOn(ajpAddon);
