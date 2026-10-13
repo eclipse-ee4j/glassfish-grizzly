@@ -84,6 +84,7 @@ public class HttpUpgradeTest extends TestCase {
             httpServer.start();
 
             s = new Socket("localhost", PORT);
+            s.setSoTimeout(10 * 1000);
             output = s.getOutputStream();
             try {
                 String reqStr = "POST " + contextRoot + upgradeServlet + " HTTP/1.1" + CRLF;
@@ -116,7 +117,8 @@ public class HttpUpgradeTest extends TestCase {
 
                 String line = new String(b, 0, len);
                 sb.append(line);
-                if (sb.indexOf("World") > 0) {
+                final String delimiterRemoved = sb.toString().replace("/", "");
+                if (delimiterRemoved.indexOf("World") > 0) {
                     break;
                 }
             } while (true);
