@@ -17,6 +17,7 @@
 
 package org.glassfish.grizzly.http.util;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Iterator;
 
@@ -446,7 +447,7 @@ public class MimeHeaders {
      * Create a new named header using un-translated byte[]. The conversion to chars can be delayed until encoding is known.
      */
     public DataChunk addValue(final byte[] buffer, final int startN, final int len) {
-        if (!isValidName(buffer)) {
+        if (!isValidName(buffer, startN, len)) {
             return NOOP_CHUNK;
         }
         MimeHeaderField mhf = createHeader();
@@ -458,7 +459,7 @@ public class MimeHeaders {
      * Create a new named header using un-translated Buffer. The conversion to chars can be delayed until encoding is known.
      */
     public DataChunk addValue(final Buffer buffer, final int startN, final int len) {
-        if (!isValidName(buffer)) {
+        if (!isValidName(buffer, startN, len)) {
             return NOOP_CHUNK;
         }
         MimeHeaderField mhf = createHeader();
@@ -665,12 +666,14 @@ public class MimeHeaders {
         return !marked || Arrays.binarySearch(INVALID_TRAILER_NAMES, name.getLowerCase()) < 0;
     }
 
-    private boolean isValidName(final byte[] name) {
-        return !marked || Arrays.binarySearch(INVALID_TRAILER_NAMES, new String(name).toLowerCase()) < 0;
+    private boolean isValidName(final byte[] buffer, final int start, final int len) {
+        return !marked
+                || Arrays.binarySearch(INVALID_TRAILER_NAMES, new String(buffer, start, len, StandardCharsets.ISO_8859_1).toLowerCase()) < 0;
     }
 
-    private boolean isValidName(final Buffer name) {
-        return !marked || Arrays.binarySearch(INVALID_TRAILER_NAMES, name.toStringContent().toLowerCase()) < 0;
+    private boolean isValidName(final Buffer buffer, final int start, final int len) {
+        return !marked
+                || Arrays.binarySearch(INVALID_TRAILER_NAMES, buffer.toStringContent(StandardCharsets.ISO_8859_1, start, start + len).toLowerCase()) < 0;
     }
 
 }
