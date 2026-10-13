@@ -182,7 +182,13 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
          */
         @Override
         public Object getAttribute(final int index, final Supplier initializer) {
-            return valueMap.computeIfAbsent(index, k -> initializer != null ? initializer.get() : null);
+            // Plain get() is lock-free; computeIfAbsent() on an absent key reserves the bin with a CAS + lock even
+            // when nothing gets inserted, and allocates the capturing lambda, so only use it to run an initializer.
+            final Object value = valueMap.get(index);
+            if (value != null || initializer == null) {
+                return value;
+            }
+            return valueMap.computeIfAbsent(index, k -> initializer.get());
         }
 
         /**

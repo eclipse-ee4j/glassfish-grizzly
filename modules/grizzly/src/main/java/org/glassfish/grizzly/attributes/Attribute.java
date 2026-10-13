@@ -50,13 +50,9 @@ public final class Attribute<T> {
     }
 
     protected Attribute(final AttributeBuilder builder, final String name, final int index, final T defaultValue) {
-        this(builder, name, index, new Supplier<T>() {
-
-            @Override
-            public T get() {
-                return defaultValue;
-            }
-        });
+        // No initializer for a null default: holders then take their plain-read paths on a miss instead of an
+        // atomic get-or-initialize that cannot store anything anyway.
+        this(builder, name, index, defaultValue == null ? null : () -> defaultValue);
     }
 
     protected Attribute(final AttributeBuilder builder, final String name, final int index, final Supplier<T> initializer) {
