@@ -66,6 +66,19 @@ public class ServletCookieAttributesTest extends HttpServerAbstractTest {
         }
     }
 
+    public void testWrapperAttributeLookup() {
+        Cookie cookie = new Cookie("attributed", "value");
+        cookie.setPath("/");
+        cookie.setAttribute("SameSite", "Strict");
+        CookieWrapper wrapper = new CookieWrapper("attributed", "value");
+        wrapper.setWrappedCookie(cookie);
+
+        assertEquals("Strict", wrapper.getAttribute("samesite"));
+        assertEquals("Strict", wrapper.getSameSite());
+        assertNull(wrapper.getAttribute("Path"));
+        assertNull(wrapper.getAttribute("Partitioned"));
+    }
+
     public void testSessionCookieAttributes() throws Exception {
         startHttpServer(PORT);
         try {

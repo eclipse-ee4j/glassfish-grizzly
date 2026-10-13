@@ -354,6 +354,15 @@ public class CookieWrapper extends Cookie {
     }
 
     /**
+     * Returns the attribute of the wrapped cookie, or <code>null</code> for an attribute with a dedicated property. The
+     * lookup is case-insensitive.
+     */
+    @Override
+    public String getAttribute(String name) {
+        return isReservedAttribute(name) ? null : wrappedCookie.getAttribute(name);
+    }
+
+    /**
      * Returns the attributes of the wrapped cookie, except those with a dedicated property.
      */
     @Override
