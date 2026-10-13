@@ -172,8 +172,8 @@ public class HttpServletRequestImpl implements HttpServletRequest, Holders.Reque
         this.servletResponse = servletResponse;
         inputStream.initialize();
         contextImpl = context;
-        if (context.getRequestCharacterEncoding() != null) {
-            request.setCharacterEncoding(context.getResponseCharacterEncoding());
+        if (context.getRequestCharacterEncoding() != null && request.getCharacterEncoding() == null) {
+            request.setCharacterEncoding(context.getRequestCharacterEncoding());
         }
         if (context.getResponseCharacterEncoding() != null) {
             servletResponse.setCharacterEncoding(context.getResponseCharacterEncoding());
