@@ -246,18 +246,19 @@ class DecoderUtils extends EncoderDecoderUtilsBase {
             return;
         }
 
-        case "upgrade": {
-            httpHeader.getUpgradeDC().setString(value);
-            return;
-        }
-
         case "expect": {
             ((Http2Request) httpHeader).requiresAcknowledgement(true);
             return;
         }
 
-        case "connection": {
-            throw new HeaderDecodingException(ErrorCode.PROTOCOL_ERROR, ErrorType.STREAM, "Invalid use of connection header.");
+        // RFC 9113, section 8.2.2: connection-specific header fields must not be used in HTTP/2. A message that
+        // carries any of them has to be treated as malformed.
+        case "connection":
+        case "proxy-connection":
+        case "keep-alive":
+        case "transfer-encoding":
+        case "upgrade": {
+            throw new HeaderDecodingException(ErrorCode.PROTOCOL_ERROR, ErrorType.STREAM, "Connection-specific header field not allowed in HTTP/2: " + name);
         }
 
         case "te": {
