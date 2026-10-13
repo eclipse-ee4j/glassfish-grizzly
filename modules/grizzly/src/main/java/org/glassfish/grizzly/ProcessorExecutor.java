@@ -21,6 +21,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.glassfish.grizzly.localization.LogMessages;
+import org.glassfish.grizzly.nio.NIOConnection;
 
 /**
  *
@@ -43,6 +44,22 @@ public final class ProcessorExecutor {
                     new Object[] { context.getConnection(), context.getIoEvent(), context.getProcessor() });
         }
 
+        // Writes corked while processing input (see NIOConnection#corkWrites) are released when that processing run
+        // ends, including a suspension: the counterpart of Netty's flush on channelReadComplete. Nested executions
+        // (writes, events) don't uncork.
+        final Connection connection = context.getConnection();
+        final boolean isRead = context.getIoEvent() == IOEvent.READ;
+        try {
+            execute0(context);
+        } finally {
+            if (isRead && connection instanceof NIOConnection) {
+                ((NIOConnection) connection).uncorkWrites();
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void execute0(Context context) {
         boolean isRerun;
         ProcessorResult result;
 

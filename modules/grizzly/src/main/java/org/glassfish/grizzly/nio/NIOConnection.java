@@ -104,6 +104,7 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
 
     private volatile TaskQueue<AsyncReadQueueRecord> asyncReadQueue;
     private final TaskQueue<AsyncWriteQueueRecord> asyncWriteQueue;
+    private volatile boolean writesCorked;
 
     /** Semaphore responsible for connect/close notification */
     protected static final AtomicReferenceFieldUpdater<NIOConnection, Object> connectCloseSemaphoreUpdater = AtomicReferenceFieldUpdater
@@ -858,6 +859,44 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
         if (isInitialReadRequired) {
             // isInitialReadRequired will be disabled inside
             enableIOEvent(IOEvent.READ);
+        }
+    }
+
+    /**
+     * Corks asynchronous writes on this connection: until {@link #uncorkWrites()} they are queued instead of being
+     * written to the channel directly, so that several small messages produced while processing one batch of input
+     * (e.g. responses to pipelined HTTP requests) go out together in one gathering write. The queue is drained anyway
+     * once it holds more than {@link AbstractNIOAsyncQueueWriter#MAX_CORKED_BYTES} bytes.
+     * <p>
+     * Must only be called while processing a {@link IOEvent#READ}: the processing thread uncorks when that processing
+     * run ends (see {@code ProcessorExecutor}).
+     */
+    public void corkWrites() {
+        writesCorked = true;
+    }
+
+    /**
+     * @return {@code true} if asynchronous writes are currently corked, see {@link #corkWrites()}
+     */
+    public boolean isWritesCorked() {
+        return writesCorked;
+    }
+
+    /**
+     * Uncorks asynchronous writes (see {@link #corkWrites()}) and, if any were queued meanwhile, schedules the write
+     * queue to be flushed.
+     */
+    public void uncorkWrites() {
+        if (writesCorked) {
+            writesCorked = false;
+            // a corked writer enqueues and then re-checks the flag: either it sees false here, or we see its record
+            if (!asyncWriteQueue.isEmpty()) {
+                try {
+                    simulateIOEvent(IOEvent.WRITE);
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE, "Could not flush the corked writes", e);
+                }
+            }
         }
     }
 
