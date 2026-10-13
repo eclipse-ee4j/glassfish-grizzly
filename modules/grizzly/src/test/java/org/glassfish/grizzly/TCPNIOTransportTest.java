@@ -78,6 +78,7 @@ import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -133,9 +134,9 @@ public class TCPNIOTransportTest {
 
             future = transport.connect("localhost", port);
             try {
-                future.get(10, SECONDS);
-                fail("Server connection should be closed!:\n" +
-                     describeObservedServerConnections(observedServerConnections));
+                connection = future.get(10, SECONDS);
+                assertNull("Server connection should be closed!:\n" +
+                           describeObservedServerConnections(observedServerConnections), connection);
             } catch (ExecutionException e) {
                 assertThat(e.getCause(), CoreMatchers.instanceOf(IOException.class));
             }
@@ -182,9 +183,8 @@ public class TCPNIOTransportTest {
             future = transport.connect("localhost", port1);
             try {
                 connection = future.get(10, SECONDS);
-                close(connection);
-                fail("Server connection should be closed!:\n" +
-                     describeObservedServerConnections(observedServerConnections));
+                assertNull("Server connection should be closed!:\n" +
+                           describeObservedServerConnections(observedServerConnections), connection);
             } catch (ExecutionException e) {
                 assertThat(e.getCause(), CoreMatchers.instanceOf(IOException.class));
             }
@@ -193,9 +193,8 @@ public class TCPNIOTransportTest {
             future = transport.connect("localhost", port2);
             try {
                 connection = future.get(10, SECONDS);
-                close(connection);
-                fail("Server connection should be closed!:\n" +
-                     describeObservedServerConnections(observedServerConnections));
+                assertNull("Server connection should be closed!:\n" +
+                           describeObservedServerConnections(observedServerConnections), connection);
             } catch (ExecutionException e) {
                 assertThat(e.getCause(), CoreMatchers.instanceOf(IOException.class));
             }
