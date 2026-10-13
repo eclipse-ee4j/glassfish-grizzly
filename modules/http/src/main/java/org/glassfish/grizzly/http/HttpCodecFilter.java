@@ -1547,7 +1547,8 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
             encodedBuffer = encodeKnownHeaders(memoryManager, encodedBuffer, httpHeader);
 
             final MimeHeaders mimeHeaders = httpHeader.getHeaders();
-            final byte[] tempEncodingBuffer = httpHeader.getTempHeaderEncodingBuffer();
+            // the scratch buffer is only used to encode Strings into non-array Buffers (null is tolerated there)
+            final byte[] tempEncodingBuffer = encodedBuffer.hasArray() ? null : httpHeader.getTempHeaderEncodingBuffer();
             encodedBuffer = encodeMimeHeaders(memoryManager, encodedBuffer, mimeHeaders, tempEncodingBuffer);
             onHttpHeadersEncoded(httpHeader, ctx);
             encodedBuffer = put(memoryManager, encodedBuffer, CRLF_BYTES);
