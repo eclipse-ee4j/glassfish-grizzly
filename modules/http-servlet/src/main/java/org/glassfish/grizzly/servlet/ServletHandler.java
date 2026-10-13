@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -164,8 +165,9 @@ public class ServletHandler extends HttpHandler {
             final HttpServletResponseImpl servletResponse = HttpServletResponseImpl.create();
 
             setPathData(request, servletRequest);
-            servletRequest.initialize(request, servletResponse, servletCtx);
+            // The response first: request initialization applies the context default response encoding to it
             servletResponse.initialize(response, servletRequest);
+            servletRequest.initialize(request, servletResponse, servletCtx);
 
             request.setNote(SERVLET_REQUEST_NOTE, servletRequest);
             request.setNote(SERVLET_RESPONSE_NOTE, servletResponse);
