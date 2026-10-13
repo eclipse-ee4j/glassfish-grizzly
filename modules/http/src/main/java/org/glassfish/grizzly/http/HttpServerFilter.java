@@ -154,8 +154,8 @@ public class HttpServerFilter extends HttpCodecFilter {
     @Deprecated
     public HttpServerFilter(boolean chunkingEnabled, int maxHeadersSize, String defaultResponseContentType, KeepAlive keepAlive, DelayedExecutor executor,
             int maxRequestHeaders, int maxResponseHeaders) {
-        this(chunkingEnabled, maxHeadersSize, defaultResponseContentType, keepAlive, executor, MimeHeaders.MAX_NUM_HEADERS_DEFAULT,
-             MimeHeaders.MAX_NUM_HEADERS_DEFAULT, null);
+        this(chunkingEnabled, maxHeadersSize, defaultResponseContentType, keepAlive, executor, maxRequestHeaders,
+             maxResponseHeaders, null);
     }
 
     /**
