@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022 Contributors to Eclipse Foundation. All rights reserved.
+ * Copyright (c) 2022, 2026 Contributors to Eclipse Foundation. All rights reserved.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -17,6 +17,12 @@
  */
 
 package org.glassfish.grizzly.http;
+
+import java.util.Collections;
+import java.util.Map;
+import java.util.Set;
+import java.util.TreeMap;
+import java.util.TreeSet;
 
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.Cacheable;
@@ -55,6 +61,14 @@ public class Cookie implements Cloneable, Cacheable {
 
     public static final int UNSET = Integer.MIN_VALUE;
 
+    private static final String SAME_SITE_ATTR = "SameSite";
+
+    /**
+     * Attributes with a dedicated property, which {@link #setAttribute(String, String)} does not accept.
+     */
+    private static final Set<String> RESERVED_ATTRIBUTES = Collections.unmodifiableSet(newCaseInsensitiveSet("Comment", "Domain", "Max-Age",
+            "Expires", "Path", "Secure", "HttpOnly", "Version"));
+
     //
     // The value of the cookie itself.
     //
@@ -75,6 +89,7 @@ public class Cookie implements Cloneable, Cacheable {
     protected int version = UNSET; // ;Version=1 ... means RFC 2109++ style
 
     protected boolean isHttpOnly; // Is HTTP only feature, which is not part of the spec
+    protected Map<String, String> attributes; // ;SameSite=VALUE, ;Partitioned ... further attributes, case-insensitive
     protected LazyCookieState lazyCookieState;
     protected boolean usingLazyCookieState;
 
@@ -419,6 +434,80 @@ public class Cookie implements Cloneable, Cacheable {
         this.isHttpOnly = isHttpOnly;
     }
 
+    /**
+     * Sets a cookie attribute that has no dedicated property, e.g. <code>SameSite</code> or <code>Partitioned</code>. An
+     * empty value renders the attribute without a value (<code>; Partitioned</code>), <code>null</code> removes it.
+     *
+     * @param name the attribute name, case-insensitive
+     * @param value the attribute value, or <code>null</code> to remove the attribute
+     *
+     * @throws IllegalArgumentException if the name is empty, or one of the attributes with a dedicated property (Comment,
+     * Domain, Max-Age, Expires, Path, Secure, HttpOnly, Version)
+     */
+    public void setAttribute(String name, String value) {
+        if (name == null || name.isEmpty()) {
+            throw new IllegalArgumentException("Cookie attribute name must not be empty");
+        }
+        if (isReservedAttribute(name)) {
+            throw new IllegalArgumentException("Cookie attribute " + name + " has a dedicated property");
+        }
+        if (value == null) {
+            if (attributes != null) {
+                attributes.remove(name);
+            }
+            return;
+        }
+        if (attributes == null) {
+            attributes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        }
+        attributes.put(name, value);
+    }
+
+    /**
+     * @param name the attribute name, case-insensitive
+     * @return the value of the attribute set via {@link #setAttribute(String, String)}, or <code>null</code>
+     */
+    public String getAttribute(String name) {
+        return getAttributes().get(name);
+    }
+
+    /**
+     * @return the attributes set via {@link #setAttribute(String, String)}, never <code>null</code>
+     */
+    public Map<String, String> getAttributes() {
+        return attributes == null ? Collections.emptyMap() : Collections.unmodifiableMap(attributes);
+    }
+
+    /**
+     * Sets the <code>SameSite</code> attribute, e.g. <code>Strict</code>, <code>Lax</code> or <code>None</code>.
+     *
+     * @param sameSite the attribute value, or <code>null</code> to remove the attribute
+     */
+    public void setSameSite(String sameSite) {
+        setAttribute(SAME_SITE_ATTR, sameSite);
+    }
+
+    /**
+     * @return the <code>SameSite</code> attribute, or <code>null</code> if not set
+     */
+    public String getSameSite() {
+        return getAttribute(SAME_SITE_ATTR);
+    }
+
+    /**
+     * @param name an attribute name
+     * @return <code>true</code> if the attribute has a dedicated property and is serialized from it
+     */
+    public static boolean isReservedAttribute(String name) {
+        return RESERVED_ATTRIBUTES.contains(name);
+    }
+
+    private static Set<String> newCaseInsensitiveSet(String... names) {
+        Set<String> set = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        Collections.addAll(set, names);
+        return set;
+    }
+
     public String asServerCookieString() {
         final StringBuilder sb = new StringBuilder();
         CookieSerializerUtils.serializeServerCookie(sb, this);
@@ -546,7 +635,12 @@ public class Cookie implements Cloneable, Cacheable {
     @Override
     public Object clone() throws CloneNotSupportedException {
         try {
-            return super.clone();
+            Cookie clone = (Cookie) super.clone();
+            if (attributes != null) {
+                clone.attributes = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                clone.attributes.putAll(attributes);
+            }
+            return clone;
         } catch (CloneNotSupportedException e) {
             throw new RuntimeException(e.getMessage());
         }
@@ -563,6 +657,7 @@ public class Cookie implements Cloneable, Cacheable {
         secure = false;
         version = UNSET;
         isHttpOnly = false;
+        attributes = null;
         if (usingLazyCookieState) {
             usingLazyCookieState = false;
             lazyCookieState.recycle();
@@ -581,6 +676,7 @@ public class Cookie implements Cloneable, Cacheable {
         sb.append(", secure=").append(secure);
         sb.append(", version=").append(version);
         sb.append(", isHttpOnly=").append(isHttpOnly);
+        sb.append(", attributes=").append(attributes);
         sb.append(", usingLazyCookieState=").append(usingLazyCookieState);
         sb.append('}');
         return sb.toString();
