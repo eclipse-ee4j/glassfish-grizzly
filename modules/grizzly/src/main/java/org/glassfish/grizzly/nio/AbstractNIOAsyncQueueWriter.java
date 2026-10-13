@@ -50,6 +50,11 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
     private final static Logger LOGGER = Grizzly.logger(AbstractNIOAsyncQueueWriter.class);
 
+    /**
+     * Pending bytes above which a corked connection's write queue is flushed without waiting to be uncorked.
+     */
+    public static final int MAX_CORKED_BYTES = 64 * 1024;
+
     protected final NIOTransport transport;
 
     protected volatile int maxPendingBytes = AUTO_SIZE;
@@ -248,6 +253,23 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
                     writeTaskQueue.offer(queueRecord);
                 }
 
+                return;
+            }
+
+            if (nioConnection.isWritesCorked()) {
+                // Corked: queue without writing and without asking for OP_WRITE; uncorkWrites() flushes the queue.
+                queueRecord.setMessage(cloneRecordIfNeeded(nioConnection, cloner, message));
+                if (isCurrent) {
+                    writeTaskQueue.setCurrentElement(queueRecord);
+                } else {
+                    writeTaskQueue.offer(queueRecord);
+                }
+
+                // Re-check after enqueuing: if the connection got uncorked concurrently, its uncorkWrites() may have
+                // seen an empty queue, so flush from here. Also don't hold back too much data.
+                if (!nioConnection.isWritesCorked() || pendingBytes > MAX_CORKED_BYTES) {
+                    nioConnection.simulateIOEvent(IOEvent.WRITE);
+                }
                 return;
             }
 

@@ -45,6 +45,7 @@ import org.glassfish.grizzly.http.util.HttpStatus;
 import org.glassfish.grizzly.http.util.HttpUtils;
 import org.glassfish.grizzly.http.util.MimeHeaders;
 import org.glassfish.grizzly.memory.MemoryManager;
+import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.utils.DelayedExecutor;
 
 /**
@@ -60,6 +61,15 @@ import org.glassfish.grizzly.utils.DelayedExecutor;
  */
 public class HttpServerFilter extends HttpCodecFilter {
     public static final String HTTP_SERVER_REQUEST_ATTR_NAME = HttpServerFilter.class.getName() + ".HttpRequest";
+
+    /**
+     * System property to disable coalescing the responses to pipelined requests into one write (enabled by default).
+     */
+    public static final String PIPELINED_WRITE_COALESCING_PROPERTY = HttpServerFilter.class.getName() + ".pipelinedWriteCoalescing";
+
+    private static final boolean PIPELINED_WRITE_COALESCING =
+            Boolean.parseBoolean(System.getProperty(PIPELINED_WRITE_COALESCING_PROPERTY, "true"))
+            && !Boolean.getBoolean("org.glassfish.grizzly.http.io.OutputBuffer.isBlocking");
 
     public static final FilterChainEvent RESPONSE_COMPLETE_EVENT = new HttpEvents.ResponseCompleteEvent();
 
@@ -296,6 +306,18 @@ public class HttpServerFilter extends HttpCodecFilter {
         }
 
         return handleRead(ctx, httpRequest);
+    }
+
+    /**
+     * Cork the connection's writes while pipelined requests are pending, so the responses to a batch of pipelined
+     * requests leave in one gathering write when processing of the input ends (see
+     * {@link NIOConnection#corkWrites()}). Disabled with blocking response writes, which bypass the write queue.
+     */
+    @Override
+    protected void onPipelinedInput(final FilterChainContext ctx) {
+        if (PIPELINED_WRITE_COALESCING && ctx.getConnection() instanceof NIOConnection) {
+            ((NIOConnection) ctx.getConnection()).corkWrites();
+        }
     }
 
     @Override
