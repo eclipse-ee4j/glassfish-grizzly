@@ -955,12 +955,7 @@ public final class ByteChunk implements Chunk, Cloneable, Serializable {
             return false;
         }
 
-        for (int i = 0; i < b1Len; i++) {
-            if (Ascii.toLower(b1[i + b1Offs]) != Ascii.toLower(b2[i + b2Offs])) {
-                return false;
-            }
-        }
-        return true;
+        return Swar.equalsIgnoreCase(b1, b1Offs, b2, b2Offs, b1Len);
     }
 
     /**
@@ -1000,13 +995,7 @@ public final class ByteChunk implements Chunk, Cloneable, Serializable {
             return false;
         }
 
-        for (int i = 0; i < len; i++) {
-            if (Ascii.toLower(buffer[i + start]) != cmpTo[i]) {
-                return false;
-            }
-        }
-
-        return true;
+        return Swar.equalsIgnoreCaseLowerCase(buffer, start, cmpTo, len);
     }
 
     public static boolean startsWith(final byte[] buffer, final int start, final int end, final byte[] cmpTo) {

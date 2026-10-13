@@ -44,6 +44,7 @@ import org.glassfish.grizzly.http.util.HttpDateFormat;
 import org.glassfish.grizzly.http.util.HttpStatus;
 import org.glassfish.grizzly.http.util.HttpUtils;
 import org.glassfish.grizzly.http.util.MimeHeaders;
+import org.glassfish.grizzly.http.util.Swar;
 import org.glassfish.grizzly.memory.MemoryManager;
 import org.glassfish.grizzly.utils.DelayedExecutor;
 
@@ -392,6 +393,11 @@ public class HttpServerFilter extends HttpCodecFilter {
         boolean found = false;
 
         while (offset < limit) {
+            // skip bytes that are neither delimiters nor '?' eight at a time
+            offset = Swar.indexOfUriDelimiter(input, offset, limit);
+            if (offset == limit) {
+                break;
+            }
             final byte b = input[offset];
             if (b == Constants.SP || b == Constants.HT) {
                 found = true;
