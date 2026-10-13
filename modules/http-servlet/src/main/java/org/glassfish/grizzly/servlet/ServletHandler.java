@@ -30,6 +30,7 @@ import java.util.logging.Logger;
 import org.glassfish.grizzly.Grizzly;
 import org.glassfish.grizzly.http.Note;
 import org.glassfish.grizzly.http.server.AfterServiceListener;
+import org.glassfish.grizzly.http.server.FormPostTooLargeException;
 import org.glassfish.grizzly.http.server.HttpHandler;
 import org.glassfish.grizzly.http.server.Request;
 import org.glassfish.grizzly.http.server.Response;
@@ -202,9 +203,29 @@ public class ServletHandler extends HttpHandler {
             // Request may want to initialize async processing
             servletRequest.onAfterService();
         } catch (Throwable ex) {
-            LOGGER.log(Level.SEVERE, "service exception:", ex);
-            customizeErrorPage(response, "Internal Error", 500, ex);
+            if (isFormPostTooLarge(ex)) {
+                customizeErrorPage(response, "Request Entity Too Large", 413, ex);
+            } else {
+                LOGGER.log(Level.SEVERE, "service exception:", ex);
+                customizeErrorPage(response, "Internal Error", 500, ex);
+            }
         }
+    }
+
+    /**
+     * Tells whether the given throwable or one of its causes is a {@link FormPostTooLargeException}. The exception is
+     * wrapped (for example into a {@link jakarta.servlet.ServletException}) while it travels up the filter chain, so the
+     * whole cause chain has to be inspected.
+     */
+    private static boolean isFormPostTooLarge(final Throwable throwable) {
+        Throwable current = throwable;
+        for (int i = 0; current != null && i < 64; i++) {
+            if (current instanceof FormPostTooLargeException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     protected FilterChainInvoker getFilterChain(Request request) {
