@@ -947,7 +947,7 @@ public final class ByteChunk implements Chunk, Cloneable, Serializable {
             return false;
         }
 
-        if (b1 == b2) {
+        if (b1 == b2 && b1Offs == b2Offs) {
             return true;
         }
 

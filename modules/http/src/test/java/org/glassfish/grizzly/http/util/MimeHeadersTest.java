@@ -131,4 +131,19 @@ public class MimeHeadersTest {
         Assert.assertArrayEquals(expectedValuesSet2, list.toArray(new String[list.size()]));
     }
 
+
+    @Test
+    public void testForbiddenTrailerNamesFromParsedBytesAreRejected() {
+        // as the parser does: the name is a slice of the whole input buffer
+        final byte[] input = "0\r\nhost: evil\r\nx-checksum: abc\r\n\r\n".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        final int before = mimeHeaders.trailerSize();
+
+        Assert.assertSame(MimeHeaders.NOOP_CHUNK, mimeHeaders.addValue(input, 3, 4)); // "host" is not allowed in trailers
+        Assert.assertEquals(before, mimeHeaders.trailerSize());
+
+        mimeHeaders.addValue(input, 15, 10).setString("abc"); // "x-checksum"
+        Assert.assertEquals(before + 1, mimeHeaders.trailerSize());
+        Assert.assertEquals("abc", mimeHeaders.getHeader("x-checksum"));
+        Assert.assertNull(mimeHeaders.getHeader("host"));
+    }
 }
