@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -564,12 +565,7 @@ public class HttpServer {
             final int maxHeaderSize = listener.getMaxHttpHeaderSize() == -1 ? org.glassfish.grizzly.http.HttpServerFilter.DEFAULT_MAX_HTTP_PACKET_HEADER_SIZE
                     : listener.getMaxHttpHeaderSize();
 
-            // Passing null value for the delayed executor, because IdleTimeoutFilter should
-            // handle idle connections for us
-            @SuppressWarnings("deprecation")
-            final org.glassfish.grizzly.http.HttpServerFilter httpServerCodecFilter = new org.glassfish.grizzly.http.HttpServerFilter(
-                    listener.isChunkingEnabled(), maxHeaderSize, null, listener.getKeepAlive(), null, listener.getMaxRequestHeaders(),
-                    listener.getMaxResponseHeaders());
+            final org.glassfish.grizzly.http.HttpServerFilter httpServerCodecFilter = createHttpCodecFilter(listener, maxHeaderSize);
             final Set<ContentEncoding> contentEncodings = configureCompressionEncodings(listener);
             for (ContentEncoding contentEncoding : contentEncodings) {
                 httpServerCodecFilter.addContentEncoding(contentEncoding);
@@ -660,6 +656,25 @@ public class HttpServer {
         } else {
             return Collections.emptySet();
         }
+    }
+
+    /**
+     * Creates the HTTP codec filter for the given listener. The default implementation builds a plain
+     * {@link org.glassfish.grizzly.http.HttpServerFilter}, whose strict header-validation flags therefore fall back to
+     * the global system properties. Subclasses may override this to supply their own codec filter, for example one
+     * configured with per-listener header-validation properties. The returned filter is wired into the listener's
+     * filter chain by {@link #configureListener(NetworkListener)}, so an override does not need to repeat that wiring.
+     *
+     * @param listener the listener the codec filter is created for
+     * @param maxHeaderSize the maximum size, in bytes, of an inbound HTTP message header for this listener
+     * @return the HTTP codec filter to use for the listener
+     */
+    @SuppressWarnings("deprecation")
+    protected org.glassfish.grizzly.http.HttpServerFilter createHttpCodecFilter(final NetworkListener listener, final int maxHeaderSize) {
+        // Passing null value for the delayed executor, because IdleTimeoutFilter should
+        // handle idle connections for us
+        return new org.glassfish.grizzly.http.HttpServerFilter(listener.isChunkingEnabled(), maxHeaderSize, null, listener.getKeepAlive(), null,
+                listener.getMaxRequestHeaders(), listener.getMaxResponseHeaders());
     }
 
     @SuppressWarnings("unchecked")
