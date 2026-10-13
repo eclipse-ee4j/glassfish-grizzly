@@ -215,6 +215,65 @@ public class AttributesTest {
     }
 
     @Test
+    public void testConcurrentWritesWhileGrowing() throws Exception {
+        if (!isSafe) {
+            return;
+        }
+        for (int round = 0; round < 20; round++) {
+            final AttributeBuilder builder = new DefaultAttributeBuilder();
+            final AttributeHolder holder = builder.createSafeAttributeHolder();
+            final int threads = 8;
+            final int perThread = 64;
+            final Attribute[] attrs = new Attribute[threads * perThread];
+            IntStream.range(0, attrs.length).forEach(i -> attrs[i] = builder.createAttribute("attribute-" + i));
+
+            // thread t owns attributes t, t + threads, ...: interleaved indexes force concurrent resizes
+            final java.util.concurrent.CyclicBarrier start = new java.util.concurrent.CyclicBarrier(threads);
+            final Thread[] workers = new Thread[threads];
+            final java.util.concurrent.atomic.AtomicReference<Throwable> failure = new java.util.concurrent.atomic.AtomicReference<>();
+            for (int t = 0; t < threads; t++) {
+                final int id = t;
+                workers[t] = new Thread(() -> {
+                    try {
+                        start.await();
+                        for (int i = id; i < attrs.length; i += threads) {
+                            attrs[i].set(holder, "v" + i);
+                        }
+                    } catch (Throwable e) {
+                        failure.set(e);
+                    }
+                });
+                workers[t].start();
+            }
+            for (Thread w : workers) {
+                w.join();
+            }
+            assertNull(failure.get());
+            for (int i = 0; i < attrs.length; i++) {
+                assertEquals(attrs[i].toString(), "v" + i, attrs[i].get(holder));
+            }
+            assertEquals(attrs.length, holder.getAttributeNames().size());
+        }
+    }
+
+    @Test
+    public void testInitializerRunsOnceUnderContention() throws Exception {
+        if (!isSafe) {
+            return;
+        }
+        final AttributeBuilder builder = new DefaultAttributeBuilder();
+        final java.util.concurrent.atomic.AtomicInteger created = new java.util.concurrent.atomic.AtomicInteger();
+        final Attribute<Object> attr = builder.createAttribute("lazy", (Supplier<Object>) () -> {
+            created.incrementAndGet();
+            return new Object();
+        });
+        final AttributeHolder holder = builder.createSafeAttributeHolder();
+        final Object[] seen = IntStream.range(0, 64).parallel().mapToObj(i -> attr.get(holder)).distinct().toArray();
+        assertEquals(1, seen.length);
+        assertEquals(1, created.get());
+    }
+
+    @Test
     @Ignore("Performance test")
     public void testAttributesForPerformance() {
         if (!isSafe) {
