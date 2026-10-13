@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2025 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -17,24 +17,41 @@
 
 package org.glassfish.grizzly.attributes;
 
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
- * An {@link AttributeHolder} implementation, which stores {@link Attribute} values in a {@link ConcurrentMap},
- * accessing them by {@link Attribute#index()}.
+ * An {@link AttributeHolder} implementation, which stores {@link Attribute} values in an array indexed by
+ * {@link Attribute#index()}.
  * <p>
- * This implementation is thread-safe.
+ * This implementation is thread-safe. Reads are a single acquiring array load and writes a CAS on the slot, so the
+ * per-request attribute traffic of a connection (touched by selector, worker and timer threads) neither allocates nor
+ * walks a hash table. The array grows like a {@code ConcurrentHashMap} table resizes: under a lock, every slot of the
+ * old array is atomically swapped for a {@code MOVED} marker while its value is copied, so a writer racing with the
+ * resize fails its CAS and retries on the new array instead of losing its update. Initializers run under a lock, at
+ * most once per absent value.
  *
  * @author Bongjae Chang
  */
 @SuppressWarnings("rawtypes")
 public class IndexedMapAttributeHolder implements AttributeHolder {
 
-    private final ConcurrentMap<Integer, Object> valueMap = new ConcurrentHashMap<>();
+    private static final VarHandle SLOT = MethodHandles.arrayElementVarHandle(Object[].class);
+
+    /** Placed in every slot of an array that has been replaced by a larger one. */
+    private static final Object MOVED = new Object();
+
+    private static final Object[] EMPTY = {};
+
+    private static final int MIN_CAPACITY = 16;
+
+    private volatile Object[] values = EMPTY;
+
+    private final Object lock = new Object();
+
     private final IndexedAttributeAccessor indexedAttributeAccessor = new IndexedAttributeAccessorImpl();
 
     private final DefaultAttributeBuilder attributeBuilder;
@@ -92,8 +109,14 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
      */
     @Override
     public Set<String> getAttributeNames() {
-        return valueMap.keySet().stream().map(index -> attributeBuilder.getAttributeByIndex(index).name())
-                       .collect(Collectors.toSet());
+        final Set<String> names = new HashSet<>();
+        final int length = values.length;
+        for (int i = 0; i < length; i++) {
+            if (get(i) != null) {
+                names.add(attributeBuilder.getAttributeByIndex(i).name());
+            }
+        }
+        return names;
     }
 
     /**
@@ -106,7 +129,7 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
         }
         clear();
         if (srcAttributes instanceof IndexedMapAttributeHolder imah) {
-            valueMap.putAll(imah.valueMap);
+            imah.copyValuesTo(this);
         } else {
             srcAttributes.getAttributeNames().forEach(name -> setAttribute(name, srcAttributes.getAttribute(name)));
         }
@@ -121,13 +144,27 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
             return;
         }
         if (dstAttributes instanceof IndexedMapAttributeHolder imah) {
-            imah.valueMap.clear();
-            imah.valueMap.putAll(valueMap);
+            imah.clear();
+            copyValuesTo(imah);
         } else {
             dstAttributes.clear();
-            valueMap.forEach(
-                    (index, value) -> dstAttributes.setAttribute(attributeBuilder.getAttributeByIndex(index).name(),
-                                                                 value));
+            final int length = values.length;
+            for (int i = 0; i < length; i++) {
+                final Object value = get(i);
+                if (value != null) {
+                    dstAttributes.setAttribute(attributeBuilder.getAttributeByIndex(i).name(), value);
+                }
+            }
+        }
+    }
+
+    private void copyValuesTo(final IndexedMapAttributeHolder dst) {
+        final int length = values.length;
+        for (int i = 0; i < length; i++) {
+            final Object value = get(i);
+            if (value != null) {
+                dst.getAndSet(i, value);
+            }
         }
     }
 
@@ -144,7 +181,10 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
      */
     @Override
     public void clear() {
-        valueMap.clear();
+        final int length = values.length;
+        for (int i = 0; i < length; i++) {
+            getAndSet(i, null);
+        }
     }
 
     /**
@@ -165,6 +205,88 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
         return indexedAttributeAccessor;
     }
 
+    // ------------------------------------------------------------------ array
+
+    private Object get(final int index) {
+        Object[] array = values;
+        while (index < array.length) {
+            final Object value = SLOT.getAcquire(array, index);
+            if (value != MOVED) {
+                return value;
+            }
+            array = awaitResized(array);
+        }
+        return null;
+    }
+
+    /**
+     * Atomically replaces the value at {@code index} ({@code null} removes it) and returns the previous one.
+     */
+    private Object getAndSet(final int index, final Object value) {
+        Object[] array = values;
+        while (true) {
+            if (index >= array.length) {
+                if (value == null) {
+                    return null;
+                }
+                array = resize(array, index);
+                continue;
+            }
+            final Object current = SLOT.getAcquire(array, index);
+            if (current == MOVED) {
+                array = awaitResized(array);
+            } else if (SLOT.compareAndSet(array, index, current, value)) {
+                return current;
+            }
+        }
+    }
+
+    /**
+     * Stores {@code value} at {@code index} unless a value is already there; returns the value in place afterwards.
+     */
+    private Object putIfAbsent(final int index, final Object value) {
+        Object[] array = values;
+        while (true) {
+            if (index >= array.length) {
+                array = resize(array, index);
+                continue;
+            }
+            final Object current = SLOT.getAcquire(array, index);
+            if (current == MOVED) {
+                array = awaitResized(array);
+            } else if (current != null) {
+                return current;
+            } else if (SLOT.compareAndSet(array, index, null, value)) {
+                return value;
+            }
+        }
+    }
+
+    private Object[] resize(final Object[] array, final int index) {
+        synchronized (lock) {
+            final Object[] current = values;
+            if (current != array) {
+                return current; // already resized by another thread
+            }
+            final Object[] resized = new Object[Math.max(index + 1, Math.max(MIN_CAPACITY, array.length * 2))];
+            for (int i = 0; i < array.length; i++) {
+                // freeze the slot: CASes on the old array fail from now on and retry on the new one
+                resized[i] = SLOT.getAndSet(array, i, MOVED);
+            }
+            values = resized;
+            return resized;
+        }
+    }
+
+    private Object[] awaitResized(final Object[] array) {
+        Object[] current;
+        while ((current = values) == array) {
+            // the resizing thread has frozen this array and is about to publish the new one
+            Thread.onSpinWait();
+        }
+        return current;
+    }
+
     /**
      * {@link IndexedAttributeAccessor} implementation.
      */
@@ -174,7 +296,7 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
          */
         @Override
         public Object getAttribute(final int index) {
-            return getAttribute(index, null);
+            return get(index);
         }
 
         /**
@@ -182,13 +304,19 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
          */
         @Override
         public Object getAttribute(final int index, final Supplier initializer) {
-            // Plain get() is lock-free; computeIfAbsent() on an absent key reserves the bin with a CAS + lock even
-            // when nothing gets inserted, and allocates the capturing lambda, so only use it to run an initializer.
-            final Object value = valueMap.get(index);
+            final Object value = get(index);
             if (value != null || initializer == null) {
                 return value;
             }
-            return valueMap.computeIfAbsent(index, k -> initializer.get());
+            synchronized (lock) {
+                // run the initializer at most once per absent value
+                final Object existing = get(index);
+                if (existing != null) {
+                    return existing;
+                }
+                final Object initialized = initializer.get();
+                return initialized == null ? null : putIfAbsent(index, initialized);
+            }
         }
 
         /**
@@ -196,11 +324,7 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
          */
         @Override
         public void setAttribute(final int index, final Object value) {
-            if (value != null) {
-                valueMap.put(index, value);
-            } else {
-                valueMap.remove(index);
-            }
+            getAndSet(index, value);
         }
 
         /**
@@ -208,7 +332,7 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
          */
         @Override
         public Object removeAttribute(final int index) {
-            return valueMap.remove(index);
+            return getAndSet(index, null);
         }
     }
 }
