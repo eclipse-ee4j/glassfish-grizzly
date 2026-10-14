@@ -16,8 +16,10 @@
 
 package org.glassfish.grizzly.http.util;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -131,11 +133,10 @@ public class MimeHeadersTest {
         Assert.assertArrayEquals(expectedValuesSet2, list.toArray(new String[list.size()]));
     }
 
-
     @Test
     public void testForbiddenTrailerNamesFromParsedBytesAreRejected() {
         // as the parser does: the name is a slice of the whole input buffer
-        final byte[] input = "0\r\nhost: evil\r\nx-checksum: abc\r\n\r\n".getBytes(java.nio.charset.StandardCharsets.ISO_8859_1);
+        final byte[] input = "0\r\nhost: evil\r\nx-checksum: abc\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
         final int before = mimeHeaders.trailerSize();
 
         Assert.assertSame(MimeHeaders.NOOP_CHUNK, mimeHeaders.addValue(input, 3, 4)); // "host" is not allowed in trailers
@@ -145,5 +146,19 @@ public class MimeHeadersTest {
         Assert.assertEquals(before + 1, mimeHeaders.trailerSize());
         Assert.assertEquals("abc", mimeHeaders.getHeader("x-checksum"));
         Assert.assertNull(mimeHeaders.getHeader("host"));
+    }
+
+    @Test
+    public void testForbiddenTrailerNamesAreRejectedInTurkishLocale() {
+        final Locale defaultLocale = Locale.getDefault();
+        Locale.setDefault(Locale.forLanguageTag("tr-TR"));
+        try {
+            // "IF-MATCH".toLowerCase() is "ıf-match" (dotless i) in Turkish
+            final byte[] input = "IF-MATCH".getBytes(StandardCharsets.ISO_8859_1);
+            Assert.assertSame(MimeHeaders.NOOP_CHUNK, mimeHeaders.addValue(input, 0, input.length));
+            Assert.assertSame(MimeHeaders.NOOP_CHUNK, mimeHeaders.addValue("IF-MATCH"));
+        } finally {
+            Locale.setDefault(defaultLocale);
+        }
     }
 }
