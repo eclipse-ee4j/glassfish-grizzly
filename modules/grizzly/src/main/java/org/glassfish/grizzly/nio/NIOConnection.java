@@ -51,6 +51,7 @@ import org.glassfish.grizzly.GrizzlyFuture;
 import org.glassfish.grizzly.ICloseType;
 import org.glassfish.grizzly.IOEvent;
 import org.glassfish.grizzly.Processor;
+import org.glassfish.grizzly.ProcessorExecutor;
 import org.glassfish.grizzly.ProcessorSelector;
 import org.glassfish.grizzly.ReadResult;
 import org.glassfish.grizzly.StandaloneProcessor;
@@ -868,11 +869,18 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
      * (e.g. responses to pipelined HTTP requests) go out together in one gathering write. The queue is drained anyway
      * once it holds more than {@link AbstractNIOAsyncQueueWriter#MAX_CORKED_BYTES} bytes.
      * <p>
-     * Must only be called while processing a {@link IOEvent#READ}: the processing thread uncorks when that processing
-     * run ends (see {@code ProcessorExecutor}).
+     * Only effective while the current thread is processing a {@link IOEvent#READ}: the connection is uncorked when the
+     * outermost READ processing run of this thread ends (see {@code ProcessorExecutor}). Called from any other thread,
+     * it does nothing, so corked writes can never be left behind.
+     *
+     * @return {@code true} if writes are now corked
      */
-    public void corkWrites() {
+    public boolean corkWrites() {
+        if (!ProcessorExecutor.registerCorkedConnection(this)) {
+            return false;
+        }
         writesCorked = true;
+        return true;
     }
 
     /**
