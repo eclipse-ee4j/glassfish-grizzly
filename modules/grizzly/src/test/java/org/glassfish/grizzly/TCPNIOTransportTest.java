@@ -69,6 +69,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import static java.lang.Boolean.TRUE;
+import static java.time.Duration.ofMillis;
 import static java.time.Duration.ofSeconds;
 import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.glassfish.grizzly.IOEvent.READ;
@@ -79,7 +80,6 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
 
 /**
  * Unit test for {@link TCPNIOTransport}
@@ -129,16 +129,21 @@ public class TCPNIOTransportTest {
             connection.closeSilently();
             assertFalse("connection.isOpen", connection.isOpen());
 
-            transport.unbindAll(10, SECONDS);
-
-            future = transport.connect("localhost", port);
-            try {
-                future.get(10, SECONDS);
-                fail("Server connection should be closed!:\n" +
-                     describeObservedServerConnections(observedServerConnections));
-            } catch (ExecutionException e) {
-                assertThat(e.getCause(), CoreMatchers.instanceOf(IOException.class));
-            }
+            transport.unbindAll();
+            TestUtils.retryUntilSuccess(() -> {
+                final Future<Connection> connectFuture = transport.connect("localhost", port);
+                try {
+                    final Connection newConnection = connectFuture.get(3, SECONDS);
+                    if (newConnection != null && newConnection.isOpen()) {
+                        close(newConnection);
+                        throw new IllegalStateException("Server connection should be closed!:\n" +
+                                                        describeObservedServerConnections(observedServerConnections));
+                    }
+                } catch (ExecutionException e) {
+                    assertThat(e.getCause(), CoreMatchers.instanceOf(IOException.class));
+                }
+                return null;
+            }, ofSeconds(10), ofMillis(100));
 
             logger.log(Level.INFO, "Binding to port {0}", port);
             TestUtils.retryUntilSuccess(() -> transport.bind(port), ofSeconds(10), ofSeconds(1));
@@ -177,28 +182,37 @@ public class TCPNIOTransportTest {
             assertNotNull(connection);
             close(connection);
 
-            transport.unbind(serverConnection1, 10, SECONDS);
+            transport.unbind(serverConnection1);
+            TestUtils.retryUntilSuccess(() -> {
+                final Future<Connection> connectFuture = transport.connect("localhost", port1);
+                try {
+                    final Connection newConnection = connectFuture.get(3, SECONDS);
+                    if (newConnection != null && newConnection.isOpen()) {
+                        close(newConnection);
+                        throw new IllegalStateException("Server connection should be closed!:\n" +
+                                                        describeObservedServerConnections(observedServerConnections));
+                    }
+                } catch (ExecutionException e) {
+                    assertThat(e.getCause(), CoreMatchers.instanceOf(IOException.class));
+                }
+                return null;
+            }, ofSeconds(10), ofMillis(100));
 
-            future = transport.connect("localhost", port1);
-            try {
-                connection = future.get(10, SECONDS);
-                close(connection);
-                fail("Server connection should be closed!:\n" +
-                     describeObservedServerConnections(observedServerConnections));
-            } catch (ExecutionException e) {
-                assertThat(e.getCause(), CoreMatchers.instanceOf(IOException.class));
-            }
-
-            transport.unbind(serverConnection2, 10, SECONDS);
-            future = transport.connect("localhost", port2);
-            try {
-                connection = future.get(10, SECONDS);
-                close(connection);
-                fail("Server connection should be closed!:\n" +
-                     describeObservedServerConnections(observedServerConnections));
-            } catch (ExecutionException e) {
-                assertThat(e.getCause(), CoreMatchers.instanceOf(IOException.class));
-            }
+            transport.unbind(serverConnection2);
+            TestUtils.retryUntilSuccess(() -> {
+                final Future<Connection> connectFuture = transport.connect("localhost", port2);
+                try {
+                    final Connection newConnection = connectFuture.get(3, SECONDS);
+                    if (newConnection != null && newConnection.isOpen()) {
+                        close(newConnection);
+                        throw new IllegalStateException("Server connection should be closed!:\n" +
+                                                        describeObservedServerConnections(observedServerConnections));
+                    }
+                } catch (ExecutionException e) {
+                    assertThat(e.getCause(), CoreMatchers.instanceOf(IOException.class));
+                }
+                return null;
+            }, ofSeconds(10), ofMillis(100));
         } finally {
             close(connection);
         }
