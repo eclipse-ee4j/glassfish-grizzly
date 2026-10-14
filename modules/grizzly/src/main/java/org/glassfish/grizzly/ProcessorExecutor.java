@@ -44,17 +44,65 @@ public final class ProcessorExecutor {
                     new Object[] { context.getConnection(), context.getIoEvent(), context.getProcessor() });
         }
 
-        // Writes corked while processing input (see NIOConnection#corkWrites) are released when that processing run
-        // ends, including a suspension: the counterpart of Netty's flush on channelReadComplete. Nested executions
-        // (writes, events) don't uncork.
-        final Connection connection = context.getConnection();
-        final boolean isRead = context.getIoEvent() == IOEvent.READ;
+        if (context.getIoEvent() != IOEvent.READ) {
+            execute0(context);
+            return;
+        }
+
+        // Writes corked while processing input (see NIOConnection#corkWrites) are released when the outermost READ
+        // processing run of this thread ends, including a suspension: the counterpart of Netty's flush on
+        // channelReadComplete. Nested READ runs (e.g. HTTP/2 streams of the connection being read) don't uncork.
+        final ReadRun run = READ_RUN.get();
+        run.depth++;
         try {
             execute0(context);
         } finally {
-            if (isRead && connection instanceof NIOConnection) {
-                ((NIOConnection) connection).uncorkWrites();
+            if (--run.depth == 0) {
+                run.uncorkAll();
             }
+        }
+    }
+
+    private static final ThreadLocal<ReadRun> READ_RUN = ThreadLocal.withInitial(ReadRun::new);
+
+    /**
+     * Registers {@code connection} to be uncorked when the READ processing run of the current thread ends.
+     *
+     * @return {@code false} if the current thread is not processing a READ, in which case writes must not be corked
+     */
+    public static boolean registerCorkedConnection(final NIOConnection connection) {
+        final ReadRun run = READ_RUN.get();
+        if (run.depth == 0) {
+            return false;
+        }
+        run.add(connection);
+        return true;
+    }
+
+    private static final class ReadRun {
+        int depth;
+        private NIOConnection[] corked = new NIOConnection[4];
+        private int corkedCount;
+
+        void add(final NIOConnection connection) {
+            for (int i = 0; i < corkedCount; i++) {
+                if (corked[i] == connection) {
+                    return;
+                }
+            }
+            if (corkedCount == corked.length) {
+                corked = java.util.Arrays.copyOf(corked, corkedCount * 2);
+            }
+            corked[corkedCount++] = connection;
+        }
+
+        void uncorkAll() {
+            for (int i = 0; i < corkedCount; i++) {
+                final NIOConnection connection = corked[i];
+                corked[i] = null;
+                connection.uncorkWrites();
+            }
+            corkedCount = 0;
         }
     }
 
