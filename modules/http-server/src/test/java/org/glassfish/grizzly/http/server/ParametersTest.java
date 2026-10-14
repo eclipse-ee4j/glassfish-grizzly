@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -54,14 +55,13 @@ import org.junit.Test;
 @SuppressWarnings("unchecked")
 public class ParametersTest {
 
-    private static final int PORT = 8766;
-
     /**
      * Testcase for http://java.net/jira/browse/GRIZZLY-1438
      */
     @Test
     public void testPostBodyChunked() throws Exception {
-        final HttpServer server = createServer();
+        final int port = TestUtils.findAvailableTcpPort();
+        final HttpServer server = createServer(port);
         final String body = generatePostBody(1024 * 3);
         final String[][] paramParts = getParts(body);
         final FutureImpl<Boolean> resultFuture = Futures.createSafeFuture();
@@ -93,9 +93,9 @@ public class ParametersTest {
 
             server.start();
             TCPNIOConnectorHandler handler = TCPNIOConnectorHandler.builder(clientTransport).build();
-            GrizzlyFuture<Connection> future = handler.connect("localhost", PORT);
+            GrizzlyFuture<Connection> future = handler.connect("localhost", port);
             final Buffer bodyBuffer = Buffers.wrap(clientTransport.getMemoryManager(), body);
-            HttpRequestPacket request = HttpRequestPacket.builder().chunked(true).method(Method.POST).uri("/").header(Header.Host, "localhost:" + PORT)
+            HttpRequestPacket request = HttpRequestPacket.builder().chunked(true).method(Method.POST).uri("/").header(Header.Host, "localhost:" + port)
                     .contentType("application/x-www-form-urlencoded; charset=ISO-8859-1").protocol(Protocol.HTTP_1_1).build();
             HttpContent content = HttpContent.builder(request).content(bodyBuffer).last(true).build();
             Connection c = future.get(10, TimeUnit.SECONDS);
@@ -113,7 +113,8 @@ public class ParametersTest {
      */
     @Test
     public void testOverrideCharsetEncoding() throws Exception {
-        final HttpServer server = createServer();
+        final int port = TestUtils.findAvailableTcpPort();
+        final HttpServer server = createServer(port);
         final String body = generatePostBody(1024 * 3);
         final String[][] paramParts = getParts(body);
         final FutureImpl<Boolean> resultFuture = Futures.createSafeFuture();
@@ -146,9 +147,9 @@ public class ParametersTest {
 
             server.start();
             TCPNIOConnectorHandler handler = TCPNIOConnectorHandler.builder(clientTransport).build();
-            GrizzlyFuture<Connection> future = handler.connect("localhost", PORT);
+            GrizzlyFuture<Connection> future = handler.connect("localhost", port);
             final Buffer bodyBuffer = Buffers.wrap(clientTransport.getMemoryManager(), body);
-            HttpRequestPacket request = HttpRequestPacket.builder().chunked(true).method(Method.POST).uri("/").header(Header.Host, "localhost:" + PORT)
+            HttpRequestPacket request = HttpRequestPacket.builder().chunked(true).method(Method.POST).uri("/").header(Header.Host, "localhost:" + port)
                     .contentType("application/x-www-form-urlencoded; charset=ISO-8859-1").protocol(Protocol.HTTP_1_1).build();
             HttpContent content = HttpContent.builder(request).content(bodyBuffer).last(true).build();
             Connection c = future.get(10, TimeUnit.SECONDS);
@@ -165,7 +166,8 @@ public class ParametersTest {
      */
     @Test
     public void testQueryStringCharsetEncoding() throws Exception {
-        final HttpServer server = createServer();
+        final int port = TestUtils.findAvailableTcpPort();
+        final HttpServer server = createServer(port);
         final FutureImpl<Boolean> resultFuture = Futures.createSafeFuture();
         server.getServerConfiguration().setDefaultQueryEncoding(Charsets.UTF8_CHARSET);
         server.getServerConfiguration().addHttpHandler(new HttpHandler() {
@@ -186,7 +188,7 @@ public class ParametersTest {
 
             // Low level approach with sockets is used, because common Java HTTP clients are using java.net.URI,
             // which fails when unencoded curly bracket is part of the URI
-            socket = new Socket("localhost", PORT);
+            socket = new Socket("localhost", port);
             final PrintWriter pw = new PrintWriter(new BufferedWriter(new OutputStreamWriter(socket.getOutputStream())));
 
             pw.println("GET /app/test?msg=Hello\\World+With+SpecChars+§*)$!±@-_=;`:\\,~| HTTP/1.0");
@@ -213,9 +215,9 @@ public class ParametersTest {
 
     // -------------------------------------------------------- Private Methods
 
-    private static HttpServer createServer() {
+    private static HttpServer createServer(final int port) {
         HttpServer server = new HttpServer();
-        NetworkListener l = new NetworkListener("test", DEFAULT_NETWORK_HOST, PORT);
+        NetworkListener l = new NetworkListener("test", DEFAULT_NETWORK_HOST, port);
         server.addListener(l);
         return server;
     }

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -74,10 +75,11 @@ import org.junit.Test;
 public class NIOInputSourcesTest {
 
     private static final char[] ALPHA = "abcdefghijklmnopqrstuvwxyz".toCharArray();
-    private static final int PORT = 8030;
+    private int port;
 
     @Before
     public void setUp() throws Exception {
+        port = TestUtils.findAvailableTcpPort();
         ByteBufferWrapper.DEBUG_MODE = true;
     }
 
@@ -119,7 +121,7 @@ public class NIOInputSourcesTest {
         final String expected = buildString(5000);
 
         final HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + PORT);
+        b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + port);
         b.contentLength(expected.length());
         final HttpRequestPacket request = b.build();
 
@@ -166,7 +168,7 @@ public class NIOInputSourcesTest {
         final String expected = buildString(5000);
 
         final HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + PORT);
+        b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + port);
         b.contentLength(expected.length());
         final HttpRequestPacket request = b.build();
 
@@ -213,7 +215,7 @@ public class NIOInputSourcesTest {
         final String expected = buildString(5000);
 
         final HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + PORT);
+        b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + port);
         b.contentLength(expected.length());
         final HttpRequestPacket request = b.build();
 
@@ -269,7 +271,7 @@ public class NIOInputSourcesTest {
             final String expected = buildString(5000);
 
             final HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-            b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + PORT);
+            b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + port);
             b.contentLength(expected.length());
             final HttpRequestPacket request = b.build();
 
@@ -363,7 +365,7 @@ public class NIOInputSourcesTest {
         final String expected = buildString(5000);
 
         final HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + PORT);
+        b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + port);
         b.contentLength(expected.length());
         final HttpRequestPacket request = b.build();
 
@@ -410,7 +412,7 @@ public class NIOInputSourcesTest {
         final String expected = buildString(5000);
 
         final HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + PORT);
+        b.method("POST").protocol(Protocol.HTTP_1_1).uri("/path").chunked(false).header("Host", "localhost:" + port);
         b.contentLength(expected.length());
         final HttpRequestPacket request = b.build();
 
@@ -508,7 +510,7 @@ public class NIOInputSourcesTest {
             server.start();
             clientTransport.start();
 
-            Future<Connection> connectFuture = clientTransport.connect("localhost", PORT);
+            Future<Connection> connectFuture = clientTransport.connect("localhost", port);
             Connection connection = null;
             try {
                 connection = connectFuture.get(10, TimeUnit.SECONDS);
@@ -553,7 +555,7 @@ public class NIOInputSourcesTest {
     private HttpServer createWebServer(final HttpHandler httpHandler) {
 
         final HttpServer server = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         listener.getKeepAlive().setIdleTimeoutInSeconds(-1);
         server.addListener(listener);
         server.getServerConfiguration().addHttpHandler(httpHandler, "/path/*");
@@ -596,7 +598,7 @@ public class NIOInputSourcesTest {
 
             clientTransport.start();
 
-            Future<Connection> connectFuture = clientTransport.connect("localhost", PORT);
+            Future<Connection> connectFuture = clientTransport.connect("localhost", port);
             Connection connection = null;
             try {
                 connection = connectFuture.get(timeout, TimeUnit.SECONDS);
@@ -637,7 +639,7 @@ public class NIOInputSourcesTest {
     private HttpPacket createRequest(final String method, final String content, String encoding) {
 
         HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method(method).protocol(Protocol.HTTP_1_1).uri("/path").chunked(true).header("Host", "localhost:" + PORT);
+        b.method(method).protocol(Protocol.HTTP_1_1).uri("/path").chunked(true).header("Host", "localhost:" + port);
 
         HttpRequestPacket request = b.build();
 

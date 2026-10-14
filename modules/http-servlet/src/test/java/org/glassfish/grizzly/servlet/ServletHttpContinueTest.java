@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -32,6 +33,7 @@ import org.glassfish.grizzly.http.server.HttpServer;
 import org.glassfish.grizzly.http.server.NetworkListener;
 import org.glassfish.grizzly.http.server.StaticHttpHandler;
 import org.glassfish.grizzly.impl.SafeFutureImpl;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -45,7 +47,7 @@ import jakarta.servlet.http.HttpServletResponse;
 @RunWith(Parameterized.class)
 public class ServletHttpContinueTest {
 
-    public static final int PORT = 18890 + 14;
+    public int port = 18890 + 14;
 
     private final int numberOfExtraHttpHandlers;
 
@@ -56,6 +58,15 @@ public class ServletHttpContinueTest {
     @Parameters
     public static Collection<Object[]> getNumberOfExtraHttpHandlers() {
         return Arrays.asList(new Object[][] { { 0 }, { 5 } });
+    }
+
+    @Before
+    public void findPort() {
+        try {
+            port = TestUtils.findAvailableTcpPort();
+        } catch (IOException e) {
+            port = 18890 + 14;
+        }
     }
 
     // ------------------------------------------------------------ Test Methods
@@ -76,14 +87,14 @@ public class ServletHttpContinueTest {
         Socket s = null;
         try {
             server.start();
-            s = SocketFactory.getDefault().createSocket("localhost", PORT);
+            s = SocketFactory.getDefault().createSocket("localhost", port);
             s.setSoTimeout(10 * 1000);
 
             OutputStream out = s.getOutputStream();
             InputStream in = s.getInputStream();
 
             out.write("POST /path HTTP/1.1\r\n".getBytes());
-            out.write(("Host: localhost:" + PORT + "\r\n").getBytes());
+            out.write(("Host: localhost:" + port + "\r\n").getBytes());
             out.write("Content-Type: application/x-www-form-urlencoded\r\n".getBytes());
             out.write("Content-Length: 7\r\n".getBytes());
             out.write("Expect: 100-continue\r\n".getBytes());
@@ -144,12 +155,12 @@ public class ServletHttpContinueTest {
         Socket s = null;
         try {
             server.start();
-            s = SocketFactory.getDefault().createSocket("localhost", PORT);
+            s = SocketFactory.getDefault().createSocket("localhost", port);
             OutputStream out = s.getOutputStream();
             InputStream in = s.getInputStream();
             StringBuilder post = new StringBuilder();
             post.append("POST /path HTTP/1.1\r\n");
-            post.append("Host: localhost:").append(PORT).append("\r\n");
+            post.append("Host: localhost:").append(port).append("\r\n");
             post.append("Expect: 100-continue\r\n");
             post.append("Content-Type: application/x-www-form-urlencoded\r\n");
             post.append("Content-Length: 7\r\n");
@@ -193,12 +204,12 @@ public class ServletHttpContinueTest {
         Socket s = null;
         try {
             server.start();
-            s = SocketFactory.getDefault().createSocket("localhost", PORT);
+            s = SocketFactory.getDefault().createSocket("localhost", port);
             OutputStream out = s.getOutputStream();
             InputStream in = s.getInputStream();
 
             out.write("POST /path HTTP/1.1\r\n".getBytes());
-            out.write(("Host: localhost:" + PORT + "\r\n").getBytes());
+            out.write(("Host: localhost:" + port + "\r\n").getBytes());
             out.write("Content-Type: application/x-www-form-urlencoded\r\n".getBytes());
             out.write("Content-Length: 7\r\n".getBytes());
             out.write("Expect: 100-Continue-Extension\r\n".getBytes());
@@ -245,12 +256,12 @@ public class ServletHttpContinueTest {
         Socket s = null;
         try {
             server.start();
-            s = SocketFactory.getDefault().createSocket("localhost", PORT);
+            s = SocketFactory.getDefault().createSocket("localhost", port);
             OutputStream out = s.getOutputStream();
             InputStream in = s.getInputStream();
 
             out.write("POST /path HTTP/1.1\r\n".getBytes());
-            out.write(("Host: localhost:" + PORT + "\r\n").getBytes());
+            out.write(("Host: localhost:" + port + "\r\n").getBytes());
             out.write("Content-Type: application/x-www-form-urlencoded\r\n".getBytes());
             out.write("Content-Length: 7\r\n".getBytes());
             out.write("Expect: 100-Continue\r\n".getBytes());
@@ -305,12 +316,12 @@ public class ServletHttpContinueTest {
         Socket s = null;
         try {
             server.start();
-            s = SocketFactory.getDefault().createSocket("localhost", PORT);
+            s = SocketFactory.getDefault().createSocket("localhost", port);
             OutputStream out = s.getOutputStream();
             InputStream in = s.getInputStream();
 
             out.write("POST /path HTTP/1.1\r\n".getBytes());
-            out.write(("Host: localhost:" + PORT + "\r\n").getBytes());
+            out.write(("Host: localhost:" + port + "\r\n").getBytes());
             out.write("Content-Type: application/x-www-form-urlencoded\r\n".getBytes());
             out.write("Content-Length: 7\r\n".getBytes());
             out.write("Expect: 100-Continue\r\n".getBytes());
@@ -356,7 +367,7 @@ public class ServletHttpContinueTest {
     private HttpServer createServer(final HttpServlet httpServlet, final ExpectationHandler expectationHandler, final String mapping) {
 
         HttpServer server = new HttpServer();
-        NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         server.addListener(listener);
 
         for (int i = 0; i < numberOfExtraHttpHandlers; i++) {

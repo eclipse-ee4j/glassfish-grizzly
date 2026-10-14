@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -53,6 +54,7 @@ import org.glassfish.grizzly.impl.SafeFutureImpl;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
 import org.glassfish.grizzly.utils.ChunkingFilter;
+import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -65,11 +67,20 @@ import org.junit.runners.Parameterized;
 @SuppressWarnings("unchecked")
 @RunWith(Parameterized.class)
 public class TransferEncodingTest {
-    private static final int PORT = 8041;
+    private int port;
 
     @Parameterized.Parameters
     public static Collection<Object[]> getIsBinary() {
         return Arrays.asList(new Object[][] { { Boolean.FALSE }, { Boolean.TRUE } });
+    }
+
+    @Before
+    public void findPort() {
+        try {
+            port = TestUtils.findAvailableTcpPort();
+        } catch (IOException e) {
+            port = 8041;
+        }
     }
 
     private final boolean isBinary;
@@ -171,7 +182,7 @@ public class TransferEncodingTest {
     public void testLongContentLength() throws Exception {
         final long contentLength = Long.MAX_VALUE;
         HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method(Method.POST).protocol(Protocol.HTTP_1_1).uri("/postit").header("Host", "localhost:" + PORT);
+        b.method(Method.POST).protocol(Protocol.HTTP_1_1).uri("/postit").header("Host", "localhost:" + port);
         b.contentLength(contentLength);
 
         final HttpHandler httpHandler = new EchoHandler();
@@ -184,7 +195,7 @@ public class TransferEncodingTest {
     private HttpPacket createRequest(String uri, Map<String, String> headers) {
 
         HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method(Method.GET).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + PORT);
+        b.method(Method.GET).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + port);
         if (headers != null) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
                 b.header(entry.getKey(), entry.getValue());
@@ -197,7 +208,7 @@ public class TransferEncodingTest {
     private HttpContent doTest(final HttpHandler httpHandler, final HttpPacket request, final int timeout) throws Exception {
 
         final TCPNIOTransport clientTransport = TCPNIOTransportBuilder.newInstance().build();
-        final HttpServer server = createWebServer(httpHandler);
+        final HttpServer server = createWebServer(httpHandler, port);
         try {
             final FutureImpl<HttpContent> testResultFuture = SafeFutureImpl.create();
 
@@ -211,7 +222,7 @@ public class TransferEncodingTest {
 
             clientTransport.start();
 
-            Future<Connection> connectFuture = clientTransport.connect("localhost", PORT);
+            Future<Connection> connectFuture = clientTransport.connect("localhost", port);
             Connection connection = null;
             try {
                 connection = connectFuture.get(timeout, TimeUnit.SECONDS);
@@ -232,7 +243,7 @@ public class TransferEncodingTest {
     private HttpHeader doTestHeader(final HttpHandler httpHandler, final HttpPacket request, final int timeout) throws Exception {
 
         final TCPNIOTransport clientTransport = TCPNIOTransportBuilder.newInstance().build();
-        final HttpServer server = createWebServer(httpHandler);
+        final HttpServer server = createWebServer(httpHandler, port);
         try {
             final FutureImpl<HttpHeader> testResultFuture = SafeFutureImpl.create();
 
@@ -246,7 +257,7 @@ public class TransferEncodingTest {
 
             clientTransport.start();
 
-            Future<Connection> connectFuture = clientTransport.connect("localhost", PORT);
+            Future<Connection> connectFuture = clientTransport.connect("localhost", port);
             Connection connection = null;
             try {
                 connection = connectFuture.get(timeout, TimeUnit.SECONDS);
@@ -264,10 +275,10 @@ public class TransferEncodingTest {
         }
     }
 
-    private HttpServer createWebServer(final HttpHandler httpHandler) {
+    private HttpServer createWebServer(final HttpHandler httpHandler, final int port) {
 
         final HttpServer server = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         listener.getKeepAlive().setIdleTimeoutInSeconds(-1);
         server.addListener(listener);
         server.getServerConfiguration().addHttpHandler(httpHandler, "/");
