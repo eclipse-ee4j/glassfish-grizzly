@@ -79,16 +79,32 @@ public final class ProcessorExecutor {
         return true;
     }
 
+    /**
+     * @return {@code true} if {@code connection} was corked by the READ processing run of the current thread, whose
+     * writes are therefore held back until that run ends
+     */
+    public static boolean isCorkedByCurrentThread(final NIOConnection connection) {
+        final ReadRun run = READ_RUN.get();
+        return run.depth != 0 && run.contains(connection);
+    }
+
     private static final class ReadRun {
         int depth;
         private NIOConnection[] corked = new NIOConnection[4];
         private int corkedCount;
 
-        void add(final NIOConnection connection) {
+        boolean contains(final NIOConnection connection) {
             for (int i = 0; i < corkedCount; i++) {
                 if (corked[i] == connection) {
-                    return;
+                    return true;
                 }
+            }
+            return false;
+        }
+
+        void add(final NIOConnection connection) {
+            if (contains(connection)) {
+                return;
             }
             if (corkedCount == corked.length) {
                 corked = java.util.Arrays.copyOf(corked, corkedCount * 2);
