@@ -20,6 +20,7 @@ package org.glassfish.grizzly.http.util;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.Locale;
 
 import org.glassfish.grizzly.Buffer;
 
@@ -659,7 +660,7 @@ public class MimeHeaders {
     } // END MaxHeaderCountExceededException
 
     private boolean isValidName(final String name) {
-        return !marked || Arrays.binarySearch(INVALID_TRAILER_NAMES, name.toLowerCase()) < 0;
+        return !marked || Arrays.binarySearch(INVALID_TRAILER_NAMES, name.toLowerCase(Locale.ROOT)) < 0;
     }
 
     private boolean isValidName(final Header name) {
@@ -668,12 +669,12 @@ public class MimeHeaders {
 
     private boolean isValidName(final byte[] buffer, final int start, final int len) {
         return !marked
-                || Arrays.binarySearch(INVALID_TRAILER_NAMES, new String(buffer, start, len, StandardCharsets.ISO_8859_1).toLowerCase()) < 0;
+                || Arrays.binarySearch(INVALID_TRAILER_NAMES, new String(buffer, start, len, StandardCharsets.ISO_8859_1).toLowerCase(Locale.ROOT)) < 0;
     }
 
     private boolean isValidName(final Buffer buffer, final int start, final int len) {
         return !marked
-                || Arrays.binarySearch(INVALID_TRAILER_NAMES, buffer.toStringContent(StandardCharsets.ISO_8859_1, start, start + len).toLowerCase()) < 0;
+                || Arrays.binarySearch(INVALID_TRAILER_NAMES, buffer.toStringContent(StandardCharsets.ISO_8859_1, start, start + len).toLowerCase(Locale.ROOT)) < 0;
     }
 
 }
