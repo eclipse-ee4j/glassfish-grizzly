@@ -158,9 +158,13 @@ public class TCPNIOUtils {
                     final ByteBuffer directByteBuffer = ioRecord.getDirectBuffer();
                     if (directByteBuffer == null) {
                         ioRecord.allocate(totalRemaining); // allocate buffer big enough to put the entire message (not just the chunk we're writing)
+                        // allocate() makes the whole (cleared) direct buffer the current slice: no need for a slice() view
+                        currentDirectBufferSlice = ioRecord.getDirectBufferSlice();
                     }
 
-                    currentDirectBufferSlice = ioRecord.sliceBuffer();
+                    if (currentDirectBufferSlice == null) {
+                        currentDirectBufferSlice = ioRecord.sliceBuffer();
+                    }
                 }
 
                 final int oldLim = currentDirectBufferSlice.limit();
