@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -54,12 +55,12 @@ import org.junit.Test;
  */
 @SuppressWarnings("unchecked")
 public class SplitTest {
-    private static final int PORT = 18899;
 
     @Test
     public void testSplitReasonPhrase() throws Exception {
-        final HttpPacket request = createRequest("/index.html", null);
-        final HttpContent response = doTest(request, 10, new HttpHandler() {
+        final int port = TestUtils.findAvailableTcpPort();
+        final HttpPacket request = createRequest("/index.html", null, port);
+        final HttpContent response = doTest(request, 10, port, new HttpHandler() {
 
             @Override
             public void service(Request request, Response response) throws Exception {
@@ -76,8 +77,9 @@ public class SplitTest {
 
     @Test
     public void testSplitHeaders() throws Exception {
-        final HttpPacket request = createRequest("/index.html?foo=bar%0D%0AContent-Length:%2014%0D%0A%0D%0ABroken-content", null);
-        final HttpContent response = doTest(request, 10, new HttpHandler() {
+        final int port = TestUtils.findAvailableTcpPort();
+        final HttpPacket request = createRequest("/index.html?foo=bar%0D%0AContent-Length:%2014%0D%0A%0D%0ABroken-content", null, port);
+        final HttpContent response = doTest(request, 10, port, new HttpHandler() {
 
             @Override
             public void service(Request request, Response response) throws Exception {
@@ -98,10 +100,10 @@ public class SplitTest {
         assertEquals("Expected content", responseContent);
     }
 
-    private HttpPacket createRequest(String uri, Map<String, String> headers) {
+    private HttpPacket createRequest(String uri, Map<String, String> headers, final int port) {
 
         HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method(Method.GET).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + PORT);
+        b.method(Method.GET).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + port);
         if (headers != null) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
                 b.header(entry.getKey(), entry.getValue());
@@ -111,10 +113,10 @@ public class SplitTest {
         return b.build();
     }
 
-    private HttpContent doTest(final HttpPacket request, final int timeout, final HttpHandler... httpHandlers) throws Exception {
+    private HttpContent doTest(final HttpPacket request, final int timeout, final int port, final HttpHandler... httpHandlers) throws Exception {
 
         final TCPNIOTransport clientTransport = TCPNIOTransportBuilder.newInstance().build();
-        final HttpServer server = createWebServer(httpHandlers);
+        final HttpServer server = createWebServer(port, httpHandlers);
         try {
             final FutureImpl<HttpContent> testResultFuture = SafeFutureImpl.create();
 
@@ -128,7 +130,7 @@ public class SplitTest {
 
             clientTransport.start();
 
-            Future<Connection> connectFuture = clientTransport.connect("localhost", PORT);
+            Future<Connection> connectFuture = clientTransport.connect("localhost", port);
             Connection connection = null;
             try {
                 connection = connectFuture.get(timeout, TimeUnit.SECONDS);
@@ -146,10 +148,10 @@ public class SplitTest {
         }
     }
 
-    private HttpServer createWebServer(final HttpHandler... httpHandlers) {
+    private HttpServer createWebServer(final int port, final HttpHandler... httpHandlers) {
 
         final HttpServer server = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         listener.getKeepAlive().setIdleTimeoutInSeconds(-1);
         server.addListener(listener);
         server.getServerConfiguration().addHttpHandler(httpHandlers[0], "/");

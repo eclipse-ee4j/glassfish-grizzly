@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -58,13 +59,12 @@ public class SendFileTest extends TestCase {
 
     private static final Logger LOGGER = Grizzly.logger(SendFileTest.class);
 
-    private static final int PORT = 9669;
-
     // ------------------------------------------------------------ Test Methods
 
     @SuppressWarnings("unchecked")
     public void testSimpleSendFileViaStaticResourceAdapter() throws Exception {
-        HttpServer server = createServer(null, false, false);
+        final int port = TestUtils.findAvailableTcpPort();
+        HttpServer server = createServer(null, false, false, port);
         File control = generateTempFile(1024, "tmp2");
         final ReusableFuture<File> result = new ReusableFuture<>();
 
@@ -81,10 +81,10 @@ public class SendFileTest extends TestCase {
         try {
             server.start();
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
             for (int i = 0; i < 5; i++) {
                 HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + control.getName()).method(Method.GET).protocol(Protocol.HTTP_1_1)
-                        .header("Host", "localhost:" + PORT).build();
+                        .header("Host", "localhost:" + port).build();
                 c.write(request);
                 File fResult = result.get(20, TimeUnit.SECONDS);
                 BigInteger resultSum = getMDSum(fResult);
@@ -100,8 +100,9 @@ public class SendFileTest extends TestCase {
 
     @SuppressWarnings("unchecked")
     public void testSimpleSendFileViaAPISingleArgWithMimeType() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         File control = generateTempFile(1024);
-        HttpServer server = createServer(new SendFileApiHandler(control, null), false, false);
+        HttpServer server = createServer(new SendFileApiHandler(control, null), false, false, port);
         MimeType.add("tmp", "text/temp");
         final ReusableFuture<File> result = new ReusableFuture<>();
 
@@ -116,10 +117,10 @@ public class SendFileTest extends TestCase {
         try {
             server.start();
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
             for (int i = 0; i < 5; i++) {
                 HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + control.getName()).method(Method.GET).protocol(Protocol.HTTP_1_1)
-                        .header("Host", "localhost:" + PORT).build();
+                        .header("Host", "localhost:" + port).build();
                 c.write(request);
                 File fResult = result.get(20, TimeUnit.SECONDS);
                 BigInteger resultSum = getMDSum(fResult);
@@ -135,8 +136,9 @@ public class SendFileTest extends TestCase {
 
     @SuppressWarnings("unchecked")
     public void testSimpleSendFileViaAPIMultiArgExplicitMimeType() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         File control = generateTempFile(1024);
-        HttpServer server = createServer(new SendFileApiHandler(511, 512, "application/tmp"), false, false); // send half
+        HttpServer server = createServer(new SendFileApiHandler(511, 512, "application/tmp"), false, false, port); // send half
         MimeType.add("tmp", "text/temp");
         final ReusableFuture<File> result = new ReusableFuture<>();
 
@@ -151,10 +153,10 @@ public class SendFileTest extends TestCase {
         try {
             server.start();
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
             for (int i = 0; i < 5; i++) {
                 HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + control.getName()).method(Method.GET).protocol(Protocol.HTTP_1_1)
-                        .header("Host", "localhost:" + PORT).build();
+                        .header("Host", "localhost:" + port).build();
                 c.write(request);
                 File fResult = result.get(20, TimeUnit.SECONDS);
                 assertEquals(512, fResult.length());
@@ -169,10 +171,11 @@ public class SendFileTest extends TestCase {
 
     @SuppressWarnings("unchecked")
     public void testSimpleSendFileViaAPIClearBuffer() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         File control = generateTempFile(1024);
         SendFileApiHandler h = new SendFileApiHandler(control, null);
         h.setSendExtraContent(true);
-        HttpServer server = createServer(h, false, false);
+        HttpServer server = createServer(h, false, false, port);
         MimeType.add("tmp", "text/temp");
         final ReusableFuture<File> result = new ReusableFuture<>();
         BigInteger controlSum = getMDSum(control);
@@ -188,10 +191,10 @@ public class SendFileTest extends TestCase {
         try {
             server.start();
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
             for (int i = 0; i < 5; i++) {
                 HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + control.getName()).method(Method.GET).protocol(Protocol.HTTP_1_1)
-                        .header("Host", "localhost:" + PORT).build();
+                        .header("Host", "localhost:" + port).build();
                 c.write(request);
                 File fResult = result.get(20, TimeUnit.SECONDS);
                 BigInteger resultSum = getMDSum(fResult);
@@ -207,9 +210,10 @@ public class SendFileTest extends TestCase {
 
     @SuppressWarnings("unchecked")
     public void testSimpleSendFileViaRequestAttribute() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         File control = generateTempFile(1024);
         HttpHandler h = new SendFileRequestAttributeHandler(control);
-        HttpServer server = createServer(h, false, false);
+        HttpServer server = createServer(h, false, false, port);
         MimeType.add("tmp", "text/temp");
         final ReusableFuture<File> result = new ReusableFuture<>();
         BigInteger controlSum = getMDSum(control);
@@ -225,9 +229,9 @@ public class SendFileTest extends TestCase {
         try {
             server.start();
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
             HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + control.getName()).method(Method.GET).protocol(Protocol.HTTP_1_1)
-                    .header("Host", "localhost:" + PORT).build();
+                    .header("Host", "localhost:" + port).build();
             c.write(request);
             File fResult = result.get(20, TimeUnit.SECONDS);
             BigInteger resultSum = getMDSum(fResult);
@@ -242,11 +246,12 @@ public class SendFileTest extends TestCase {
 
     @SuppressWarnings("unchecked")
     public void testSimpleSendFileViaRequestAttributeCustomThread() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         File control = generateTempFile(1024);
         SendFileRequestAttributeHandler h = new SendFileRequestAttributeHandler(control);
         ScheduledExecutorService e = Executors.newScheduledThreadPool(1);
         h.setExecutor(e);
-        HttpServer server = createServer(h, false, false);
+        HttpServer server = createServer(h, false, false, port);
         MimeType.add("tmp", "text/temp");
         final ReusableFuture<File> result = new ReusableFuture<>();
         BigInteger controlSum = getMDSum(control);
@@ -262,9 +267,9 @@ public class SendFileTest extends TestCase {
         try {
             server.start();
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
             HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + control.getName()).method(Method.GET).protocol(Protocol.HTTP_1_1)
-                    .header("Host", "localhost:" + PORT).build();
+                    .header("Host", "localhost:" + port).build();
             c.write(request);
             File fResult = result.get(20, TimeUnit.SECONDS);
             BigInteger resultSum = getMDSum(fResult);
@@ -280,9 +285,10 @@ public class SendFileTest extends TestCase {
 
     @SuppressWarnings("unchecked")
     public void testSimpleSendFileViaRequestAttributeCustomPosLen() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         File control = generateTempFile(1024);
         HttpHandler h = new SendFileRequestAttributeHandler(511, 512);
-        HttpServer server = createServer(h, false, false);
+        HttpServer server = createServer(h, false, false, port);
         MimeType.add("tmp", "text/temp");
         final ReusableFuture<File> result = new ReusableFuture<>();
 
@@ -297,9 +303,9 @@ public class SendFileTest extends TestCase {
         try {
             server.start();
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
             HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + control.getName()).method(Method.GET).protocol(Protocol.HTTP_1_1)
-                    .header("Host", "localhost:" + PORT).build();
+                    .header("Host", "localhost:" + port).build();
             c.write(request);
             File fResult = result.get(20, TimeUnit.SECONDS);
             assertEquals(512, fResult.length());
@@ -313,9 +319,10 @@ public class SendFileTest extends TestCase {
 
     @SuppressWarnings("unchecked")
     public void testSimpleSendFileCompressionDisabled() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         File control = generateTempFile(1024);
         HttpHandler h = new SendFileRequestAttributeHandler(control);
-        HttpServer server = createServer(h, true, false);
+        HttpServer server = createServer(h, true, false, port);
         MimeType.add("tmp", "text/temp");
         final ReusableFuture<File> result = new ReusableFuture<>();
         BigInteger controlSum = getMDSum(control);
@@ -332,10 +339,10 @@ public class SendFileTest extends TestCase {
         try {
             server.start();
             client.start();
-            Connection c = client.connect("localhost", PORT).get(10, TimeUnit.SECONDS);
+            Connection c = client.connect("localhost", port).get(10, TimeUnit.SECONDS);
             for (int i = 0; i < 5; i++) {
                 HttpRequestPacket request = HttpRequestPacket.builder().uri("/" + control.getName()).method(Method.GET).protocol(Protocol.HTTP_1_1)
-                        .header(Header.Host, "localhost:" + PORT).header(Header.AcceptEncoding, "gzip").build();
+                        .header(Header.Host, "localhost:" + port).header(Header.AcceptEncoding, "gzip").build();
 
                 c.write(request);
                 File fResult = result.get(20, TimeUnit.SECONDS);
@@ -527,9 +534,9 @@ public class SendFileTest extends TestCase {
         return transport;
     }
 
-    private static HttpServer createServer(HttpHandler handler, boolean enableCompression, boolean enableFileCache) {
+    private static HttpServer createServer(HttpHandler handler, boolean enableCompression, boolean enableFileCache, final int port) {
         final HttpServer server = new HttpServer();
-        final NetworkListener listener = new NetworkListener("test", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("test", NetworkListener.DEFAULT_NETWORK_HOST, port);
         if (enableCompression) {
             listener.getCompressionConfig().setCompressionMode(CompressionMode.FORCE);
         }

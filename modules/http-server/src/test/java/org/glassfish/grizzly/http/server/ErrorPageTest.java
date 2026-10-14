@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -47,13 +48,23 @@ import org.glassfish.grizzly.impl.SafeFutureImpl;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
 import org.glassfish.grizzly.utils.ChunkingFilter;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
  * Test the error page generation.
  */
 public class ErrorPageTest {
-    private static final int PORT = 18906;
+    private int port;
+
+    @Before
+    public void findPort() {
+        try {
+            port = TestUtils.findAvailableTcpPort();
+        } catch (IOException e) {
+            port = 18906;
+        }
+    }
 
     @Test
     public void testNoPage() throws Exception {
@@ -164,7 +175,7 @@ public class ErrorPageTest {
     private HttpPacket createRequest(String uri, Map<String, String> headers) {
 
         HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method(Method.GET).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + PORT);
+        b.method(Method.GET).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + port);
         if (headers != null) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
                 b.header(entry.getKey(), entry.getValue());
@@ -191,7 +202,7 @@ public class ErrorPageTest {
 
             clientTransport.start();
 
-            Future<Connection> connectFuture = clientTransport.connect("localhost", PORT);
+            Future<Connection> connectFuture = clientTransport.connect("localhost", port);
             Connection connection = null;
             try {
                 connection = connectFuture.get(timeout, TimeUnit.SECONDS);
@@ -212,7 +223,7 @@ public class ErrorPageTest {
     private HttpServer createWebServer(final HttpHandler... httpHandlers) {
 
         final HttpServer server = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         listener.getKeepAlive().setIdleTimeoutInSeconds(-1);
         server.addListener(listener);
         server.getServerConfiguration().addHttpHandler(httpHandlers[0], "/");

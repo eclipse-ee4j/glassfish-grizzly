@@ -55,14 +55,15 @@ import org.junit.Test;
  * @author Alexey Stashok
  */
 public class PayloadReplayTest {
-    private static final int PORT = 18905;
+    private int port;
     private static final Logger LOGGER = Grizzly.logger(PayloadReplayTest.class);
 
     private HttpServer httpServer;
 
     @Before
     public void before() throws Exception {
-        httpServer = createServer();
+        port = TestUtils.findAvailableTcpPort();
+        httpServer = createServer(port);
     }
 
     @After
@@ -121,7 +122,7 @@ public class PayloadReplayTest {
         final Connection client = openClient(resultQueue);
         try {
             HttpRequestPacket request = HttpRequestPacket.builder().method(Method.POST).uri("/").protocol(Protocol.HTTP_1_1)
-                    .header(Header.Host, "localhost:" + PORT).contentLength(10).build();
+                    .header(Header.Host, "localhost:" + port).contentLength(10).build();
 
             client.write(request);
             Thread.sleep(20);
@@ -210,7 +211,7 @@ public class PayloadReplayTest {
         final Connection client = openClient(resultQueue);
         try {
             HttpRequestPacket request = HttpRequestPacket.builder().method(Method.POST).uri("/").protocol(Protocol.HTTP_1_1)
-                    .header(Header.Host, "localhost:" + PORT).contentLength(payloadToReplay.length).contentType("application/x-www-form-urlencoded").build();
+                    .header(Header.Host, "localhost:" + port).contentLength(payloadToReplay.length).contentType("application/x-www-form-urlencoded").build();
 
             client.write(request);
             Thread.sleep(20);
@@ -241,13 +242,13 @@ public class PayloadReplayTest {
         SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(httpServer.getListener("test").getTransport()).processor(builder.build())
                 .build();
 
-        Future<Connection> connectFuture = connectorHandler.connect("localhost", PORT);
+        Future<Connection> connectFuture = connectorHandler.connect("localhost", port);
         return connectFuture.get(10, TimeUnit.SECONDS);
     }
 
-    private static HttpServer createServer() throws Exception {
+    private static HttpServer createServer(final int port) throws Exception {
         final HttpServer server = new HttpServer();
-        final NetworkListener listener = new NetworkListener("test", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("test", NetworkListener.DEFAULT_NETWORK_HOST, port);
 
         server.addListener(listener);
 

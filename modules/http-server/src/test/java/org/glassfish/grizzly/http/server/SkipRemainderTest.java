@@ -69,14 +69,15 @@ import org.junit.Test;
 
 @SuppressWarnings("unchecked")
 public class SkipRemainderTest {
-    public static final int PORT = 18892;
+    public int port;
 
     private HttpServer httpServer;
 
     @Before
     public void before() throws Exception {
+        port = TestUtils.findAvailableTcpPort();
         ByteBufferWrapper.DEBUG_MODE = true;
-        configureWebServer();
+        configureWebServer(port);
     }
 
     @After
@@ -123,7 +124,7 @@ public class SkipRemainderTest {
 
         byte[] content = createContent(contentSizeHalf * 2);
 
-        Future<Connection> connectFuture = connect("localhost", PORT, transferQueue);
+        Future<Connection> connectFuture = connect("localhost", port, transferQueue);
         Connection connection = connectFuture.get(10, TimeUnit.SECONDS);
 
         sendContentByHalfs(connection, content, transferQueue);
@@ -169,7 +170,7 @@ public class SkipRemainderTest {
         });
         byte[] content = createContent(contentSizeHalf * 2);
 
-        Future<Connection> connectFuture = connect("localhost", PORT, transferQueue);
+        Future<Connection> connectFuture = connect("localhost", port, transferQueue);
         Connection connection = connectFuture.get(10, TimeUnit.SECONDS);
 
         sendContentByHalfs(connection, content, transferQueue, false);
@@ -227,7 +228,7 @@ public class SkipRemainderTest {
             });
             byte[] content = createContent(contentSizeHalf * 2);
 
-            Future<Connection> connectFuture = connect("localhost", PORT, transferQueue);
+            Future<Connection> connectFuture = connect("localhost", port, transferQueue);
             Connection connection = connectFuture.get(10, TimeUnit.SECONDS);
 
             sendContentByHalfs(connection, content, transferQueue, false);
@@ -277,7 +278,7 @@ public class SkipRemainderTest {
             }
         });
 
-        Future<Connection> connectFuture = connect("localhost", PORT, responseQueue);
+        Future<Connection> connectFuture = connect("localhost", port, responseQueue);
         Connection connection = connectFuture.get(10, TimeUnit.SECONDS);
 
         sendContentByHalfs(connection, createContent(maxPayloadRemainderToSkip), responseQueue);
@@ -350,7 +351,7 @@ public class SkipRemainderTest {
             }
         });
 
-        Future<Connection> connectFuture = connect("localhost", PORT, responseQueue);
+        Future<Connection> connectFuture = connect("localhost", port, responseQueue);
         Connection connection = connectFuture.get(10, TimeUnit.SECONDS);
 
         sendContentByHalfs(connection, createContent(maxPayloadRemainderToSkip), responseQueue, true, true);
@@ -466,9 +467,9 @@ public class SkipRemainderTest {
         return connectorHandler.connect(host, port);
     }
 
-    private void configureWebServer() throws Exception {
+    private void configureWebServer(final int port) throws Exception {
         httpServer = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         listener.setMaxPendingBytes(-1);
         httpServer.addListener(listener);
     }

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -36,7 +37,6 @@ import org.junit.Test;
  */
 @SuppressWarnings("unchecked")
 public class ConnectMethodTest {
-    private static final int PORT = 18903;
 
     @Test
     public void testConnectHttp10() throws Exception {
@@ -49,9 +49,10 @@ public class ConnectMethodTest {
     }
 
     private void doTest(Protocol protocol) throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         final int len = 8192;
 
-        final HttpServer server = createWebServer(new HttpHandler() {
+        final HttpServer server = createWebServer(port, new HttpHandler() {
 
             @Override
             public void service(Request request, Response response) throws Exception {
@@ -81,7 +82,7 @@ public class ConnectMethodTest {
             final String connectRequest = "CONNECT myserver " + protocol.getProtocolString() + "\r\n" + "User-Agent: xyz\r\n" + "Host: abc.com\r\n"
                     + "Proxy-authorization: basic aGVsbG86d29ybGQr=\r\n" + "\r\n";
 
-            s = new Socket("localhost", PORT);
+            s = new Socket("localhost", port);
             s.setSoTimeout(500000);
 
             final OutputStream os = s.getOutputStream();
@@ -132,10 +133,10 @@ public class ConnectMethodTest {
         }
     }
 
-    private HttpServer createWebServer(final HttpHandler httpHandler) {
+    private HttpServer createWebServer(final int port, final HttpHandler httpHandler) {
 
         final HttpServer server = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         listener.getKeepAlive().setIdleTimeoutInSeconds(-1);
         server.addListener(listener);
         server.getServerConfiguration().addHttpHandler(httpHandler, "/");

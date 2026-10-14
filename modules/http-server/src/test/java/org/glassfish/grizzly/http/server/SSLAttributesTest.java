@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -68,21 +69,21 @@ public class SSLAttributesTest {
     private static final byte[] PAYLOAD_BYTES = "Hello world".getBytes(Charsets.ASCII_CHARSET);
     private static final String NULL = "null";
 
-    public static final int PORT = 18890;
     private HttpServer httpServer;
 
     @Test
     public void testPlainHttpConnection() throws Exception {
-        configureHttpServer(false);
+        final int port = TestUtils.findAvailableTcpPort();
+        configureHttpServer(false, port);
         startHttpServer(new SSLAttrbitesHandler());
 
         final BlockingQueue<HttpContent> resultQueue = new LinkedTransferQueue<>();
 
-        final Connection connection = connectClient(false, resultQueue);
+        final Connection connection = connectClient(false, resultQueue, port);
 
         try {
             HttpRequestPacket request = HttpRequestPacket.builder().uri("/").method(Method.POST).chunked(true).protocol(Protocol.HTTP_1_1)
-                    .header("Host", "localhost:" + PORT).build();
+                    .header("Host", "localhost:" + port).build();
 
             connection.write(request);
 
@@ -116,16 +117,17 @@ public class SSLAttributesTest {
 
     @Test
     public void testHttpsConnection() throws Exception {
-        configureHttpServer(true);
+        final int port = TestUtils.findAvailableTcpPort();
+        configureHttpServer(true, port);
         startHttpServer(new SSLAttrbitesHandler());
 
         final BlockingQueue<HttpContent> resultQueue = new LinkedTransferQueue<>();
 
-        final Connection connection = connectClient(true, resultQueue);
+        final Connection connection = connectClient(true, resultQueue, port);
 
         try {
             HttpRequestPacket request = HttpRequestPacket.builder().uri("/").method(Method.POST).chunked(true).protocol(Protocol.HTTP_1_1)
-                    .header("Host", "localhost:" + PORT).build();
+                    .header("Host", "localhost:" + port).build();
 
             connection.write(request);
 
@@ -164,9 +166,9 @@ public class SSLAttributesTest {
         }
     }
 
-    private void configureHttpServer(final boolean isSslEnabled) throws Exception {
+    private void configureHttpServer(final boolean isSslEnabled, final int port) throws Exception {
         httpServer = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         if (isSslEnabled) {
             listener.setSecure(true);
             listener.setSSLEngineConfig(createSSLConfig(true));
@@ -201,7 +203,7 @@ public class SSLAttributesTest {
         httpServer.start();
     }
 
-    private Connection connectClient(final boolean isSSLEnabled, Queue<HttpContent> resultQueue) throws Exception {
+    private Connection connectClient(final boolean isSSLEnabled, Queue<HttpContent> resultQueue, final int port) throws Exception {
         final FilterChainBuilder builder = FilterChainBuilder.stateless();
         builder.add(new TransportFilter());
 
@@ -216,7 +218,7 @@ public class SSLAttributesTest {
         SocketConnectorHandler connectorHandler = TCPNIOConnectorHandler.builder(httpServer.getListener("grizzly").getTransport()).processor(builder.build())
                 .build();
 
-        Future<Connection> connectFuture = connectorHandler.connect("localhost", PORT);
+        Future<Connection> connectFuture = connectorHandler.connect("localhost", port);
         return connectFuture.get(10, TimeUnit.SECONDS);
     }
 

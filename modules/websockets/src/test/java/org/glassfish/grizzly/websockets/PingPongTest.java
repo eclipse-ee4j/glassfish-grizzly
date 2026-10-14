@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -22,20 +23,17 @@ import static org.junit.Assert.fail;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import org.glassfish.grizzly.PortRange;
 import org.glassfish.grizzly.utils.Charsets;
 import org.junit.Test;
 
 public class PingPongTest {
 
-    private static final int PORT = 9009;
-
     @Test
     public void testPingFromClientToServer() throws Exception {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final CountDownLatch latch = new CountDownLatch(2);
 
-        WebSocketServer server = new WebSocketServer("0.0.0.0", new PortRange(PORT));
+        WebSocketServer server = new WebSocketServer(port);
         server.register("", "/ping", new WebSocketApplication() {
 
             @Override
@@ -47,7 +45,7 @@ public class PingPongTest {
 
         });
 
-        WebSocketClient client = new WebSocketClient("ws://localhost:" + PORT + "/ping", new WebSocketAdapter() {
+        WebSocketClient client = new WebSocketClient("ws://localhost:" + port + "/ping", new WebSocketAdapter() {
             @Override
             public void onPong(WebSocket socket, byte[] bytes) {
                 System.out.println("[client] pong received!");
@@ -68,10 +66,10 @@ public class PingPongTest {
 
     @Test
     public void testPingFromServerToClient() throws Exception {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final CountDownLatch latch = new CountDownLatch(2);
 
-        WebSocketServer server = new WebSocketServer("0.0.0.0", new PortRange(PORT));
+        WebSocketServer server = new WebSocketServer(port);
         server.register("", "/ping", new WebSocketApplication() {
 
             @Override
@@ -87,7 +85,7 @@ public class PingPongTest {
             }
         });
 
-        WebSocketClient client = new WebSocketClient("ws://localhost:" + PORT + "/ping", new WebSocketAdapter() {
+        WebSocketClient client = new WebSocketClient("ws://localhost:" + port + "/ping", new WebSocketAdapter() {
             @Override
             public void onPing(WebSocket socket, byte[] bytes) {
                 System.out.println("[client] ping received!");
@@ -107,9 +105,9 @@ public class PingPongTest {
 
     @Test
     public void testUnsolicitedPongFromClientToServer() throws Exception {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final CountDownLatch latch = new CountDownLatch(1);
-        WebSocketServer server = new WebSocketServer("0.0.0.0", new PortRange(PORT));
+        WebSocketServer server = new WebSocketServer(port);
         server.register("", "/ping", new WebSocketApplication() {
 
             @Override
@@ -120,7 +118,7 @@ public class PingPongTest {
             }
         });
 
-        WebSocketClient client = new WebSocketClient("ws://localhost:" + PORT + "/ping", new WebSocketAdapter() {
+        WebSocketClient client = new WebSocketClient("ws://localhost:" + port + "/ping", new WebSocketAdapter() {
             @Override
             public void onMessage(WebSocket socket, String text) {
                 fail("No response expected for unsolicited pong");
@@ -167,9 +165,9 @@ public class PingPongTest {
 
     @Test
     public void testUnsolicitedPongFromServerToClient() throws Exception {
-
+        final int port = TestUtils.findAvailableTcpPort();
         final CountDownLatch latch = new CountDownLatch(1);
-        WebSocketServer server = new WebSocketServer("0.0.0.0", new PortRange(PORT));
+        WebSocketServer server = new WebSocketServer(port);
         server.register("", "/ping", new WebSocketApplication() {
 
             @Override
@@ -212,7 +210,7 @@ public class PingPongTest {
             }
         });
 
-        WebSocketClient client = new WebSocketClient("ws://localhost:" + PORT + "/ping", new WebSocketAdapter() {
+        WebSocketClient client = new WebSocketClient("ws://localhost:" + port + "/ping", new WebSocketAdapter() {
             @Override
             public void onPong(WebSocket socket, byte[] bytes) {
                 System.out.println("[client] pong received!");

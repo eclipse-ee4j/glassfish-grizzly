@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -67,11 +68,10 @@ import static org.junit.Assert.*;
 @SuppressWarnings ("unchecked")
 public class MultipartBasicTest {
 
-    private final int PORT = 18203;
-
     @Test
     public void multipartScannerAcceptTest() throws Exception {
-        final HttpServer httpServer = createServer("0.0.0.0", PORT);
+        final int port = TestUtils.findAvailableTcpPort();
+        final HttpServer httpServer = createServer("0.0.0.0", port);
 
         final HttpClient httpClient = new HttpClient(
                 httpServer.getListener("Grizzly").getTransport());
@@ -117,7 +117,7 @@ public class MultipartBasicTest {
             httpServer.start();
 
             final HttpPacket multipartPacket = createMultipartFormDataPacket();
-            final Future<Connection> connectFuture = httpClient.connect("localhost", PORT);
+            final Future<Connection> connectFuture = httpClient.connect("localhost", port);
             connectFuture.get(10, TimeUnit.SECONDS);
 
             final Future<HttpPacket> responsePacketFuture =
@@ -137,7 +137,8 @@ public class MultipartBasicTest {
 
     @Test
     public void multipartRelatedScannerTest() throws Exception {
-        final HttpServer httpServer = createServer("0.0.0.0", PORT);
+        final int port = TestUtils.findAvailableTcpPort();
+        final HttpServer httpServer = createServer("0.0.0.0", port);
 
         final HttpClient httpClient = new HttpClient(
                 httpServer.getListener("Grizzly").getTransport());
@@ -188,7 +189,7 @@ public class MultipartBasicTest {
             httpServer.start();
 
             final HttpPacket multipartPacket = createMultipartRelatedPacket();
-            final Future<Connection> connectFuture = httpClient.connect("localhost", PORT);
+            final Future<Connection> connectFuture = httpClient.connect("localhost", port);
             connectFuture.get(10, TimeUnit.SECONDS);
 
             final Future<HttpPacket> responsePacketFuture =
@@ -208,7 +209,8 @@ public class MultipartBasicTest {
     
     @Test
     public void multipartScannerRefuseTest() throws Exception {
-        final HttpServer httpServer = createServer("0.0.0.0", PORT);
+        final int port = TestUtils.findAvailableTcpPort();
+        final HttpServer httpServer = createServer("0.0.0.0", port);
 
         final HttpClient httpClient = new HttpClient(
                 httpServer.getListener("Grizzly").getTransport());
@@ -254,7 +256,7 @@ public class MultipartBasicTest {
             httpServer.start();
 
             final HttpPacket multipartPacket = createPlainPacket();
-            final Future<Connection> connectFuture = httpClient.connect("localhost", PORT);
+            final Future<Connection> connectFuture = httpClient.connect("localhost", port);
             connectFuture.get(10, TimeUnit.SECONDS);
 
             final Future<HttpPacket> responsePacketFuture =

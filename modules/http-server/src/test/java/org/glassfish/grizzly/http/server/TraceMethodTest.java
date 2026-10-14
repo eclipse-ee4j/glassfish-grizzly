@@ -50,6 +50,7 @@ import org.glassfish.grizzly.impl.SafeFutureImpl;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
 import org.glassfish.grizzly.utils.ChunkingFilter;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -59,11 +60,20 @@ import org.junit.Test;
  */
 @SuppressWarnings("unchecked")
 public class TraceMethodTest {
-    private static final int PORT = 18902;
+    private int port;
+
+    @Before
+    public void findPort() {
+        try {
+            port = TestUtils.findAvailableTcpPort();
+        } catch (IOException e) {
+            port = 18902;
+        }
+    }
 
     @Test
     public void testTraceDisabled() throws Exception {
-        final HttpServer server = createWebServer();
+        final HttpServer server = createWebServer(port);
 
         server.start();
 
@@ -81,7 +91,7 @@ public class TraceMethodTest {
 
     @Test
     public void testTraceEnabled() throws Exception {
-        final HttpServer server = createWebServer();
+        final HttpServer server = createWebServer(port);
         server.getServerConfiguration().setTraceEnabled(true);
 
         server.start();
@@ -96,7 +106,7 @@ public class TraceMethodTest {
             final String responseContent = response.getContent().toStringContent();
             final BufferedReader reader = new BufferedReader(new StringReader(responseContent));
             assertEquals("TRACE /index.html HTTP/1.1", reader.readLine());
-            assertEquals(("Host: localhost:" + PORT).toLowerCase(), reader.readLine().toLowerCase());
+            assertEquals(("Host: localhost:" + port).toLowerCase(), reader.readLine().toLowerCase());
             assertEquals("MyHeader: MyValue".toLowerCase(), reader.readLine().toLowerCase());
             assertNull(reader.readLine());
 
@@ -108,7 +118,7 @@ public class TraceMethodTest {
     private HttpPacket createRequest(Method method, String uri, Map<String, String> headers) {
 
         HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method(method).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + PORT);
+        b.method(method).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + port);
         if (headers != null) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
                 b.header(entry.getKey(), entry.getValue());
@@ -133,7 +143,7 @@ public class TraceMethodTest {
 
             clientTransport.start();
 
-            Future<Connection> connectFuture = clientTransport.connect("localhost", PORT);
+            Future<Connection> connectFuture = clientTransport.connect("localhost", port);
             Connection connection = null;
             try {
                 connection = connectFuture.get(timeout, TimeUnit.SECONDS);
@@ -150,10 +160,10 @@ public class TraceMethodTest {
         }
     }
 
-    private HttpServer createWebServer() {
+    private HttpServer createWebServer(final int port) {
 
         final HttpServer server = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         listener.getKeepAlive().setIdleTimeoutInSeconds(-1);
         server.addListener(listener);
         server.getServerConfiguration().addHttpHandler(new StaticHttpHandler(), "/");

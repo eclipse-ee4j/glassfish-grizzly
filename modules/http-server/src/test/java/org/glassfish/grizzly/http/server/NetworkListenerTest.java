@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -39,6 +39,7 @@ import org.glassfish.grizzly.http.server.util.Globals;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.utils.Charsets;
 import org.glassfish.grizzly.utils.Futures;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -47,18 +48,27 @@ import org.junit.Test;
  * @author Alexey Stashok
  */
 public class NetworkListenerTest {
-    public static final int PORT = 18897;
+    public int port;
+
+    @Before
+    public void findPort() {
+        try {
+            port = TestUtils.findAvailableTcpPort();
+        } catch (IOException e) {
+            port = 18897;
+        }
+    }
 
     @Test
     public void testSetPort() throws Exception {
-        NetworkListener listener = new NetworkListener("set-port", "0.0.0.0", PORT);
+        NetworkListener listener = new NetworkListener("set-port", "0.0.0.0", port);
         HttpServer httpServer = new HttpServer();
         httpServer.addListener(listener);
 
         try {
-            assertEquals(PORT, listener.getPort());
+            assertEquals(port, listener.getPort());
             httpServer.start();
-            assertEquals(PORT, listener.getPort());
+            assertEquals(port, listener.getPort());
         } finally {
             httpServer.shutdownNow();
         }
@@ -82,7 +92,7 @@ public class NetworkListenerTest {
     @Test
     public void testPortRange() throws Exception {
         final int RANGE = 10;
-        final PortRange portRange = new PortRange(PORT, PORT + RANGE);
+        final PortRange portRange = new PortRange(port, port + RANGE);
         NetworkListener listener = new NetworkListener("set-port", "0.0.0.0", portRange);
         HttpServer httpServer = new HttpServer();
         httpServer.addListener(listener);
@@ -90,8 +100,8 @@ public class NetworkListenerTest {
         try {
             assertEquals(-1, listener.getPort());
             httpServer.start();
-            assertTrue(listener.getPort() >= PORT);
-            assertTrue(listener.getPort() <= PORT + RANGE);
+            assertTrue(listener.getPort() >= port);
+            assertTrue(listener.getPort() <= port + RANGE);
         } finally {
             httpServer.shutdownNow();
         }
@@ -109,7 +119,7 @@ public class NetworkListenerTest {
 
     @Test
     public void testTransactionTimeout() throws Exception {
-        final HttpServer server = HttpServer.createSimpleServer("/tmp", PORT);
+        final HttpServer server = HttpServer.createSimpleServer("/tmp", port);
         final NetworkListener listener = server.getListener("grizzly");
         listener.setTransactionTimeout(5);
         final AtomicReference<Exception> timeoutFailed = new AtomicReference<>();
@@ -122,7 +132,7 @@ public class NetworkListenerTest {
         }, "/test");
         try {
             server.start();
-            URL url = new URL("http://localhost:" + PORT + "/test");
+            URL url = new URL("http://localhost:" + port + "/test");
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
             final long start = System.currentTimeMillis();
             c.connect();
@@ -137,7 +147,7 @@ public class NetworkListenerTest {
 
     @Test
     public void testImmediateGracefulShutdown() throws Exception {
-        HttpServer server = HttpServer.createSimpleServer("/tmp", PORT);
+        HttpServer server = HttpServer.createSimpleServer("/tmp", port);
         server.start();
 
         final FutureImpl<Boolean> future = Futures.createSafeFuture();
@@ -161,11 +171,11 @@ public class NetworkListenerTest {
         final String msg = "Hello World";
         final byte[] msgBytes = msg.getBytes(Charsets.UTF8_CHARSET);
 
-        final HttpServer server = HttpServer.createSimpleServer("/tmp", PORT);
+        final HttpServer server = HttpServer.createSimpleServer("/tmp", port);
         addTestHandler(msgBytes, server);
         try {
             server.start();
-            URL url = new URL("http://localhost:" + PORT + "/test");
+            URL url = new URL("http://localhost:" + port + "/test");
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
 
             assertEquals(200, c.getResponseCode());
@@ -203,11 +213,11 @@ public class NetworkListenerTest {
         final String msg = "Hello World";
         final byte[] msgBytes = msg.getBytes(Charsets.UTF8_CHARSET);
 
-        final HttpServer server = HttpServer.createSimpleServer("/tmp", PORT);
+        final HttpServer server = HttpServer.createSimpleServer("/tmp", port);
         addTestHandler(msgBytes, server);
         try {
             server.start();
-            URL url = new URL("http://localhost:" + PORT + "/test");
+            URL url = new URL("http://localhost:" + port + "/test");
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
 
             assertEquals(200, c.getResponseCode());
@@ -230,11 +240,11 @@ public class NetworkListenerTest {
         final String msg = "Hello World";
         final byte[] msgBytes = msg.getBytes(Charsets.UTF8_CHARSET);
 
-        final HttpServer server = HttpServer.createSimpleServer("/tmp", PORT);
+        final HttpServer server = HttpServer.createSimpleServer("/tmp", port);
         addTestHandler(msgBytes, server);
         try {
             server.start();
-            URL url = new URL("http://localhost:" + PORT + "/test");
+            URL url = new URL("http://localhost:" + port + "/test");
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
 
             assertEquals(200, c.getResponseCode());
@@ -273,7 +283,7 @@ public class NetworkListenerTest {
     private void testCookeName(final String cookieName) throws Exception {
         final AtomicBoolean passed = new AtomicBoolean(false);
 
-        final HttpServer server = HttpServer.createSimpleServer("/tmp", PORT);
+        final HttpServer server = HttpServer.createSimpleServer("/tmp", port);
         String defaultCookieName = null;
         if (cookieName != null) {
             final SessionManager custom = DefaultSessionManager.instance();
@@ -294,7 +304,7 @@ public class NetworkListenerTest {
         }, "/test");
         try {
             server.start();
-            URL url = new URL("http://localhost:" + PORT + "/test");
+            URL url = new URL("http://localhost:" + port + "/test");
             HttpURLConnection c = (HttpURLConnection) url.openConnection();
             assertEquals(200, c.getResponseCode());
             assertTrue(passed.get());

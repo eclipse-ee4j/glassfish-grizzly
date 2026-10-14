@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2017 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -19,7 +20,8 @@ package org.glassfish.grizzly.http.multipart;
 import org.glassfish.grizzly.Closeable;
 import org.glassfish.grizzly.CloseType;
 import org.glassfish.grizzly.GenericCloseListener;
-import org.glassfish.grizzly.utils.DelayFilter;
+import org.glassfish.grizzly.http.io.NIOWriter;
+import org.glassfish.grizzly.http.io.NIOReader;
 import java.util.concurrent.TimeUnit;
 import org.glassfish.grizzly.http.server.HttpHandler;
 import org.glassfish.grizzly.http.server.Response;
@@ -30,6 +32,7 @@ import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.http.HttpRequestPacket;
 import org.glassfish.grizzly.http.Method;
 import org.glassfish.grizzly.http.Protocol;
+import org.glassfish.grizzly.utils.Charsets;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.glassfish.grizzly.filterchain.FilterChainBuilder;
 import org.glassfish.grizzly.filterchain.TransportFilter;
@@ -50,42 +53,20 @@ import org.glassfish.grizzly.http.HttpContent;
 import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.filterchain.FilterChainContext;
 import java.io.IOException;
-import java.util.Arrays;
-import java.util.Collection;
 import org.glassfish.grizzly.http.server.NetworkListener;
 import org.glassfish.grizzly.http.server.HttpServer;
-import org.glassfish.grizzly.http.io.NIOInputStream;
-import org.glassfish.grizzly.http.io.NIOOutputStream;
+import org.glassfish.grizzly.utils.DelayFilter;
 import org.glassfish.grizzly.utils.Futures;
 import org.junit.Test;
 import static org.junit.Assert.*;
-import org.junit.runner.RunWith;
-import org.junit.runners.Parameterized;
 
 /**
- * {@link MultipartEntryNIOInputStream} tests.
+ * {@link MultipartEntryNIOReader} tests.
  * 
  * @author Alexey Stashok
  */
 @SuppressWarnings ("unchecked")
-@RunWith(Parameterized.class)
-public class MutlipartEntryInputStreamTest {
-    private final int PORT = 18203;
-
-    final boolean isBufferEchoMode;
-
-    public MutlipartEntryInputStreamTest(final boolean isBufferEchoMode) {
-        this.isBufferEchoMode = isBufferEchoMode;
-    }
-
-    @Parameterized.Parameters
-    public static Collection<Object[]> getBufferEchoMode() {
-        return Arrays.asList(new Object[][]{
-                    {Boolean.FALSE},
-                    {Boolean.TRUE}
-                });
-    }
-
+public class MultipartEntryReaderTest {
     @Test
     public void testSingleMessageEcho() throws Exception {
         MultipartEntryPacket entry1 = MultipartEntryPacket.builder()
@@ -137,10 +118,45 @@ public class MutlipartEntryInputStreamTest {
     }
 
     @Test
+    public void testTwoBytesPerCharEcho() throws Exception {
+        MultipartEntryPacket entry11 = MultipartEntryPacket.builder()
+                .contentDisposition("form-data; name=\"one\"")
+                .contentType("text/plain; charset=UTF-16")
+                .content("\u043F\u0440\u0438\u0432\u0435\u0442")
+                .build();
+        MultipartEntryPacket entry12 = MultipartEntryPacket.builder()
+                .contentDisposition("form-data; name=\"two\"")
+                .content("two")
+                .build();
+
+        final HttpPacket multipartPacket1 = createMultipartPacket(
+                "---------------------------103832778631715", "preamble", "epilogue",
+                entry11, entry12);
+
+        MultipartEntryPacket entry21 = MultipartEntryPacket.builder()
+                .contentDisposition("form-data; name=\"three\"")
+                .content("three")
+                .build();
+        MultipartEntryPacket entry22 = MultipartEntryPacket.builder()
+                .contentDisposition("form-data; name=\"four\"")
+                .contentType("text/plain; charset=UTF-16")
+                .content("\u043F\u0440\u0438\u0432\u0435\u0442")
+                .build();
+
+        final HttpPacket multipartPacket2 = createMultipartPacket(
+                "---------------------------103832778631715", "preamble", "epilogue",
+                entry21, entry22);
+
+        doEchoTest(new Task(multipartPacket1, new StringChecker("\u043F\u0440\u0438\u0432\u0435\u0442two")),
+                new Task(multipartPacket2, new StringChecker("three\u043F\u0440\u0438\u0432\u0435\u0442")));
+    }
+
+    @Test
     public void testMultipartMixedEcho() throws Exception {
         MultipartEntryPacket entry11 = MultipartEntryPacket.builder()
                 .contentDisposition("form-data; name=\"one\"")
-                .content("one")
+                .contentType("text/plain; charset=UTF-16")
+                .content("\u043E\u0434\u0438\u043D")
                 .build();
 
         MultipartEntryPacket entry121 = MultipartEntryPacket.builder()
@@ -149,7 +165,8 @@ public class MutlipartEntryInputStreamTest {
                 .build();
         MultipartEntryPacket entry122 = MultipartEntryPacket.builder()
                 .contentDisposition("form-data; name=\"two-two\"")
-                .content("two-two")
+                .contentType("text/plain; charset=UTF-16")
+                .content("\u0434\u0432\u0430\u002D\u0434\u0432\u0430")
                 .build();
         MultipartEntryPacket entry123 = MultipartEntryPacket.builder()
                 .contentDisposition("form-data; name=\"two-three\"")
@@ -171,11 +188,12 @@ public class MutlipartEntryInputStreamTest {
                 entry11, entry12, entry13);
 
 
-        doEchoTest(new Task(multipartPacket1, new StringChecker("onetwo-onetwo-twotwo-threethree")));
+        doEchoTest(new Task(multipartPacket1, new StringChecker("\u043E\u0434\u0438\u043Dtwo-one\u0434\u0432\u0430\u002D\u0434\u0432\u0430two-threethree")));
     }
 
     private void doEchoTest(Task... tasks) throws Exception {
-        final HttpServer httpServer = createServer("0.0.0.0", PORT);
+        final int port = TestUtils.findAvailableTcpPort();
+        final HttpServer httpServer = createServer("0.0.0.0", port);
 
         final HttpClient httpClient = new HttpClient(
                 httpServer.getListener("Grizzly").getTransport(), 2);
@@ -186,16 +204,17 @@ public class MutlipartEntryInputStreamTest {
                 public void service(final Request request, final Response response)
                         throws Exception {
                     response.suspend();
-
-                    MultipartScanner.scan(request, new TestMultipartEntryHandler(
-                            response.getNIOOutputStream()),
+                    response.setCharacterEncoding("UTF-8");
+                    
+                    MultipartScanner.scan(request,
+                            new TestMultipartEntryHandler(response.getNIOWriter()),
                             new ResumeCompletionHandler(response));
                 }
             }, "/");
 
             httpServer.start();
 
-            final Future<Connection> connectFuture = httpClient.connect("localhost", PORT);
+            final Future<Connection> connectFuture = httpClient.connect("localhost", port);
             connectFuture.get(10, TimeUnit.SECONDS);
 
             for (Task task : tasks) {
@@ -233,9 +252,8 @@ public class MutlipartEntryInputStreamTest {
                 .build();
     }
 
-    private HttpPacket createMultipartPacket(String boundary,
-            String preamble, String epilogue, MultipartEntryPacket... entries) {
-
+    private HttpPacket createMultipartPacket(String boundary, String preamble,
+            String epilogue, MultipartEntryPacket... entries) {
         MultipartPacketBuilder mpb = MultipartPacketBuilder.builder(boundary);
         mpb.preamble(preamble).epilogue(epilogue);
 
@@ -261,25 +279,23 @@ public class MutlipartEntryInputStreamTest {
         return request;
     }
 
+    static class TestMultipartEntryHandler implements MultipartEntryHandler {
 
-    class TestMultipartEntryHandler implements MultipartEntryHandler {
+        final NIOWriter writer;
 
-        final NIOOutputStream outputStream;
-
-        public TestMultipartEntryHandler(final NIOOutputStream outputStream) {
-            this.outputStream = outputStream;
+        public TestMultipartEntryHandler(final NIOWriter writer) {
+            this.writer = writer;
         }
 
         @Override
         public void handle(MultipartEntry part) throws Exception {
             if (!part.isMultipart()) {
-                final NIOInputStream nioInputStream = part.getNIOInputStream();
-                nioInputStream.notifyAvailable(
-                        new EchoReadHandler(nioInputStream,
-                        outputStream));
+                final NIOReader nioReader = part.getNIOReader();
+                nioReader.notifyAvailable(
+                        new EchoReadHandler(nioReader, writer));
             } else {
                 MultipartScanner.scan(part,
-                        new TestMultipartEntryHandler(outputStream),
+                        new TestMultipartEntryHandler(writer),
                         null);
             }
         }
@@ -320,16 +336,16 @@ public class MutlipartEntryInputStreamTest {
 
             final FutureImpl<Connection> future =
                     Futures.createSafeFuture();
-
+            
             connector.connect(new InetSocketAddress(host, port),
-                    Futures.toCompletionHandler(future,
+                    Futures.toCompletionHandler(future, 
                     new EmptyCompletionHandler<Connection>() {
                 @Override
                 public void completed(Connection result) {
                     connection = result;
                 }
             }));
-
+            
             return future;
         }
 
@@ -387,12 +403,12 @@ public class MutlipartEntryInputStreamTest {
         return httpServer;
     }
 
-    private class EchoReadHandler implements ReadHandler {
-        private final NIOOutputStream outputStream;
-        private final NIOInputStream inputStream;
-        public EchoReadHandler(NIOInputStream inputStream, NIOOutputStream outputStream) {
-            this.inputStream = inputStream;
-            this.outputStream = outputStream;
+    private static class EchoReadHandler implements ReadHandler {
+        private final NIOWriter writer;
+        private final NIOReader reader;
+        public EchoReadHandler(NIOReader reader, NIOWriter writer) {
+            this.reader = reader;
+            this.writer = writer;
         }
 
 
@@ -411,17 +427,11 @@ public class MutlipartEntryInputStreamTest {
         }
 
         private void echo() throws IOException {
-            if (!isBufferEchoMode) {
-                final int available = inputStream.readyData();
-                if (available > 0) {
-                    byte[] buf = new byte[inputStream.readyData()];
-                    inputStream.read(buf);
-                    outputStream.write(buf);
-                }
-            } else {
-                if (inputStream.readyData() > 0) {
-                    outputStream.write(inputStream.readBuffer());
-                }
+            while (reader.ready()) {
+                final int available = reader.readyData();
+                char[] buf = new char[available];
+                int size = reader.read(buf);
+                writer.write(buf, 0, size);
             }
         }
     }
@@ -467,7 +477,7 @@ public class MutlipartEntryInputStreamTest {
 
         @Override
         public void check(HttpContent httpContent) {
-            assertEquals(result, httpContent.getContent().toStringContent());
+            assertEquals(result, httpContent.getContent().toStringContent(Charsets.UTF8_CHARSET));
         }
     }
 

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -56,12 +57,12 @@ import junit.framework.TestCase;
  */
 @SuppressWarnings("unchecked")
 public class RequestURITest extends TestCase {
-    private static final int PORT = 8040;
 
     public void testSimpleURI() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         final HttpHandler httpHandler = new RequestURIHttpHandler();
-        final HttpPacket request = createRequest("/index.html;jsessionid=123456", null);
-        final HttpContent response = doTest(request, 10, httpHandler);
+        final HttpPacket request = createRequest("/index.html;jsessionid=123456", null, port);
+        final HttpContent response = doTest(request, 10, port, httpHandler);
 
         final String responseContent = response.getContent().toStringContent();
         Map<String, String> props = new HashMap<>();
@@ -80,13 +81,14 @@ public class RequestURITest extends TestCase {
     }
 
     public void testEncodedSimpleURI() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         final String rusURI = "/\u043F\u0440\u0438\u0432\u0435\u0442\u043C\u0438\u0440";
         final String rusEncodedURI = URLEncoder.encode(rusURI, "UTF-8");
 
         final HttpHandler httpHandler = new RequestURIHttpHandler();
 
-        final HttpPacket request = createRequest(rusEncodedURI, null);
-        final HttpContent response = doTest(request, 10, httpHandler);
+        final HttpPacket request = createRequest(rusEncodedURI, null, port);
+        final HttpContent response = doTest(request, 10, port, httpHandler);
 
         final String responseContent = response.getContent().toStringContent();
         Map<String, String> props = new HashMap<>();
@@ -105,9 +107,10 @@ public class RequestURITest extends TestCase {
     }
 
     public void testCompleteURI() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         final HttpHandler httpHandler = new RequestURIHttpHandler();
-        final HttpPacket request = createRequest("http://localhost:" + PORT + "/index.html;jsessionid=123456", null);
-        final HttpContent response = doTest(request, 10, httpHandler);
+        final HttpPacket request = createRequest("http://localhost:" + port + "/index.html;jsessionid=123456", null, port);
+        final HttpContent response = doTest(request, 10, port, httpHandler);
 
         final String responseContent = response.getContent().toStringContent();
         Map<String, String> props = new HashMap<>();
@@ -126,10 +129,11 @@ public class RequestURITest extends TestCase {
     }
 
     public void testDecodedParamsPlusMapping() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
         // In order to test mapping, register 2 HttpHandlers
         final String param = ";myparam=123456";
-        final HttpPacket request = createRequest("/1" + param, null);
-        final HttpContent response = doTest(request, 10, new DecodedURLIndexOfHttpHandler(param), new DecodedURLIndexOfHttpHandler(param));
+        final HttpPacket request = createRequest("/1" + param, null, port);
+        final HttpContent response = doTest(request, 10, port, new DecodedURLIndexOfHttpHandler(param), new DecodedURLIndexOfHttpHandler(param));
 
         final String responseContent = response.getContent().toStringContent();
         Map<String, String> props = new HashMap<>();
@@ -147,10 +151,10 @@ public class RequestURITest extends TestCase {
         assertTrue(Boolean.parseBoolean(isFound));
     }
 
-    private HttpPacket createRequest(String uri, Map<String, String> headers) {
+    private HttpPacket createRequest(String uri, Map<String, String> headers, final int port) {
 
         HttpRequestPacket.Builder b = HttpRequestPacket.builder();
-        b.method(Method.GET).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + PORT);
+        b.method(Method.GET).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + port);
         if (headers != null) {
             for (Map.Entry<String, String> entry : headers.entrySet()) {
                 b.header(entry.getKey(), entry.getValue());
@@ -160,10 +164,10 @@ public class RequestURITest extends TestCase {
         return b.build();
     }
 
-    private HttpContent doTest(final HttpPacket request, final int timeout, final HttpHandler... httpHandlers) throws Exception {
+    private HttpContent doTest(final HttpPacket request, final int timeout, final int port, final HttpHandler... httpHandlers) throws Exception {
 
         final TCPNIOTransport clientTransport = TCPNIOTransportBuilder.newInstance().build();
-        final HttpServer server = createWebServer(httpHandlers);
+        final HttpServer server = createWebServer(port, httpHandlers);
         try {
             final FutureImpl<HttpContent> testResultFuture = SafeFutureImpl.create();
 
@@ -177,7 +181,7 @@ public class RequestURITest extends TestCase {
 
             clientTransport.start();
 
-            Future<Connection> connectFuture = clientTransport.connect("localhost", PORT);
+            Future<Connection> connectFuture = clientTransport.connect("localhost", port);
             Connection connection = null;
             try {
                 connection = connectFuture.get(timeout, TimeUnit.SECONDS);
@@ -195,10 +199,10 @@ public class RequestURITest extends TestCase {
         }
     }
 
-    private HttpServer createWebServer(final HttpHandler... httpHandlers) {
+    private HttpServer createWebServer(final int port, final HttpHandler... httpHandlers) {
 
         final HttpServer server = new HttpServer();
-        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT);
+        final NetworkListener listener = new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port);
         listener.getKeepAlive().setIdleTimeoutInSeconds(-1);
         server.addListener(listener);
         server.getServerConfiguration().addHttpHandler(httpHandlers[0], "/");

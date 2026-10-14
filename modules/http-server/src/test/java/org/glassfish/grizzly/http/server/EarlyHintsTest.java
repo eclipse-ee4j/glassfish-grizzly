@@ -27,6 +27,7 @@ import java.net.Socket;
 import javax.net.SocketFactory;
 
 import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -34,10 +35,19 @@ import org.junit.Test;
  */
 public class EarlyHintsTest {
 
-    private static final int PORT = 9497;
+    private int port;
     private static final String LINK_VALUE = "</style.css>; rel=preload; as=style";
 
     private HttpServer server;
+
+    @Before
+    public void findPort() {
+        try {
+            port = TestUtils.findAvailableTcpPort();
+        } catch (IOException e) {
+            port = 9497;
+        }
+    }
 
     @After
     public void tearDown() {
@@ -124,21 +134,21 @@ public class EarlyHintsTest {
 
     private void startServer(final HttpHandler httpHandler) throws IOException {
         server = new HttpServer();
-        server.addListener(new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, PORT));
+        server.addListener(new NetworkListener("grizzly", NetworkListener.DEFAULT_NETWORK_HOST, port));
         server.getServerConfiguration().addHttpHandler(httpHandler, "/path");
         server.start();
     }
 
-    private static Socket connect() throws IOException {
-        Socket s = SocketFactory.getDefault().createSocket("localhost", PORT);
+    private Socket connect() throws IOException {
+        Socket s = SocketFactory.getDefault().createSocket("localhost", port);
         s.setSoTimeout(10 * 1000);
         return s;
     }
 
-    private static void sendRequest(final Socket s, final String requestLine) throws IOException {
+    private void sendRequest(final Socket s, final String requestLine) throws IOException {
         OutputStream out = s.getOutputStream();
         out.write((requestLine + "\r\n").getBytes());
-        out.write(("Host: localhost:" + PORT + "\r\n").getBytes());
+        out.write(("Host: localhost:" + port + "\r\n").getBytes());
         out.write("\r\n".getBytes());
         out.flush();
     }
