@@ -28,6 +28,7 @@ import org.glassfish.grizzly.Connection;
 import org.glassfish.grizzly.Context;
 import org.glassfish.grizzly.Grizzly;
 import org.glassfish.grizzly.IOEvent;
+import org.glassfish.grizzly.ProcessorExecutor;
 import org.glassfish.grizzly.WriteHandler;
 import org.glassfish.grizzly.WriteResult;
 import org.glassfish.grizzly.asyncqueue.AsyncQueueWriter;
@@ -256,8 +257,10 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
                 return;
             }
 
-            if (nioConnection.isWritesCorked()) {
-                // Corked: queue without writing and without asking for OP_WRITE; uncorkWrites() flushes the queue.
+            if (nioConnection.isWritesCorked() && ProcessorExecutor.isCorkedByCurrentThread(nioConnection)) {
+                // Corked by this thread: queue without writing and without asking for OP_WRITE; uncorkWrites() at the
+                // end of this thread's READ processing flushes the queue. Other threads write as usual: behind records
+                // held back here they are queued (keeping the order), otherwise they write directly.
                 queueRecord.setMessage(cloneRecordIfNeeded(nioConnection, cloner, message));
                 if (isCurrent) {
                     writeTaskQueue.setCurrentElement(queueRecord);
