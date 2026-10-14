@@ -21,6 +21,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -31,7 +32,10 @@ import java.util.Collection;
 import java.util.Set;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 import org.glassfish.grizzly.attributes.Attribute;
@@ -228,9 +232,9 @@ public class AttributesTest {
             IntStream.range(0, attrs.length).forEach(i -> attrs[i] = builder.createAttribute("attribute-" + i));
 
             // thread t owns attributes t, t + threads, ...: interleaved indexes force concurrent resizes
-            final java.util.concurrent.CyclicBarrier start = new java.util.concurrent.CyclicBarrier(threads);
+            final CyclicBarrier start = new CyclicBarrier(threads);
             final Thread[] workers = new Thread[threads];
-            final java.util.concurrent.atomic.AtomicReference<Throwable> failure = new java.util.concurrent.atomic.AtomicReference<>();
+            final AtomicReference<Throwable> failure = new AtomicReference<>();
             for (int t = 0; t < threads; t++) {
                 final int id = t;
                 workers[t] = new Thread(() -> {
@@ -261,16 +265,100 @@ public class AttributesTest {
         if (!isSafe) {
             return;
         }
-        final AttributeBuilder builder = new DefaultAttributeBuilder();
-        final java.util.concurrent.atomic.AtomicInteger created = new java.util.concurrent.atomic.AtomicInteger();
-        final Attribute<Object> attr = builder.createAttribute("lazy", (Supplier<Object>) () -> {
-            created.incrementAndGet();
-            return new Object();
-        });
-        final AttributeHolder holder = builder.createSafeAttributeHolder();
-        final Object[] seen = IntStream.range(0, 64).parallel().mapToObj(i -> attr.get(holder)).distinct().toArray();
-        assertEquals(1, seen.length);
-        assertEquals(1, created.get());
+        for (int round = 0; round < 10; round++) {
+            final AttributeBuilder builder = new DefaultAttributeBuilder();
+            final AtomicInteger created = new AtomicInteger();
+            final Attribute<Object> attr = builder.createAttribute("lazy", (Supplier<Object>) () -> {
+                created.incrementAndGet();
+                try {
+                    Thread.sleep(20); // keep the initializer running while the other threads miss too
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                return new Object();
+            });
+            final AttributeHolder holder = builder.createSafeAttributeHolder();
+
+            final int threads = 8;
+            final CyclicBarrier start = new CyclicBarrier(threads);
+            final Object[] seen = new Object[threads];
+            final AtomicReference<Throwable> failure = new AtomicReference<>();
+            final Thread[] workers = new Thread[threads];
+            for (int t = 0; t < threads; t++) {
+                final int id = t;
+                workers[t] = new Thread(() -> {
+                    try {
+                        start.await();
+                        seen[id] = attr.get(holder);
+                    } catch (Throwable e) {
+                        failure.set(e);
+                    }
+                });
+                workers[t].start();
+            }
+            for (Thread w : workers) {
+                w.join();
+            }
+            assertNull(failure.get());
+            assertEquals("initializer runs", 1, created.get());
+            for (Object o : seen) {
+                assertSame(seen[0], o);
+            }
+        }
+    }
+
+    @Test
+    public void testRemoveAndInitializeWhileGrowing() throws Exception {
+        if (!isSafe) {
+            return;
+        }
+        for (int round = 0; round < 20; round++) {
+            final AttributeBuilder builder = new DefaultAttributeBuilder();
+            final AttributeHolder holder = builder.createSafeAttributeHolder();
+            final int threads = 8;
+            final int perThread = 64;
+            final Attribute[] attrs = new Attribute[threads * perThread];
+            final AtomicInteger initialized = new AtomicInteger();
+            IntStream.range(0, attrs.length).forEach(i -> attrs[i] = i % 2 == 0 ? builder.createAttribute("attribute-" + i)
+                    : builder.createAttribute("lazy-" + i, (Supplier<Object>) () -> "init-" + initialized.incrementAndGet()));
+
+            // even indexes are set and removed, odd ones initialized by a get; interleaved, so the array grows meanwhile
+            final CyclicBarrier start = new CyclicBarrier(threads);
+            final AtomicReference<Throwable> failure = new AtomicReference<>();
+            final Thread[] workers = new Thread[threads];
+            for (int t = 0; t < threads; t++) {
+                final int id = t;
+                workers[t] = new Thread(() -> {
+                    try {
+                        start.await();
+                        for (int i = id; i < attrs.length; i += threads) {
+                            if (i % 2 == 0) {
+                                attrs[i].set(holder, "v" + i);
+                                attrs[i].remove(holder);
+                            } else {
+                                attrs[i].get(holder);
+                            }
+                        }
+                    } catch (Throwable e) {
+                        failure.set(e);
+                    }
+                });
+                workers[t].start();
+            }
+            for (Thread w : workers) {
+                w.join();
+            }
+            assertNull(failure.get());
+            for (int i = 0; i < attrs.length; i++) {
+                if (i % 2 == 0) {
+                    assertNull(attrs[i].toString(), attrs[i].peek(holder));
+                } else {
+                    assertNotNull(attrs[i].toString(), attrs[i].peek(holder));
+                }
+            }
+            assertEquals(attrs.length / 2, initialized.get());
+            assertEquals(attrs.length / 2, holder.getAttributeNames().size());
+        }
     }
 
     @Test

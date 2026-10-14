@@ -33,6 +33,11 @@ import java.util.function.Supplier;
  * old array is atomically swapped for a {@code MOVED} marker while its value is copied, so a writer racing with the
  * resize fails its CAS and retries on the new array instead of losing its update. Initializers run under a lock, at
  * most once per absent value.
+ * <p>
+ * Trade-offs: the array is sized by the highest {@link Attribute#index()} stored in this holder, and indexes are
+ * global per {@link AttributeBuilder}, so a holder that stores a single attribute with a high index carries an array of
+ * that length (one reference per slot). Initializers and array growth of one holder share a single lock, so
+ * initializers must not block.
  *
  * @author Bongjae Chang
  */
@@ -183,7 +188,9 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
     public void clear() {
         final int length = values.length;
         for (int i = 0; i < length; i++) {
-            getAndSet(i, null);
+            if (get(i) != null) {
+                getAndSet(i, null);
+            }
         }
     }
 
