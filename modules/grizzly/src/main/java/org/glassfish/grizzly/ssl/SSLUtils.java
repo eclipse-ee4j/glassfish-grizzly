@@ -242,6 +242,17 @@ public final class SSLUtils {
 
         assert !output.isComposite();
 
+        if (!result.isError()) {
+            // Engines that process several records per unwrap may decrypt application data sent right after the
+            // client's Finished message (e.g. the first HTTP request) while still reporting the handshake: keep it.
+            final int produced = result.getSslEngineResult().bytesProduced();
+            if (produced > 0) {
+                final int end = output.position();
+                sslCtx.addHandshakeAppData(output, end - produced, end);
+                output.position(end - produced);
+            }
+        }
+
         if (output != tmpOutputBuffer) {
             output.dispose();
         }

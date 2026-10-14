@@ -281,13 +281,20 @@ public class SSLBaseFilter extends BaseFilter {
                 notifyHandshakeStart(connection);
             }
 
-            final Buffer buffer;
+            Buffer buffer;
             buffer = handshakeTimeoutMillis >= 0 ? doHandshakeSync(sslCtx, ctx, (Buffer) ctx.getMessage(), handshakeTimeoutMillis)
                     : makeInputRemainder(sslCtx, ctx, doHandshakeStep(sslCtx, ctx, (Buffer) ctx.getMessage()));
 
-            final boolean hasRemaining = buffer != null && buffer.hasRemaining();
-
             final boolean isHandshaking = isHandshaking(sslEngine);
+
+            // Application data decrypted together with the end of the handshake must be passed upstream now, even if
+            // no further input is pending (the peer is waiting for the response).
+            final boolean hasAppData = !isHandshaking && sslCtx.hasHandshakeAppData();
+            if (hasAppData && (buffer == null || !buffer.hasRemaining())) {
+                buffer = ctx.getMemoryManager().allocate(0);
+            }
+            final boolean hasRemaining = buffer != null && (buffer.hasRemaining() || hasAppData);
+
             if (!isHandshaking) {
                 notifyHandshakeComplete(connection, sslEngine);
                 final FilterChain connectionFilterChain = sslCtx.getNewConnectionFilterChain();
@@ -348,7 +355,8 @@ public class SSLBaseFilter extends BaseFilter {
     protected NextAction unwrapAll(final FilterChainContext ctx, final SSLConnectionContext sslCtx) throws SSLException {
         Buffer input = ctx.getMessage();
 
-        Buffer output = null;
+        // application data decrypted while the handshake completed goes first; further records are appended to it
+        Buffer output = sslCtx.takeHandshakeAppData();
 
         boolean isClosed = false;
 

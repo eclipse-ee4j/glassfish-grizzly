@@ -64,6 +64,10 @@ public final class SSLConnectionContext {
     final ByteBufferArray inputByteBufferArray = ByteBufferArray.create();
 
     private Buffer lastOutputBuffer;
+    /**
+     * Application data decrypted by the unwrap that completed the handshake, not yet passed upstream.
+     */
+    private Buffer handshakeAppData;
     private final InputBufferWrapper inputBuffer = new InputBufferWrapper();
     private InputBufferWrapper lastInputBuffer;
 
@@ -122,6 +126,38 @@ public final class SSLConnectionContext {
 
     public void setNewConnectionFilterChain(FilterChain newConnectionFilterChain) {
         this.newConnectionFilterChain = newConnectionFilterChain;
+    }
+
+    /**
+     * Keeps application data that an {@link javax.net.ssl.SSLEngine} decrypted while unwrapping handshake records, so
+     * it can be passed upstream once the handshake is done. Engines that process several TLS records per unwrap (e.g.
+     * OpenSSL/BoringSSL based ones) decrypt e.g. the first HTTP request together with the client's Finished message.
+     *
+     * @param src buffer holding the decrypted bytes
+     * @param from index of the first decrypted byte
+     * @param to index after the last decrypted byte
+     */
+    void addHandshakeAppData(final Buffer src, final int from, final int to) {
+        final int length = to - from;
+        Buffer data = handshakeAppData;
+        if (data == null) {
+            data = connection.getMemoryManager().allocate(length);
+        } else if (data.remaining() < length) {
+            data = connection.getMemoryManager().reallocate(data, data.position() + length);
+        }
+        data.put(src, from, length);
+        // left in write mode (position after the data): unwrapAll() appends the next decrypted records to it
+        handshakeAppData = data;
+    }
+
+    boolean hasHandshakeAppData() {
+        return handshakeAppData != null;
+    }
+
+    Buffer takeHandshakeAppData() {
+        final Buffer data = handshakeAppData;
+        handshakeAppData = null;
+        return data;
     }
 
     Buffer resetLastOutputBuffer() {
