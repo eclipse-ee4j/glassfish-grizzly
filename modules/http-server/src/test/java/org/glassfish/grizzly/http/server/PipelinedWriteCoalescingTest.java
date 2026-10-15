@@ -1,13 +1,17 @@
 /*
- * Copyright (c) 2026 Contributors to the Eclipse Foundation
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  *
  * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0,
- * or the Eclipse Distribution License v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
+ * terms of the Eclipse Public License v. 2.0, which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
  *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the
+ * Eclipse Public License v. 2.0 are satisfied: GNU General Public License,
+ * version 2 with the GNU Classpath Exception, which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  */
 
 package org.glassfish.grizzly.http.server;
@@ -57,6 +61,24 @@ public class PipelinedWriteCoalescingTest {
                 final String body = uri.startsWith("/big") ? "x".repeat(BIG) : uri.startsWith("/mid") ? "x".repeat(MID) : uri;
                 if (uri.startsWith("/boom")) {
                     throw new IllegalStateException("boom");
+                }
+                if (uri.startsWith("/echo")) {
+                    final String echo = new String(request.getInputStream().readAllBytes(), StandardCharsets.US_ASCII);
+                    response.setContentType("text/plain");
+                    response.setContentLength(echo.length());
+                    response.getWriter().write(echo);
+                    return;
+                }
+                if (uri.startsWith("/resumed")) {
+                    // resumed right away: the pipelined requests behind it are processed by a READ run nested in this one,
+                    // whose end enables READ interest again while this handler still runs
+                    response.setContentType("text/plain");
+                    response.setContentLength(body.length());
+                    response.getWriter().write(body);
+                    response.suspend();
+                    response.resume();
+                    Thread.sleep(NAP_MILLIS * 2);
+                    return;
                 }
                 if (uri.startsWith("/sleep")) {
                     Thread.sleep(SLEEP_MILLIS);
@@ -145,6 +167,39 @@ public class PipelinedWriteCoalescingTest {
                 }
                 assertEquals(-1, in.read());
             }
+        }
+    }
+
+    @Test
+    public void halfCloseAfterPipelinedBatchWithResumedResponseLosesNoResponse() throws Exception {
+        final String requests = get("/a") + get("/resumed") + get("/b") + get("/c");
+        for (int iteration = 0; iteration < 20; iteration++) {
+            try (Socket socket = connect()) {
+                send(socket, requests);
+                socket.shutdownOutput();
+                final InputStream in = socket.getInputStream();
+                assertEquals("iteration " + iteration, "/a", readResponseBody(in));
+                assertEquals("iteration " + iteration, "/resumed", readResponseBody(in));
+                assertEquals("iteration " + iteration, "/b", readResponseBody(in));
+                assertEquals("iteration " + iteration, "/c", readResponseBody(in));
+            }
+        }
+    }
+
+    /**
+     * The client sends the body of a request with "Expect: 100-continue" only after the 100 Continue response, which the
+     * handler blocking on the body must not hold back, nor the response pipelined before it.
+     */
+    @Test
+    public void continueResponseIsNotHeldBack() throws Exception {
+        try (Socket socket = connect()) {
+            send(socket, get("/a") + "POST /echo HTTP/1.1\r\nHost: localhost\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n");
+            final InputStream in = socket.getInputStream();
+            assertEquals("/a", readResponseBody(in));
+            assertEquals("HTTP/1.1 100 Continue", readLine(in));
+            assertEquals("", readLine(in));
+            send(socket, "hello");
+            assertEquals("hello", readResponseBody(in));
         }
     }
 

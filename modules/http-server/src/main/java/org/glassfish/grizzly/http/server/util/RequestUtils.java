@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -27,6 +28,7 @@ import org.glassfish.grizzly.GrizzlyFuture;
 import org.glassfish.grizzly.http.server.Request;
 import org.glassfish.grizzly.http.server.Response;
 import org.glassfish.grizzly.localization.LogMessages;
+import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.ssl.SSLBaseFilter.CertificateEvent;
 import org.glassfish.grizzly.ssl.SSLSupport;
 import org.glassfish.grizzly.ssl.SSLSupportImpl;
@@ -48,6 +50,10 @@ public class RequestUtils {
                 }
             }
 
+            // the renegotiation must not wait for writes this thread holds back
+            if (request.getContext().getConnection() instanceof NIOConnection) {
+                ((NIOConnection) request.getContext().getConnection()).flushCorkedWrites();
+            }
             GrizzlyFuture<Object[]> certFuture = new CertificateEvent(true).trigger(request.getContext());
             try {
                 // TODO: make the timeout configurable

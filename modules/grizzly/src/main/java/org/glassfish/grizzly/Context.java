@@ -108,6 +108,9 @@ public class Context implements AttributeStorage, Cacheable {
      * Notify Context its processing will be suspended in the current thread.
      */
     public void suspend() {
+        if (ioEvent == IOEvent.READ) {
+            ProcessorExecutor.onReadSuspended();
+        }
         try {
             final int sz = lifeCycleListeners.size;
             final IOEventLifeCycleListener[] array = lifeCycleListeners.array;

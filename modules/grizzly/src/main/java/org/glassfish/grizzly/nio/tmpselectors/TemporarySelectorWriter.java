@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -21,7 +22,9 @@ import java.net.SocketAddress;
 import java.nio.channels.SelectableChannel;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.glassfish.grizzly.AbstractWriter;
 import org.glassfish.grizzly.Buffer;
@@ -31,7 +34,10 @@ import org.glassfish.grizzly.WriteHandler;
 import org.glassfish.grizzly.WriteResult;
 import org.glassfish.grizzly.asyncqueue.MessageCloner;
 import org.glassfish.grizzly.asyncqueue.WritableMessage;
+import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.nio.NIOConnection;
+import org.glassfish.grizzly.nio.NIOTransport;
+import org.glassfish.grizzly.utils.Futures;
 
 /**
  *
@@ -106,8 +112,15 @@ public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddre
 
         final NIOConnection nioConnection = (NIOConnection) connection;
 
-        // don't overtake asynchronous writes the current thread holds back
-        nioConnection.flushCorkedWrites();
+        if (nioConnection.isWritesCorked()) {
+            // don't overtake asynchronous writes the current thread holds back: write them, and if the channel doesn't
+            // take all of them now, queue this write behind them and wait for it
+            nioConnection.flushCorkedWrites();
+            if (!nioConnection.getAsyncWriteQueue().isEmpty()) {
+                writeBehindQueuedWrites(nioConnection, dstAddress, message, completionHandler, timeout, timeunit);
+                return;
+            }
+        }
 
         final WriteResult<WritableMessage, SocketAddress> writeResult = WriteResult.create(connection, message, dstAddress, 0);
 
@@ -127,6 +140,28 @@ public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddre
             message.release();
         } catch (IOException e) {
             failure(e, completionHandler);
+        }
+    }
+
+    private static void writeBehindQueuedWrites(final NIOConnection connection, final SocketAddress dstAddress, final WritableMessage message,
+            final CompletionHandler<WriteResult<WritableMessage, SocketAddress>> completionHandler, final long timeout, final TimeUnit timeunit) {
+        final FutureImpl<WriteResult<WritableMessage, SocketAddress>> future = Futures.createSafeFuture();
+        ((NIOTransport) connection.getTransport()).getAsyncQueueIO().getWriter().write(connection, dstAddress, message,
+                Futures.toCompletionHandler(future, completionHandler));
+        try {
+            if (timeout >= 0) {
+                future.get(timeout, timeunit);
+            } else {
+                future.get();
+            }
+        } catch (ExecutionException e) {
+            // the completion handler has been notified
+        } catch (TimeoutException e) {
+            connection.closeSilently();
+            failure(new IOException("Write timeout exceeded", e), completionHandler);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            failure(new IOException(e), completionHandler);
         }
     }
 
