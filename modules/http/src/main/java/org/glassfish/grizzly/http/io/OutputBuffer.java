@@ -67,6 +67,7 @@ import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.memory.CompositeBuffer;
 import org.glassfish.grizzly.memory.MemoryManager;
+import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.threadpool.Threads;
 import org.glassfish.grizzly.utils.Charsets;
 import org.glassfish.grizzly.utils.Exceptions;
@@ -89,6 +90,15 @@ public class OutputBuffer {
      * Flag indicating whether or not async operations are being used on the input streams.
      */
     private final static boolean IS_BLOCKING = Boolean.getBoolean(OutputBuffer.class.getName() + ".isBlocking");
+
+    /**
+     * @return {@code true} if responses are written in blocking mode (system property
+     * {@code org.glassfish.grizzly.http.io.OutputBuffer.isBlocking})
+     * @since 5.0.4
+     */
+    public static boolean isBlockingWrites() {
+        return IS_BLOCKING;
+    }
 
     private FilterChainContext ctx;
 
@@ -696,6 +706,11 @@ public class OutputBuffer {
         final boolean isJustCommitted = doCommit();
         if (!flushAllBuffers(false) && isJustCommitted) {
             forceCommitHeaders(false);
+        }
+
+        // an explicit flush also writes what the connection holds back to coalesce responses to pipelined requests
+        if (connection instanceof NIOConnection) {
+            ((NIOConnection) connection).flushCorkedWrites();
         }
 
         blockAfterWriteIfNeeded();
