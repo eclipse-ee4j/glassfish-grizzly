@@ -578,6 +578,8 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
                 }
 
             });
+            // don't keep the connection open (and processing input) for writes held back by this thread
+            flushCorkedWrites();
         } else {
             if (completionHandler != null) {
                 addCloseListener(new org.glassfish.grizzly.CloseListener() {
