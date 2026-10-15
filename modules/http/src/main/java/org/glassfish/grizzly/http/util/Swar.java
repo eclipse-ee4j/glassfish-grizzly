@@ -1,13 +1,17 @@
 /*
- * Copyright (c) 2026 Contributors to the Eclipse Foundation
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  *
  * This program and the accompanying materials are made available under the
- * terms of the Eclipse Public License v. 2.0 which is available at
- * http://www.eclipse.org/legal/epl-2.0,
- * or the Eclipse Distribution License v. 1.0 which is available at
- * http://www.eclipse.org/org/documents/edl-v10.php.
+ * terms of the Eclipse Public License v. 2.0, which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
  *
- * SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the
+ * Eclipse Public License v. 2.0 are satisfied: GNU General Public License,
+ * version 2 with the GNU Classpath Exception, which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  */
 
 package org.glassfish.grizzly.http.util;
@@ -24,8 +28,11 @@ import java.nio.ByteOrder;
  * {@link Long#numberOfTrailingZeros(long)}. Every lane computation keeps the lane below 0x100, so no carry or
  * borrow crosses lanes and all masks are exact per byte.
  * <p>
- * The upper-case lane test in {@code upperCaseMask} uses the same formula as {@code applyUpperCasePattern} in Netty's
- * {@code io.netty.util.internal.SWARUtil} (Apache License 2.0, https://netty.io).
+ * {@code upperCaseMask} and {@code toLowerCase} use the same formulas as {@code applyUpperCasePattern} and
+ * {@code toLowerCase} in Netty's {@code io.netty.util.internal.SWARUtil} (Apache License 2.0, https://netty.io).
+ * <p>
+ * Callers must pass ranges that lie within the arrays: unlike a byte-by-byte loop, which may return at a mismatch
+ * before reaching an out-of-range index, these methods read whole words and then throw.
  * <p>
  * <strong>Internal API</strong>: this class is public only because the HTTP codec and {@link ByteChunk} live in other
  * packages; it is not meant to be used by applications and may change without notice.
@@ -67,7 +74,7 @@ public final class Swar {
     }
 
     /**
-     * Sets the 0x80 bit of each lane that is not a "visible" header-value byte for strict RFC 9110 parsing: a control
+     * Sets the 0x80 bit of each lane that is not a "visible" header-value byte: a control
      * (&lt; 0x20, which includes HT, CR and LF), DEL (0x7F) or a byte with the top bit set.
      */
     static long nonVisibleMask(final long word) {
