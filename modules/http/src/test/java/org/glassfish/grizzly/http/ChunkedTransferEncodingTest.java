@@ -217,6 +217,24 @@ public class ChunkedTransferEncodingTest {
     }
 
     @Test
+    public void testForbiddenTrailerHeadersAreDropped() throws Exception {
+        Map<String, Pair<String, String>> headers = new HashMap<>();
+        headers.put("Host", new Pair<>("evil", null));
+        headers.put("Authorization", new Pair<>("Basic Zm9vOmJhcg==", null));
+        headers.put("X-Checksum", new Pair<>("abc", "abc"));
+
+        final int packetsNum = 3;
+
+        doHttpRequestTest(packetsNum, true, headers);
+
+        for (int i = 0; i < packetsNum; i++) {
+            Future<Boolean> result = resultQueue.poll(1000, SECONDS);
+            assertNotNull("Timeout for result#" + i, result);
+            assertTrue(result.get(10, SECONDS));
+        }
+    }
+
+    @Test
     public void testCorruptedTrailerHeaders() throws Exception {
         // the behavior is undefined if validation disabled
         Assume.assumeTrue(strictHeaderValueValidation.isEnabled());
