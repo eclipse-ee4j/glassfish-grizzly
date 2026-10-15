@@ -17,11 +17,11 @@
 package org.glassfish.grizzly;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.glassfish.grizzly.localization.LogMessages;
-import org.glassfish.grizzly.nio.NIOConnection;
 
 /**
  *
@@ -45,87 +45,89 @@ public final class ProcessorExecutor {
         }
 
         if (context.getIoEvent() != IOEvent.READ) {
-            execute0(context);
+            execute0(context, null);
             return;
         }
 
-        // Writes corked while processing input (see NIOConnection#corkWrites) are released when the outermost READ
-        // processing run of this thread ends, including a suspension: the counterpart of Netty's flush on
-        // channelReadComplete. Nested READ runs (e.g. HTTP/2 streams of the connection being read) don't uncork.
+        // Tasks registered with runAtEndOfReadRun() (e.g. flushing writes corked while processing the input) run when the
+        // outermost READ processing run of this thread ends, including a suspension, and before the run completes, so
+        // before READ interest is enabled again: the counterpart of Netty's flush on channelReadComplete. Nested READ
+        // runs (e.g. the HTTP/2 streams of the connection being read) don't end it.
         final ReadRun run = READ_RUN.get();
         run.depth++;
-        try {
-            execute0(context);
-        } finally {
-            if (--run.depth == 0) {
-                run.uncorkAll();
-            }
-        }
+        execute0(context, run);
     }
 
     private static final ThreadLocal<ReadRun> READ_RUN = ThreadLocal.withInitial(ReadRun::new);
 
     /**
-     * Registers {@code connection} to be uncorked when the READ processing run of the current thread ends.
+     * Registers a task to run when the READ processing run of the current thread ends, before READ interest is enabled
+     * again. A task registered more than once runs once.
+     * <p>
+     * Internal API, used by the transport to coalesce writes.
      *
-     * @return {@code false} if the current thread is not processing a READ, in which case writes must not be corked
+     * @param task the task
+     * @return {@code false} if the current thread is not processing a READ (nothing is registered)
+     * @since 5.0.4
      */
-    public static boolean registerCorkedConnection(final NIOConnection connection) {
+    public static boolean runAtEndOfReadRun(final Runnable task) {
         final ReadRun run = READ_RUN.get();
         if (run.depth == 0) {
             return false;
         }
-        run.add(connection);
+        run.add(task);
         return true;
     }
 
-    /**
-     * @return {@code true} if {@code connection} was corked by the READ processing run of the current thread, whose
-     * writes are therefore held back until that run ends
-     */
-    public static boolean isCorkedByCurrentThread(final NIOConnection connection) {
-        final ReadRun run = READ_RUN.get();
-        return run.depth != 0 && run.contains(connection);
-    }
-
     private static final class ReadRun {
-        int depth;
-        private NIOConnection[] corked = new NIOConnection[4];
-        private int corkedCount;
+        private static final int INITIAL_CAPACITY = 4;
 
-        boolean contains(final NIOConnection connection) {
-            for (int i = 0; i < corkedCount; i++) {
-                if (corked[i] == connection) {
-                    return true;
+        int depth;
+        private Runnable[] tasks = new Runnable[INITIAL_CAPACITY];
+        private int count;
+
+        void add(final Runnable task) {
+            for (int i = 0; i < count; i++) {
+                if (tasks[i] == task) {
+                    return;
                 }
             }
-            return false;
+            if (count == tasks.length) {
+                tasks = Arrays.copyOf(tasks, count * 2);
+            }
+            tasks[count++] = task;
         }
 
-        void add(final NIOConnection connection) {
-            if (contains(connection)) {
+        void end() {
+            if (depth != 1) {
+                depth--;
                 return;
             }
-            if (corkedCount == corked.length) {
-                corked = java.util.Arrays.copyOf(corked, corkedCount * 2);
+            // the run lasts until its tasks have run: a task may register further tasks (count is re-read), and READ
+            // processing started by a task is nested
+            try {
+                for (int i = 0; i < count; i++) {
+                    final Runnable task = tasks[i];
+                    tasks[i] = null;
+                    try {
+                        task.run();
+                    } catch (RuntimeException e) {
+                        LOGGER.log(Level.WARNING, "Task at the end of a READ processing run failed", e);
+                    }
+                }
+            } finally {
+                Arrays.fill(tasks, 0, count, null);
+                count = 0;
+                depth = 0;
             }
-            corked[corkedCount++] = connection;
-        }
-
-        void uncorkAll() {
-            for (int i = 0; i < corkedCount; i++) {
-                final NIOConnection connection = corked[i];
-                corked[i] = null;
-                connection.uncorkWrites();
-            }
-            corkedCount = 0;
         }
     }
 
     @SuppressWarnings("unchecked")
-    private static void execute0(Context context) {
+    private static void execute0(Context context, final ReadRun run) {
         boolean isRerun;
         ProcessorResult result;
+        boolean runEnded = run == null;
 
         try {
             do {
@@ -138,9 +140,19 @@ public final class ProcessorExecutor {
                 }
             } while (isRerun);
 
+            runEnded = true;
+            if (run != null) {
+                run.end();
+            }
+
             complete0(context, result);
 
         } catch (Throwable t) {
+            if (!runEnded) {
+                runEnded = true;
+                run.end();
+            }
+
             if (LOGGER.isLoggable(Level.WARNING)) {
                 LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_PROCESSOR_ERROR(context.getConnection(), context.getIoEvent(), context.getProcessor()),
                         t);

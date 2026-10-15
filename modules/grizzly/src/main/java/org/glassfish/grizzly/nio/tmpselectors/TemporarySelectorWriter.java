@@ -106,6 +106,9 @@ public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddre
 
         final NIOConnection nioConnection = (NIOConnection) connection;
 
+        // don't overtake asynchronous writes the current thread holds back
+        nioConnection.flushCorkedWrites();
+
         final WriteResult<WritableMessage, SocketAddress> writeResult = WriteResult.create(connection, message, dstAddress, 0);
 
         try {

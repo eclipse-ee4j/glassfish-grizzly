@@ -22,7 +22,15 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
+import org.glassfish.grizzly.Buffer;
+import org.glassfish.grizzly.Connection;
+import org.glassfish.grizzly.ConnectionProbe;
+import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
@@ -34,9 +42,12 @@ import org.junit.Test;
 public class PipelinedWriteCoalescingTest {
 
     private static final int BIG = 100_000;
+    private static final int MID = 40_000;
+    private static final long SLEEP_MILLIS = 2_000;
 
     private HttpServer httpServer;
     private int port;
+    private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     @Before
     public void before() throws Exception {
@@ -45,10 +56,33 @@ public class PipelinedWriteCoalescingTest {
         httpServer.getServerConfiguration().addHttpHandler(new HttpHandler() {
             @Override
             public void service(Request request, Response response) throws Exception {
-                final String body = request.getRequestURI().startsWith("/big") ? "x".repeat(BIG) : request.getRequestURI();
+                final String uri = request.getRequestURI();
+                final String body = uri.startsWith("/big") ? "x".repeat(BIG) : uri.startsWith("/mid") ? "x".repeat(MID) : uri;
+                if (uri.startsWith("/boom")) {
+                    throw new IllegalStateException("boom");
+                }
+                if (uri.startsWith("/sleep")) {
+                    Thread.sleep(SLEEP_MILLIS);
+                }
                 response.setContentType("text/plain");
                 response.setContentLength(body.length());
+                if (uri.startsWith("/async")) {
+                    response.suspend();
+                    scheduler.schedule(() -> {
+                        try {
+                            response.getWriter().write(body);
+                        } catch (IOException e) {
+                            throw new IllegalStateException(e);
+                        } finally {
+                            response.resume();
+                        }
+                    }, 200, TimeUnit.MILLISECONDS);
+                    return;
+                }
                 response.getWriter().write(body);
+                if (uri.startsWith("/flush")) {
+                    response.flush();
+                }
             }
         }, "/");
         httpServer.start();
@@ -57,6 +91,114 @@ public class PipelinedWriteCoalescingTest {
     @After
     public void after() {
         httpServer.shutdownNow();
+        scheduler.shutdownNow();
+    }
+
+    private TCPNIOTransport transport() {
+        return httpServer.getListener("grizzly").getTransport();
+    }
+
+    @Test
+    public void responsesToABatchOfPipelinedRequestsAreWrittenTogether() throws Exception {
+        final AtomicInteger writes = new AtomicInteger();
+        transport().getConnectionMonitoringConfig().addProbes(new ConnectionProbe.Adapter() {
+            @Override
+            public void onWriteEvent(final Connection connection, final Buffer data, final long size) {
+                if (size > 0) {
+                    writes.incrementAndGet();
+                }
+            }
+        });
+
+        final int n = 16;
+        try (Socket socket = connect()) {
+            final StringBuilder requests = new StringBuilder();
+            for (int i = 0; i < n; i++) {
+                requests.append(get("/r" + i));
+            }
+            send(socket, requests.toString());
+            final InputStream in = socket.getInputStream();
+            for (int i = 0; i < n; i++) {
+                assertEquals("/r" + i, readResponseBody(in));
+            }
+        }
+        // one write per READ of the batch; a READ may end in the middle of the batch, but not often
+        assertTrue("socket writes for " + n + " pipelined responses: " + writes.get(), writes.get() <= 2);
+    }
+
+    /**
+     * The client half-closes right after sending a batch: the READ seeing EOF closes the connection, which must not
+     * happen before the held-back responses are written.
+     */
+    @Test
+    public void halfCloseAfterPipelinedBatchLosesNoResponse() throws Exception {
+        final int n = 8;
+        final StringBuilder requests = new StringBuilder();
+        for (int i = 0; i < n; i++) {
+            requests.append(get("/r" + i));
+        }
+        for (int iteration = 0; iteration < 300; iteration++) {
+            try (Socket socket = connect()) {
+                send(socket, requests.toString());
+                socket.shutdownOutput();
+                final InputStream in = socket.getInputStream();
+                for (int i = 0; i < n; i++) {
+                    assertEquals("iteration " + iteration, "/r" + i, readResponseBody(in));
+                }
+                assertEquals(-1, in.read());
+            }
+        }
+    }
+
+    /**
+     * A handler blocking until the write queue drains below its limit must not wait for writes held back on its own
+     * thread.
+     */
+    @Test
+    public void blockingResponseIsNotStuckBehindHeldBackWrites() throws Exception {
+        transport().getAsyncQueueIO().getWriter().setMaxPendingBytesPerConnection(16384);
+        try (Socket socket = connect()) {
+            send(socket, get("/z") + get("/mid") + get("/a"));
+            final InputStream in = socket.getInputStream();
+            assertEquals("/z", readResponseBody(in));
+            assertEquals(MID, readResponseBody(in).length());
+            assertEquals("/a", readResponseBody(in));
+        }
+    }
+
+    @Test
+    public void explicitFlushIsNotHeldBackByTheNextPipelinedRequest() throws Exception {
+        try (Socket socket = connect()) {
+            final long start = System.nanoTime();
+            send(socket, get("/flush") + get("/sleep"));
+            final InputStream in = socket.getInputStream();
+            assertEquals("/flush", readResponseBody(in));
+            final long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            assertTrue("flushed response arrived after " + millis + " ms", millis < SLEEP_MILLIS / 2);
+            assertEquals("/sleep", readResponseBody(in));
+        }
+    }
+
+    @Test
+    public void suspendedResponseInPipelinedBatch() throws Exception {
+        try (Socket socket = connect()) {
+            send(socket, get("/a") + get("/async") + get("/b"));
+            final InputStream in = socket.getInputStream();
+            assertEquals("/a", readResponseBody(in));
+            assertEquals("/async", readResponseBody(in));
+            assertEquals("/b", readResponseBody(in));
+        }
+    }
+
+    @Test
+    public void failingHandlerInPipelinedBatch() throws Exception {
+        try (Socket socket = connect()) {
+            send(socket, get("/a") + get("/boom") + "GET /c HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+            final String all = new String(socket.getInputStream().readAllBytes(), StandardCharsets.US_ASCII);
+            assertTrue(all, all.startsWith("HTTP/1.1 200"));
+            assertTrue(all, all.contains("\r\n\r\n/aHTTP/1.1 500"));
+            assertTrue(all, all.endsWith("\r\n\r\n/c"));
+        }
     }
 
     @Test
