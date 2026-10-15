@@ -374,7 +374,7 @@ public class HttpRequestParseTest {
 
     @Test
     public void testParsingRespectsBoundariesWithArrayOffset() throws Exception {
-        final String request = "GET /p?q=A?B HTTP/1.1\r\n"
+        final String request = "POST /p?q=A?B HTTP/1.1\r\n"
                 + "X-ABCDEFGHIJKLMNOP:VALUE-ABCDEFGH  \r\n"
                 + "HOST: LOCALHOST\tX\r\n"
                 + "CONTENT-LENGTH: 16\r\n\r\n"
@@ -399,7 +399,7 @@ public class HttpRequestParseTest {
         assertEquals("LOCALHOST\tX", parsed.getHeader("host"));
         assertEquals(16, parsed.getContentLength());
         // names are lower-cased in place; values, the body and the bytes around the buffer are untouched
-        assertEquals("#####GET /p?q=A?B HTTP/1.1\r\nx-abcdefghijklmnop:VALUE-ABCDEFGH  \r\nhost: LOCALHOST\tX\r\n"
+        assertEquals("#####POST /p?q=A?B HTTP/1.1\r\nx-abcdefghijklmnop:VALUE-ABCDEFGH  \r\nhost: LOCALHOST\tX\r\n"
                 + "content-length: 16\r\n\r\nBODYBODYBODYBODY#####", new String(raw, StandardCharsets.ISO_8859_1));
     }
 
