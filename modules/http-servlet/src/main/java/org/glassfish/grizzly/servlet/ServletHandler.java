@@ -21,9 +21,12 @@ import static jakarta.servlet.DispatcherType.REQUEST;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -215,15 +218,14 @@ public class ServletHandler extends HttpHandler {
     /**
      * Tells whether the given throwable or one of its causes is a {@link FormPostTooLargeException}. The exception is
      * wrapped (for example into a {@link jakarta.servlet.ServletException}) while it travels up the filter chain, so the
-     * whole cause chain has to be inspected.
+     * whole cause chain has to be inspected. A cyclic cause chain ends the walk once a throwable repeats.
      */
-    private static boolean isFormPostTooLarge(final Throwable throwable) {
-        Throwable current = throwable;
-        for (int i = 0; current != null && i < 64; i++) {
+    static boolean isFormPostTooLarge(final Throwable throwable) {
+        final Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable current = throwable; current != null && seen.add(current); current = current.getCause()) {
             if (current instanceof FormPostTooLargeException) {
                 return true;
             }
-            current = current.getCause();
         }
         return false;
     }
