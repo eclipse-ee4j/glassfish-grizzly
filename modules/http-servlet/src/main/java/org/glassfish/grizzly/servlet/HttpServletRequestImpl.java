@@ -175,9 +175,6 @@ public class HttpServletRequestImpl implements HttpServletRequest, Holders.Reque
         if (context.getRequestCharacterEncoding() != null && request.getCharacterEncoding() == null) {
             request.setCharacterEncoding(context.getRequestCharacterEncoding());
         }
-        if (context.getResponseCharacterEncoding() != null) {
-            servletResponse.setCharacterEncoding(context.getResponseCharacterEncoding());
-        }
     }
 
     // --------------------------------------------------------- Public Methods

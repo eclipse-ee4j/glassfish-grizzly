@@ -165,9 +165,8 @@ public class ServletHandler extends HttpHandler {
             final HttpServletResponseImpl servletResponse = HttpServletResponseImpl.create();
 
             setPathData(request, servletRequest);
-            // The response first: request initialization applies the context default response encoding to it
-            servletResponse.initialize(response, servletRequest);
             servletRequest.initialize(request, servletResponse, servletCtx);
+            servletResponse.initialize(response, servletRequest, servletCtx);
 
             request.setNote(SERVLET_REQUEST_NOTE, servletRequest);
             request.setNote(SERVLET_RESPONSE_NOTE, servletResponse);
