@@ -20,10 +20,12 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.nio.charset.StandardCharsets;
 
+import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
+import org.glassfish.grizzly.http.server.FormPostTooLargeException;
 import org.glassfish.grizzly.http.server.HttpServer;
 import org.glassfish.grizzly.http.server.NetworkListener;
 
@@ -53,6 +55,18 @@ public class FormPostTooLargeTest extends HttpServerAbstractTest {
         } finally {
             stopHttpServer();
         }
+    }
+
+    public void testWrappedFormPostTooLargeIsDetected() {
+        final Throwable wrapped = new ServletException(new RuntimeException(new FormPostTooLargeException("too large")));
+        assertTrue(ServletHandler.isFormPostTooLarge(wrapped));
+    }
+
+    public void testCyclicCauseChainTerminates() {
+        final Exception first = new Exception("first");
+        final Exception second = new Exception("second", first);
+        first.initCause(second);
+        assertFalse(ServletHandler.isFormPostTooLarge(first));
     }
 
     private void startServerWithMaxFormPostSize(final int maxFormPostSize) throws Exception {
