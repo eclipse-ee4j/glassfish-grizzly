@@ -894,8 +894,11 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
      * {@link #canWrite() can write} and the answer would be no. The price is latency: a message waits for the processing
      * of the rest of the input batch, e.g. a response for the handlers of the requests pipelined after it.
      * <p>
-     * Only effective while the current thread is processing a READ; called from any other thread it does nothing, so
-     * held-back writes can never be left behind. Only one thread at a time can cork a connection.
+     * Only effective while the current thread is processing a READ that is not nested in another READ processing run
+     * (whose end enables READ interest again while the outer run goes on); called from any other thread it does nothing.
+     * The held-back writes are also written when the READ processing is suspended, when the connection is closed
+     * gracefully, before a blocking read or write, and when an HTTP interim response (e.g. 100 Continue) is written.
+     * Only one thread at a time can cork a connection.
      * <p>
      * Internal API, used by the HTTP server to coalesce the responses to pipelined requests.
      *
@@ -903,15 +906,13 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
      * @since 5.0.4
      */
     public boolean corkWrites() {
-        final Thread current = Thread.currentThread();
-        if (corkingThread == current) {
-            return true;
-        }
-        if (corkingThread != null || !ProcessorExecutor.runAtEndOfReadRun(uncorkTask)) {
+        // registered (once per run) even if this thread corked already: in an earlier run, the uncork may have failed
+        if (!ProcessorExecutor.runAtEndOfReadRun(uncorkTask)) {
             return false;
         }
-        // the task registered above uncorks only if this succeeds
-        return corkingThreadUpdater.compareAndSet(this, null, current);
+        final Thread current = Thread.currentThread();
+        // the task registered above uncorks only if this thread is the corking thread
+        return corkingThread == current || corkingThreadUpdater.compareAndSet(this, null, current);
     }
 
     /**

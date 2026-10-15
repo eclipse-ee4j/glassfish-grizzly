@@ -384,6 +384,10 @@ public class OutputBuffer {
      */
     public void writeInterimResponse() throws IOException {
         ctx.write(outputHeader, IS_BLOCKING);
+        // the client waits for it (e.g. 100 Continue before it sends the request body)
+        if (connection instanceof NIOConnection) {
+            ((NIOConnection) connection).flushCorkedWrites();
+        }
     }
 
     // ---------------------------------------------------- Writer-Based Methods

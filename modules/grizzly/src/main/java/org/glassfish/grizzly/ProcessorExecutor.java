@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -62,21 +63,34 @@ public final class ProcessorExecutor {
 
     /**
      * Registers a task to run when the READ processing run of the current thread ends, before READ interest is enabled
-     * again. A task registered more than once runs once.
+     * again, or earlier when the READ processing is suspended. A task registered more than once runs once.
      * <p>
      * Internal API, used by the transport to coalesce writes.
      *
      * @param task the task
-     * @return {@code false} if the current thread is not processing a READ (nothing is registered)
+     * @return {@code false} if nothing is registered: the current thread is not processing a READ, or is processing a
+     * nested one (e.g. a READ resumed while processing another READ), whose end enables READ interest again while the
+     * outer run continues
      * @since 5.0.4
      */
     public static boolean runAtEndOfReadRun(final Runnable task) {
         final ReadRun run = READ_RUN.get();
-        if (run.depth == 0) {
+        if (run.depth != 1) {
             return false;
         }
         run.add(task);
         return true;
+    }
+
+    /**
+     * Runs the tasks registered with {@link #runAtEndOfReadRun(Runnable)} now: a suspended READ may be resumed (and
+     * complete) on another thread before this run ends.
+     */
+    static void onReadSuspended() {
+        final ReadRun run = READ_RUN.get();
+        if (run.depth != 0) {
+            run.runTasks();
+        }
     }
 
     private static final class ReadRun {
@@ -103,22 +117,41 @@ public final class ProcessorExecutor {
                 depth--;
                 return;
             }
-            // the run lasts until its tasks have run: a task may register further tasks (count is re-read), and READ
-            // processing started by a task is nested
+            // the run lasts until its tasks have run: READ processing started by a task is nested
             try {
+                runTasks();
+            } finally {
+                depth = 0;
+            }
+        }
+
+        void runTasks() {
+            Error error = null;
+            try {
+                // a task may register further tasks: count is re-read
                 for (int i = 0; i < count; i++) {
                     final Runnable task = tasks[i];
+                    if (task == null) {
+                        continue; // already run by a nested call (a task suspending a READ)
+                    }
                     tasks[i] = null;
                     try {
                         task.run();
                     } catch (RuntimeException e) {
                         LOGGER.log(Level.WARNING, "Task at the end of a READ processing run failed", e);
+                    } catch (Error e) {
+                        // run the other tasks first
+                        if (error == null) {
+                            error = e;
+                        }
                     }
                 }
             } finally {
                 Arrays.fill(tasks, 0, count, null);
                 count = 0;
-                depth = 0;
+            }
+            if (error != null) {
+                throw error;
             }
         }
     }
