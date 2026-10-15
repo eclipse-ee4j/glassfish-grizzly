@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -106,7 +107,7 @@ public class MimeHeaders {
      */
     public static final int DEFAULT_HEADER_SIZE = 8;
 
-    public static DataChunk NOOP_CHUNK = new DataChunk.Immutable(null);
+    public static final DataChunk NOOP_CHUNK = new DataChunk.Immutable(null);
 
     /**
      * The header fields.

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -21,6 +22,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
+import org.glassfish.grizzly.Buffer;
+import org.glassfish.grizzly.memory.Buffers;
+import org.glassfish.grizzly.memory.BuffersBuffer;
+import org.glassfish.grizzly.memory.MemoryManager;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -160,5 +165,41 @@ public class MimeHeadersTest {
         } finally {
             Locale.setDefault(defaultLocale);
         }
+    }
+
+    @Test
+    public void testForbiddenTrailerNamesFromParsedBufferAreRejected() {
+        // chunked trailers from the wire are parsed through this overload
+        final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
+        final Buffer input = Buffers.wrap(mm, "0\r\nhost: evil\r\nx-checksum: abc\r\n\r\n", StandardCharsets.ISO_8859_1);
+        final int pos = input.position();
+        final int lim = input.limit();
+        final int before = mimeHeaders.trailerSize();
+
+        Assert.assertSame(MimeHeaders.NOOP_CHUNK, mimeHeaders.addValue(input, 3, 4));
+        Assert.assertEquals(pos, input.position());
+        Assert.assertEquals(lim, input.limit());
+        mimeHeaders.addValue(input, 15, 10).setString("abc");
+        Assert.assertEquals(before + 1, mimeHeaders.trailerSize());
+        Assert.assertNull(mimeHeaders.getHeader("host"));
+
+        // name split across two segments of a composite buffer
+        final Buffer composite = BuffersBuffer.create(mm, Buffers.wrap(mm, "0\r\nho", StandardCharsets.ISO_8859_1),
+                Buffers.wrap(mm, "st: evil\r\n\r\n", StandardCharsets.ISO_8859_1));
+        final int cpos = composite.position();
+        final int clim = composite.limit();
+        Assert.assertSame(MimeHeaders.NOOP_CHUNK, mimeHeaders.addValue(composite, 3, 4));
+        Assert.assertEquals(cpos, composite.position());
+        Assert.assertEquals(clim, composite.limit());
+    }
+
+    @Test
+    public void testNoopChunkIgnoresBytes() {
+        final byte[] input = "Host".getBytes(StandardCharsets.ISO_8859_1);
+        final DataChunk noop = mimeHeaders.addValue(input, 0, input.length);
+        Assert.assertSame(MimeHeaders.NOOP_CHUNK, noop);
+        noop.setBytes("evil".getBytes(StandardCharsets.ISO_8859_1));
+        noop.setBytes("evil".getBytes(StandardCharsets.ISO_8859_1), 0, 4);
+        Assert.assertTrue(MimeHeaders.NOOP_CHUNK.isNull());
     }
 }

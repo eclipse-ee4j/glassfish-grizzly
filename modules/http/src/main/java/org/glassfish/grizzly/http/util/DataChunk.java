@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2022 Contributors to Eclipse Foundation. All rights reserved.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
@@ -1015,6 +1016,14 @@ public class DataChunk implements Chunk {
 
         @Override
         public void setBuffer(Buffer buffer, int start, int end) {
+        }
+
+        @Override
+        public void setBytes(final byte[] bytes) {
+        }
+
+        @Override
+        public void setBytes(final byte[] bytes, final int position, final int limit) {
         }
 
         @Override
