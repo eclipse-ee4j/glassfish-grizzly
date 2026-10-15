@@ -1467,6 +1467,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
      * beginning of) the next pipelined message.
      *
      * @param ctx the {@link FilterChainContext} processing the input
+     * @since 5.0.4
      */
     protected void onPipelinedInput(final FilterChainContext ctx) {
     }

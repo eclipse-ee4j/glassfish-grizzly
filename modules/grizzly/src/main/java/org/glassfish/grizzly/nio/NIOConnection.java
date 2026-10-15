@@ -33,6 +33,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.Supplier;
@@ -105,7 +106,22 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
 
     private volatile TaskQueue<AsyncReadQueueRecord> asyncReadQueue;
     private final TaskQueue<AsyncWriteQueueRecord> asyncWriteQueue;
-    private volatile boolean writesCorked;
+    /** The thread whose asynchronous writes are held back, see {@link #corkWrites()}. */
+    private volatile Thread corkingThread;
+    private static final AtomicReferenceFieldUpdater<NIOConnection, Thread> corkingThreadUpdater = AtomicReferenceFieldUpdater
+            .newUpdater(NIOConnection.class, Thread.class, "corkingThread");
+    /**
+     * Who writes the write queue: nobody (NONE_HELD), nobody because writes held back by the corking thread are at its head
+     * (HELD), the corking thread (DRAINING), processAsync() of a WRITE event (WRITING).
+     */
+    volatile int heldWritesState;
+    static final AtomicIntegerFieldUpdater<NIOConnection> heldWritesStateUpdater = AtomicIntegerFieldUpdater.newUpdater(NIOConnection.class,
+            "heldWritesState");
+    static final int NONE_HELD = 0;
+    static final int HELD = 1;
+    static final int DRAINING = 2;
+    static final int WRITING = 3;
+    private final Runnable uncorkTask = this::uncorkWrites;
 
     /** Semaphore responsible for connect/close notification */
     protected static final AtomicReferenceFieldUpdater<NIOConnection, Object> connectCloseSemaphoreUpdater = AtomicReferenceFieldUpdater
@@ -864,46 +880,70 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
     }
 
     /**
-     * Corks asynchronous writes on this connection: until {@link #uncorkWrites()} they are queued instead of being
-     * written to the channel directly, so that several small messages produced while processing one batch of input
-     * (e.g. responses to pipelined HTTP requests) go out together in one gathering write. The queue is drained anyway
-     * once it holds more than {@link AbstractNIOAsyncQueueWriter#MAX_CORKED_BYTES} bytes.
+     * Corks the asynchronous writes of the current thread on this connection: until the {@link IOEvent#READ} processing
+     * run of this thread ends, its writes are queued instead of being written to the channel, so that several small
+     * messages produced while processing one batch of input (e.g. responses to pipelined HTTP requests) go out together
+     * in one gathering write. The writes of other threads are not held back (they are queued behind held-back ones, so
+     * the order is kept).
      * <p>
-     * Only effective while the current thread is processing a {@link IOEvent#READ}: the connection is uncorked when the
-     * outermost READ processing run of this thread ends (see {@code ProcessorExecutor}). Called from any other thread,
-     * it does nothing, so corked writes can never be left behind.
+     * The held-back writes are written on the current thread, before READ interest is enabled again, when the READ
+     * processing run ends (also by a suspension or an exception), when {@link #flushCorkedWrites()} is called, when more
+     * than {@code min(64 KiB, max async write queue size)} bytes are held back, and when this thread asks if it
+     * {@link #canWrite() can write} and the answer would be no. The price is latency: a message waits for the processing
+     * of the rest of the input batch, e.g. a response for the handlers of the requests pipelined after it.
+     * <p>
+     * Only effective while the current thread is processing a READ; called from any other thread it does nothing, so
+     * held-back writes can never be left behind. Only one thread at a time can cork a connection.
+     * <p>
+     * Internal API, used by the HTTP server to coalesce the responses to pipelined requests.
      *
-     * @return {@code true} if writes are now corked
+     * @return {@code true} if the writes of the current thread are now corked
+     * @since 5.0.4
      */
     public boolean corkWrites() {
-        if (!ProcessorExecutor.registerCorkedConnection(this)) {
+        final Thread current = Thread.currentThread();
+        if (corkingThread == current) {
+            return true;
+        }
+        if (corkingThread != null || !ProcessorExecutor.runAtEndOfReadRun(uncorkTask)) {
             return false;
         }
-        writesCorked = true;
-        return true;
+        // the task registered above uncorks only if this succeeds
+        return corkingThreadUpdater.compareAndSet(this, null, current);
     }
 
     /**
-     * @return {@code true} if asynchronous writes are currently corked, see {@link #corkWrites()}
+     * @return {@code true} if the asynchronous writes of the current thread are corked, see {@link #corkWrites()}
+     * @since 5.0.4
      */
     public boolean isWritesCorked() {
-        return writesCorked;
+        return corkingThread == Thread.currentThread();
     }
 
     /**
-     * Uncorks asynchronous writes (see {@link #corkWrites()}) and, if any were queued meanwhile, schedules the write
-     * queue to be flushed.
+     * Writes the writes held back by {@link #corkWrites()} now, if called by the thread that corked the connection.
+     * The connection stays corked.
+     *
+     * @since 5.0.4
      */
-    public void uncorkWrites() {
-        if (writesCorked) {
-            writesCorked = false;
-            // a corked writer enqueues and then re-checks the flag: either it sees false here, or we see its record
-            if (!asyncWriteQueue.isEmpty()) {
-                try {
-                    simulateIOEvent(IOEvent.WRITE);
-                } catch (IOException e) {
-                    LOGGER.log(Level.FINE, "Could not flush the corked writes", e);
-                }
+    public void flushCorkedWrites() {
+        if (corkingThread == Thread.currentThread()) {
+            flushHeldWrites();
+        }
+    }
+
+    private void uncorkWrites() {
+        if (corkingThread == Thread.currentThread()) {
+            corkingThread = null;
+            flushHeldWrites();
+        }
+    }
+
+    private void flushHeldWrites() {
+        if (heldWritesState == HELD) {
+            final AsyncQueueWriter<?> writer = transport.getAsyncQueueIO().getWriter();
+            if (writer instanceof AbstractNIOAsyncQueueWriter) {
+                ((AbstractNIOAsyncQueueWriter) writer).flushHeldWrites(this);
             }
         }
     }
