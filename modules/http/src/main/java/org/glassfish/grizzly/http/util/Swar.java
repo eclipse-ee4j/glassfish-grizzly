@@ -23,6 +23,14 @@ import java.nio.ByteOrder;
  * get), so the lowest-index byte is the least significant lane and the first matching byte is found with
  * {@link Long#numberOfTrailingZeros(long)}. Every lane computation keeps the lane below 0x100, so no carry or
  * borrow crosses lanes and all masks are exact per byte.
+ * <p>
+ * The upper-case lane test in {@code upperCaseMask} uses the same formula as {@code applyUpperCasePattern} in Netty's
+ * {@code io.netty.util.internal.SWARUtil} (Apache License 2.0, https://netty.io).
+ * <p>
+ * <strong>Internal API</strong>: this class is public only because the HTTP codec and {@link ByteChunk} live in other
+ * packages; it is not meant to be used by applications and may change without notice.
+ *
+ * @since 5.0.4
  */
 public final class Swar {
 

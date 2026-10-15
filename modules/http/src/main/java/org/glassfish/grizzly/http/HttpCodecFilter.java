@@ -860,9 +860,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         final boolean hasShift = offset != arrayOffs + parsingState.checkpoint;
 
         if (!hasShift) {
-            // Fast path (no folded lines, so value bytes stay in place): skip the run of visible ASCII and SP
-            // eight bytes at a time. Such bytes pass isText() and only move the checkpoints; the byte loop below
-            // resumes at the first CR, LF, HT, control or non-ASCII byte.
+            // visible ASCII and SP only advance the checkpoints
             final int stop = Swar.indexOfNonVisible(input, offset, limit);
             if (stop > offset) {
                 int valueEnd = stop;

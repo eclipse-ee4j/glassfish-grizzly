@@ -16,6 +16,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Random;
 
 import org.junit.Test;
@@ -45,7 +46,7 @@ public class SwarTest {
             for (int pos = 0; pos < len; pos++) {
                 for (int b = 0; b < 256; b++) {
                     final byte[] bytes = new byte[len + 3];
-                    java.util.Arrays.fill(bytes, (byte) 'a');
+                    Arrays.fill(bytes, (byte) 'a');
                     bytes[1 + pos] = (byte) b;
                     final boolean visible = b >= 0x20 && b < 0x7F;
                     assertEquals("len " + len + " pos " + pos + " byte " + b, visible ? 1 + len : 1 + pos,
@@ -61,7 +62,7 @@ public class SwarTest {
             for (int pos = 0; pos < len; pos++) {
                 for (int b = 0; b < 256; b++) {
                     final byte[] bytes = new byte[len + 3];
-                    java.util.Arrays.fill(bytes, (byte) '/');
+                    Arrays.fill(bytes, (byte) '/');
                     bytes[1 + pos] = (byte) b;
                     final boolean delimiter = b <= 0x20 || b == '?';
                     assertEquals("len " + len + " pos " + pos + " byte " + b, delimiter ? 1 + pos : 1 + len,
