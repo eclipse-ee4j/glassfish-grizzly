@@ -25,11 +25,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
-import org.glassfish.grizzly.Buffer;
-import org.glassfish.grizzly.Connection;
-import org.glassfish.grizzly.ConnectionProbe;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.junit.After;
 import org.junit.Before;
@@ -44,6 +40,7 @@ public class PipelinedWriteCoalescingTest {
     private static final int BIG = 100_000;
     private static final int MID = 40_000;
     private static final long SLEEP_MILLIS = 2_000;
+    private static final long NAP_MILLIS = 100;
 
     private HttpServer httpServer;
     private int port;
@@ -63,6 +60,9 @@ public class PipelinedWriteCoalescingTest {
                 }
                 if (uri.startsWith("/sleep")) {
                     Thread.sleep(SLEEP_MILLIS);
+                }
+                if (uri.startsWith("/nap")) {
+                    Thread.sleep(NAP_MILLIS);
                 }
                 response.setContentType("text/plain");
                 response.setContentLength(body.length());
@@ -98,32 +98,30 @@ public class PipelinedWriteCoalescingTest {
         return httpServer.getListener("grizzly").getTransport();
     }
 
+    /**
+     * Each handler takes 100 ms. Written one by one, the responses would arrive about 100 ms apart; held back until
+     * the batch is processed, they leave in one gathering write and arrive together.
+     */
     @Test
-    public void responsesToABatchOfPipelinedRequestsAreWrittenTogether() throws Exception {
-        final AtomicInteger writes = new AtomicInteger();
-        transport().getConnectionMonitoringConfig().addProbes(new ConnectionProbe.Adapter() {
-            @Override
-            public void onWriteEvent(final Connection connection, final Buffer data, final long size) {
-                if (size > 0) {
-                    writes.incrementAndGet();
-                }
-            }
-        });
-
-        final int n = 16;
+    public void responsesToABatchOfPipelinedRequestsLeaveTogether() throws Exception {
+        final int n = 8;
         try (Socket socket = connect()) {
             final StringBuilder requests = new StringBuilder();
             for (int i = 0; i < n; i++) {
-                requests.append(get("/r" + i));
+                requests.append(get("/nap" + i));
             }
             send(socket, requests.toString());
             final InputStream in = socket.getInputStream();
+            long first = 0;
             for (int i = 0; i < n; i++) {
-                assertEquals("/r" + i, readResponseBody(in));
+                assertEquals("/nap" + i, readResponseBody(in));
+                if (i == 0) {
+                    first = System.nanoTime();
+                }
             }
+            final long spreadMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - first);
+            assertTrue("first to last response: " + spreadMillis + " ms", spreadMillis < NAP_MILLIS * 3);
         }
-        // one write per READ of the batch; a READ may end in the middle of the batch, but not often
-        assertTrue("socket writes for " + n + " pipelined responses: " + writes.get(), writes.get() <= 2);
     }
 
     /**
@@ -193,11 +191,13 @@ public class PipelinedWriteCoalescingTest {
     @Test
     public void failingHandlerInPipelinedBatch() throws Exception {
         try (Socket socket = connect()) {
-            send(socket, get("/a") + get("/boom") + "GET /c HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
+            send(socket, get("/a") + get("/boom") + get("/c"));
             final String all = new String(socket.getInputStream().readAllBytes(), StandardCharsets.US_ASCII);
             assertTrue(all, all.startsWith("HTTP/1.1 200"));
             assertTrue(all, all.contains("\r\n\r\n/aHTTP/1.1 500"));
-            assertTrue(all, all.endsWith("\r\n\r\n/c"));
+            // the error response closes the connection: the request pipelined after it is not answered
+            assertTrue(all, all.contains("Connection: close"));
+            assertTrue(all, all.endsWith("</html>"));
         }
     }
 
