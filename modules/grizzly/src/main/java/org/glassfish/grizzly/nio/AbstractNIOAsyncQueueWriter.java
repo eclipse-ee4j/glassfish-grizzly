@@ -469,12 +469,16 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
         }
 
         final TaskQueue<AsyncWriteQueueRecord> writeTaskQueue = nioConnection.getAsyncWriteQueue();
-        int bytesReleased = 0;
+        // Keeps the queue from becoming empty while it's drained here, so no other thread writes directly meanwhile and
+        // the written bytes can be released record by record (completion handlers asking canWrite() see what's left).
+        // Records written by completion handlers are queued behind.
+        writeTaskQueue.reserveSpace(1);
+        boolean failed = false;
         AsyncWriteQueueRecord queueRecord = null;
         try {
             while ((queueRecord = aggregate(writeTaskQueue)) != null) {
                 final RecordWriteResult writeResult = write0(nioConnection, queueRecord);
-                bytesReleased += (int) writeResult.bytesToReleaseAfterLastWrite();
+                writeTaskQueue.releaseSpace((int) writeResult.bytesToReleaseAfterLastWrite());
 
                 if (!queueRecord.isFinished()) {
                     queueRecord.notifyIncomplete();
@@ -482,25 +486,22 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
                     break;
                 }
 
-                // records written by completion handlers are queued behind: the bytes written so far are not released yet
                 finishQueueRecord(nioConnection, queueRecord);
             }
         } catch (IOException e) {
+            failed = true;
             nioConnection.heldWritesState = NIOConnection.NONE_HELD;
             onWriteFailure(nioConnection, queueRecord, e);
-            return;
         } finally {
             nioConnection.heldWritesState = NIOConnection.NONE_HELD;
-        }
-
-        // an incomplete record, or records queued meanwhile, are written as usual
-        if (writeTaskQueue.releaseSpace(bytesReleased) > 0) {
-            try {
-                onReadyToWrite(nioConnection);
-            } catch (IOException e) {
-                LOGGER.log(Level.FINE, "Could not register for OP_WRITE", e);
-                nioConnection.closeSilently();
-                return;
+            // an incomplete record, or records queued meanwhile, are written as usual; also if a completion handler threw
+            if (writeTaskQueue.releaseSpace(1) > 0 && !failed) {
+                try {
+                    onReadyToWrite(nioConnection);
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE, "Could not register for OP_WRITE", e);
+                    nioConnection.closeSilently();
+                }
             }
         }
 
