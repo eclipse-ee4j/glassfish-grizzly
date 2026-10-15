@@ -125,6 +125,16 @@ public class HttpServletResponseImpl implements HttpServletResponse, Holders.Res
     }
 
     /**
+     * Initializes this response and applies the default response character encoding of the given context, if any.
+     */
+    public void initialize(final Response response, final HttpServletRequestImpl servletRequest, final WebappContext context) throws IOException {
+        initialize(response, servletRequest);
+        if (context != null && context.getResponseCharacterEncoding() != null) {
+            setCharacterEncoding(context.getResponseCharacterEncoding());
+        }
+    }
+
+    /**
      * Prevent cloning the facade.
      */
     @Override
