@@ -20,6 +20,7 @@ package org.glassfish.grizzly.attributes;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
 import java.util.HashSet;
+import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
 
@@ -27,7 +28,8 @@ import java.util.function.Supplier;
  * An {@link AttributeHolder} implementation, which stores {@link Attribute} values in an array indexed by
  * {@link Attribute#index()}.
  * <p>
- * This implementation is thread-safe. Reads are a single acquiring array load and writes a CAS on the slot, so the
+ * This implementation is thread-safe. A read is a volatile read of the array plus an acquiring load of the slot, and a
+ * write is a CAS on the slot, so the
  * per-request attribute traffic of a connection (touched by selector, worker and timer threads) neither allocates nor
  * walks a hash table. The array grows like a {@code ConcurrentHashMap} table resizes: under a lock, every slot of the
  * old array is atomically swapped for a {@code MOVED} marker while its value is copied, so a writer racing with the
@@ -37,7 +39,9 @@ import java.util.function.Supplier;
  * Trade-offs: the array is sized by the highest {@link Attribute#index()} stored in this holder, and indexes are
  * global per {@link AttributeBuilder}, so a holder that stores a single attribute with a high index carries an array of
  * that length (one reference per slot). Initializers and array growth of one holder share a single lock, so
- * initializers must not block.
+ * initializers must not block, and must not read attributes with initializers of another holder (two such holders
+ * read in opposite orders by two threads could deadlock). An initializer may read and set attributes of its own
+ * holder: if it sets the attribute being initialized, that value wins over the one it returns.
  *
  * @author Bongjae Chang
  */
@@ -52,6 +56,8 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
     private static final Object[] EMPTY = {};
 
     private static final int MIN_CAPACITY = 16;
+
+    private static final int SPINS_BEFORE_YIELD = 64;
 
     private volatile Object[] values = EMPTY;
 
@@ -215,6 +221,7 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
     // ------------------------------------------------------------------ array
 
     private Object get(final int index) {
+        Objects.checkIndex(index, Integer.MAX_VALUE);
         Object[] array = values;
         while (index < array.length) {
             final Object value = SLOT.getAcquire(array, index);
@@ -230,6 +237,7 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
      * Atomically replaces the value at {@code index} ({@code null} removes it) and returns the previous one.
      */
     private Object getAndSet(final int index, final Object value) {
+        Objects.checkIndex(index, Integer.MAX_VALUE);
         Object[] array = values;
         while (true) {
             if (index >= array.length) {
@@ -252,6 +260,7 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
      * Stores {@code value} at {@code index} unless a value is already there; returns the value in place afterwards.
      */
     private Object putIfAbsent(final int index, final Object value) {
+        Objects.checkIndex(index, Integer.MAX_VALUE);
         Object[] array = values;
         while (true) {
             if (index >= array.length) {
@@ -287,9 +296,14 @@ public class IndexedMapAttributeHolder implements AttributeHolder {
 
     private Object[] awaitResized(final Object[] array) {
         Object[] current;
+        int spins = 0;
         while ((current = values) == array) {
             // the resizing thread has frozen this array and is about to publish the new one
-            Thread.onSpinWait();
+            if (++spins < SPINS_BEFORE_YIELD) {
+                Thread.onSpinWait();
+            } else {
+                Thread.yield(); // the resizing thread may be descheduled
+            }
         }
         return current;
     }
