@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -503,7 +503,7 @@ public class HttpClientFilter extends HttpCodecFilter {
     @Override
     Buffer encodeInitialLine(HttpPacket httpPacket, Buffer output, MemoryManager memoryManager) {
         final HttpRequestPacket httpRequest = (HttpRequestPacket) httpPacket;
-        final byte[] tempEncodingBuffer = httpRequest.getTempHeaderEncodingBuffer();
+        final byte[] tempEncodingBuffer = httpRequest.getTempHeaderEncodingBuffer(output);
         output = put(memoryManager, output, tempEncodingBuffer, httpRequest.getMethodDC());
         output = put(memoryManager, output, Constants.SP);
         output = put(memoryManager, output, tempEncodingBuffer, httpRequest.getRequestURIRef().getRequestURIBC());

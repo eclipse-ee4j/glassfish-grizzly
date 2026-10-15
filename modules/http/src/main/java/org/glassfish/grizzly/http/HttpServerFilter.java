@@ -966,7 +966,7 @@ public class HttpServerFilter extends HttpCodecFilter {
         if (status == httpResponse.getHttpStatus() && httpResponse.isCustomReasonPhraseSet()) {
             final DataChunk customReasonPhrase = httpResponse.isHtmlEncodingCustomReasonPhrase() ? HttpUtils.filter(httpResponse.getReasonPhraseDC())
                     : HttpUtils.filterNonPrintableCharacters(httpResponse.getReasonPhraseDC());
-            output = put(memoryManager, output, httpResponse.getTempHeaderEncodingBuffer(), customReasonPhrase);
+            output = put(memoryManager, output, httpResponse.getTempHeaderEncodingBuffer(output), customReasonPhrase);
         } else {
             output = put(memoryManager, output, status.getReasonPhraseBytes());
         }
