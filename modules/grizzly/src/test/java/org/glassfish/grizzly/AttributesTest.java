@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -29,11 +29,13 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Objects;
 import java.util.Set;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -359,6 +361,99 @@ public class AttributesTest {
             assertEquals(attrs.length / 2, initialized.get());
             assertEquals(attrs.length / 2, holder.getAttributeNames().size());
         }
+    }
+
+    @Test
+    @SuppressWarnings({ "unchecked", "rawtypes" })
+    public void testHotSlotWritesSurviveGrowth() throws Exception {
+        if (!isSafe) {
+            return;
+        }
+        final int writers = 4;
+        for (int round = 0; round < 300; round++) {
+            final AttributeBuilder builder = new DefaultAttributeBuilder();
+            final Attribute[] hot = new Attribute[writers];
+            for (int w = 0; w < writers; w++) {
+                hot[w] = builder.createAttribute("hot-" + w);
+            }
+            final Attribute[] grow = new Attribute[4096];
+            for (int i = 0; i < grow.length; i++) {
+                grow[i] = builder.createAttribute("grow-" + i);
+            }
+            final AttributeHolder holder = builder.createSafeAttributeHolder();
+            final AtomicBoolean done = new AtomicBoolean();
+            final AtomicReference<Throwable> failure = new AtomicReference<>();
+            final CyclicBarrier start = new CyclicBarrier(writers + 1);
+            final Thread[] workers = new Thread[writers];
+            for (int w = 0; w < writers; w++) {
+                final Attribute mine = hot[w];
+                workers[w] = new Thread(() -> {
+                    try {
+                        start.await();
+                        Integer last = null;
+                        while (!done.get()) {
+                            final Object seen = mine.peek(holder);
+                            if (!Objects.equals(seen, last)) {
+                                failure.compareAndSet(null, new AssertionError(mine + ": lost update, expected " + last + " but was " + seen));
+                                return;
+                            }
+                            last = last == null ? 0 : last + 1;
+                            mine.set(holder, last);
+                        }
+                    } catch (Throwable e) {
+                        failure.compareAndSet(null, e);
+                    }
+                });
+                workers[w].start();
+            }
+            start.await();
+            for (int i = 0; i < grow.length; i++) {
+                grow[i].set(holder, "g" + i); // several resizes per round while the hot slots are written
+            }
+            done.set(true);
+            for (Thread t : workers) {
+                t.join();
+            }
+            assertNull(String.valueOf(failure.get()), failure.get());
+        }
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    public void testReentrantAndThrowingInitializers() {
+        if (!isSafe) {
+            return;
+        }
+        final AttributeBuilder builder = new DefaultAttributeBuilder();
+        final AttributeHolder holder = builder.createSafeAttributeHolder();
+        for (int i = 0; i < 100; i++) {
+            builder.createAttribute("filler-" + i);
+        }
+        final Attribute<Object> far = builder.createAttribute("far"); // index 100
+        final Attribute<Object>[] self = new Attribute[1];
+        self[0] = builder.createAttribute("self", (Supplier<Object>) () -> {
+            far.set(holder, "far"); // grows the array while the initializer lock is held
+            self[0].set(holder, "inner"); // re-entrant write of the attribute being initialized
+            return "outer";
+        });
+        assertEquals("inner", self[0].get(holder));
+        assertEquals("inner", self[0].peek(holder));
+        assertEquals("far", far.peek(holder));
+
+        final AtomicInteger calls = new AtomicInteger();
+        final Attribute<Object> flaky = builder.createAttribute("flaky", (Supplier<Object>) () -> {
+            if (calls.incrementAndGet() == 1) {
+                throw new IllegalStateException("boom");
+            }
+            return "ok";
+        });
+        try {
+            flaky.get(holder);
+            fail();
+        } catch (IllegalStateException expected) {
+        }
+        assertNull(flaky.peek(holder));
+        assertEquals("ok", flaky.get(holder)); // the lock was released, the next get initializes
     }
 
     @Test
