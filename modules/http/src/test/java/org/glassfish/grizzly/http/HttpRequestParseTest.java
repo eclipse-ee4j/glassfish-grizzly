@@ -23,6 +23,7 @@ import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
@@ -379,25 +380,54 @@ public class HttpRequestParseTest {
      */
     @Test
     public void testRequestAtNonZeroBufferPosition() throws Exception {
-        final byte[] prefix = "PROXY TCP4 1.2.3.4 5.6.7.8 1 2\r\n".getBytes(StandardCharsets.ISO_8859_1);
+        // an example of bytes an upstream filter could consume before passing the buffer on
+        final byte[] prefix = "PREFIX\r\n".getBytes(StandardCharsets.ISO_8859_1);
         final byte[] request = "GET /p?q=1 HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
-        final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
         for (final boolean direct : new boolean[] { false, true }) {
-            final ByteBuffer bb = direct ? ByteBuffer.allocateDirect(prefix.length + request.length)
-                    : ByteBuffer.allocate(prefix.length + request.length);
-            bb.put(prefix).put(request).flip().position(prefix.length);
-            final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
-            final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
-            ctx.setMessage(Buffers.wrap(mm, bb));
-            filter.handleRead(ctx);
-            final HttpRequestPacket parsed = (HttpRequestPacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
-            final String kind = direct ? "direct" : "heap";
-            assertEquals(kind, Method.GET, parsed.getMethod());
-            assertEquals(kind, "/p", parsed.getRequestURI());
-            assertEquals(kind, "q=1", parsed.getQueryString());
-            assertEquals(kind, "HTTP/1.1", parsed.getProtocolString());
-            assertEquals(kind, "localhost", parsed.getHeader("host"));
+            for (int split = 0; split < request.length; split += 5) {
+                // split > 0: the request arrives in two reads, the second one appended to the first
+                final Buffer first = bufferAtPosition(prefix, Arrays.copyOfRange(request, 0, split == 0 ? request.length : split), direct);
+                final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
+                final StandaloneConnection connection = new StandaloneConnection();
+                FilterChainContext ctx = FilterChainContext.create(connection);
+                ctx.setMessage(first);
+                filter.handleRead(ctx);
+                if (split > 0) {
+                    ctx = FilterChainContext.create(connection);
+                    ctx.setMessage(Buffers.appendBuffers(MemoryManager.DEFAULT_MEMORY_MANAGER, first,
+                            Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, Arrays.copyOfRange(request, split, request.length))));
+                    filter.handleRead(ctx);
+                }
+                assertRequestAtPosition(ctx, (direct ? "direct" : "heap") + " split " + split);
+            }
         }
+    }
+
+    private static Buffer bufferAtPosition(final byte[] prefix, final byte[] data, final boolean direct) {
+        final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
+        final byte[] all = new byte[prefix.length + data.length];
+        System.arraycopy(prefix, 0, all, 0, prefix.length);
+        System.arraycopy(data, 0, all, prefix.length, data.length);
+        final Buffer buffer;
+        if (direct) {
+            final ByteBuffer bb = ByteBuffer.allocateDirect(all.length);
+            bb.put(all).flip();
+            buffer = Buffers.wrap(mm, bb);
+        } else {
+            buffer = Buffers.wrap(mm, all);
+        }
+        buffer.position(prefix.length);
+        return buffer;
+    }
+
+    private static void assertRequestAtPosition(final FilterChainContext ctx, final String kind) {
+        assertTrue(kind + ": " + ctx.getMessage(), ctx.getMessage() instanceof HttpContent);
+        final HttpRequestPacket parsed = (HttpRequestPacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
+        assertEquals(kind, Method.GET, parsed.getMethod());
+        assertEquals(kind, "/p", parsed.getRequestURI());
+        assertEquals(kind, "q=1", parsed.getQueryString());
+        assertEquals(kind, "HTTP/1.1", parsed.getProtocolString());
+        assertEquals(kind, "localhost", parsed.getHeader("host"));
     }
 
     @SuppressWarnings({ "unchecked" })

@@ -250,12 +250,21 @@ public class HttpResponseParseTest {
         final byte[] prefix = "junk".getBytes(StandardCharsets.ISO_8859_1);
         final byte[] response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nX-A: b\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
         for (final boolean direct : new boolean[] { false, true }) {
-            final ByteBuffer bb = direct ? ByteBuffer.allocateDirect(prefix.length + response.length)
-                    : ByteBuffer.allocate(prefix.length + response.length);
-            bb.put(prefix).put(response).flip().position(prefix.length);
+            final byte[] all = new byte[prefix.length + response.length];
+            System.arraycopy(prefix, 0, all, 0, prefix.length);
+            System.arraycopy(response, 0, all, prefix.length, response.length);
+            final Buffer buffer;
+            if (direct) {
+                final ByteBuffer bb = ByteBuffer.allocateDirect(all.length);
+                bb.put(all).flip();
+                buffer = Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, bb);
+            } else {
+                buffer = Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, all);
+            }
+            buffer.position(prefix.length);
             final HttpClientFilter filter = new HttpClientFilter(4096);
             final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
-            ctx.setMessage(Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, bb));
+            ctx.setMessage(buffer);
             filter.handleRead(ctx);
             final HttpResponsePacket parsed = (HttpResponsePacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
             final String kind = direct ? "direct" : "heap";

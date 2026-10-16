@@ -531,10 +531,12 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
                 // if header wasn't parsed - parse
                 if (!decodeHttpPacket(ctx, parsingState, input)) {
                     // if there is not enough data to parse the HTTP header - stop
-                    // filterchain processing
+                    // filterchain processing. The input is kept from its position on and the next read is appended
+                    // to it: index 0 of that buffer is the current position.
+                    parsingState.getHeaderParsingState().rebase(input.position());
                     return ctx.getStopAction(input);
                 } else {
-                    final int headerSizeInBytes = input.position();
+                    final int headerSizeInBytes = input.position() - parsingState.getHeaderParsingState().messageStart;
 
                     if (httpHeader.isUpgrade()) {
                         onIncomingUpgrade(ctx, httpHeader);
@@ -1934,6 +1936,9 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
         public int arrayOffset;
 
+        /** Index of the message's first byte in the buffer being parsed. */
+        public int messageStart;
+
         public DataChunk headerValueStorage;
         public HttpCodecFilter codecFilter;
 
@@ -1948,9 +1953,31 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         public void initialize(final HttpCodecFilter codecFilter, final int initialOffset, final int maxHeaderSize) {
             this.codecFilter = codecFilter;
             // the message starts at the buffer's position, e.g. after a prefix consumed by an upstream filter
+            messageStart = initialOffset;
             start = initialOffset;
             offset = initialOffset;
             packetLimit = offset + maxHeaderSize;
+        }
+
+        /**
+         * Moves the indexes kept while parsing by {@code -delta}, when the buffer's first {@code delta} bytes are dropped.
+         */
+        void rebase(final int delta) {
+            if (delta == 0) {
+                return;
+            }
+            messageStart -= delta;
+            packetLimit -= delta;
+            offset -= delta;
+            if (start != -1) {
+                start -= delta;
+            }
+            if (checkpoint != -1) {
+                checkpoint -= delta;
+            }
+            if (checkpoint2 != -1) {
+                checkpoint2 -= delta;
+            }
         }
 
         public void set(int state, int subState, int start, int offset) {
@@ -1965,6 +1992,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
             subState = 0;
             start = 0;
             offset = 0;
+            messageStart = 0;
             checkpoint = -1;
             checkpoint2 = -1;
             headerValueStorage = null;
