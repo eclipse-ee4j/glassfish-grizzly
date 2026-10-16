@@ -21,14 +21,20 @@ import java.io.CharConversionException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Random;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.HashMap;
 
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.Connection;
@@ -401,6 +407,88 @@ public class HttpRequestParseTest {
         // names are lower-cased in place; values, the body and the bytes around the buffer are untouched
         assertEquals("#####POST /p?q=A?B HTTP/1.1\r\nx-abcdefghijklmnop:VALUE-ABCDEFGH  \r\nhost: LOCALHOST\tX\r\n"
                 + "content-length: 16\r\n\r\nBODYBODYBODYBODY#####", new String(raw, StandardCharsets.ISO_8859_1));
+    }
+
+    /**
+     * The word-at-a-time scans of the Buffer parsing path (direct buffers) and the byte loop of composite buffers must
+     * parse exactly what the byte[] path parses: fixed requests plus random ones, from a direct buffer at an offset and
+     * from a composite split at every position.
+     */
+    @Test
+    public void testBufferPathsParseLikeTheArrayPath() throws Exception {
+        final List<String> requests = new ArrayList<>(asList(
+                "GET /p?q=A?B HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                "GET /static/js/app.bundle.js?v=1&lang=it HTTP/1.1\r\nHOST: Example.COM\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64)\r\n"
+                        + "Accept-Language: it-IT,it;q=0.9\r\nX-Very-Long-Header-Name-Abcdefgh: v\t  \r\n\r\n",
+                "POST /api HTTP/1.1\r\nhost: h\r\nContent-Length: 4\r\nX-Empty:\r\nX-Spaces:    \r\n\r\nBODY",
+                "GET / HTTP/1.1\r\nHost: h\r\nX-Bin: a\u00e9b\u007fc\r\n\r\n",
+                "GET / HTTP/1.1\r\nHost: h\r\nX-Fold: a\r\n  b\r\n\r\n",
+                "GET / HTTP/1.1\r\nHost: h\r\nBad Name: x\r\n\r\n"));
+        final Random random = new Random(2367);
+        final String alphabet = "aZ-0:; \t?/=&%\u00e9\u007f.";
+        for (int i = 0; i < 2000; i++) {
+            final StringBuilder request = new StringBuilder("GET /");
+            appendRandom(request, random, alphabet, 20);
+            request.append(" HTTP/1.1\r\nHost: h\r\n");
+            for (int h = random.nextInt(4); h > 0; h--) {
+                appendRandom(request, random, "Ab-9zZ0x", 14);
+                request.append(':');
+                appendRandom(request, random, alphabet, 30);
+                request.append("\r\n");
+            }
+            requests.add(request.append("\r\n").toString());
+        }
+
+        final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
+        for (final String request : requests) {
+            final byte[] bytes = request.getBytes(StandardCharsets.ISO_8859_1);
+            final String viaArray = parseAndDescribe(Buffers.wrap(mm, bytes.clone()));
+
+            for (final ByteOrder order : new ByteOrder[] { ByteOrder.BIG_ENDIAN, ByteOrder.LITTLE_ENDIAN }) {
+                final ByteBuffer direct = ByteBuffer.allocateDirect(bytes.length + 10).order(order);
+                direct.position(5);
+                direct.put(bytes);
+                direct.flip();
+                direct.position(5);
+                assertEquals(request + " (direct, " + order + ")", viaArray, parseAndDescribe(Buffers.wrap(mm, direct)));
+            }
+
+            for (int split = 1; split < bytes.length; split += 7) {
+                final Buffer composite = Buffers.appendBuffers(mm, Buffers.wrap(mm, Arrays.copyOfRange(bytes, 0, split)),
+                        Buffers.wrap(mm, Arrays.copyOfRange(bytes, split, bytes.length)));
+                assertEquals(request + " (composite split at " + split + ")", viaArray, parseAndDescribe(composite));
+            }
+        }
+    }
+
+    private static void appendRandom(final StringBuilder sb, final Random random, final String alphabet, final int maxLength) {
+        for (int n = random.nextInt(maxLength + 1); n > 0; n--) {
+            sb.append(alphabet.charAt(random.nextInt(alphabet.length())));
+        }
+    }
+
+    private static String parseAndDescribe(final Buffer input) {
+        final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
+        final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
+        ctx.setMessage(input);
+        try {
+            filter.handleRead(ctx);
+        } catch (Exception e) {
+            return "error " + e.getClass().getName();
+        }
+        if (!(ctx.getMessage() instanceof HttpContent)) {
+            return "incomplete";
+        }
+        final HttpRequestPacket r = (HttpRequestPacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
+        final StringBuilder sb = new StringBuilder();
+        sb.append(r.getMethod()).append(' ').append(r.getRequestURI()).append(" ? ").append(r.getQueryString()).append(' ')
+                .append(r.getProtocolString()).append(" error=").append(r.getProcessingState().isError()).append('\n');
+        for (final String name : r.getHeaders().names()) {
+            for (final String value : r.getHeaders().values(name)) {
+                sb.append(name).append(": [").append(value).append("]\n");
+            }
+        }
+        return sb.toString();
     }
 
     @SuppressWarnings({ "unchecked" })
