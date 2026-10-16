@@ -67,7 +67,7 @@ public class SSLHandshakeAppDataTest {
     private TCPNIOTransport transport;
 
     @After
-    public void after() {
+    public void after() throws IOException {
         if (transport != null) {
             transport.shutdownNow();
         }
