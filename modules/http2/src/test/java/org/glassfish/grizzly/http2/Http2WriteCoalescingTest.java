@@ -19,8 +19,12 @@ package org.glassfish.grizzly.http2;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
+import java.io.DataInputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -202,6 +206,83 @@ public class Http2WriteCoalescingTest extends AbstractHttp2Test {
         } finally {
             client.close();
         }
+    }
+
+    /**
+     * A client that never sends WINDOW_UPDATE: the server must not send more DATA than the initial connection window
+     * (65535 bytes), although the responses would take the combined write if the window were not checked.
+     */
+    @Test
+    public void combinedWriteRespectsTheConnectionWindow() throws Exception {
+        final int streams = 8;
+        final int size = 16000;
+        final List<Response> suspended = new ArrayList<>();
+        httpServer.getServerConfiguration().addHttpHandler(new HttpHandler() {
+            @Override
+            public void service(final Request request, final Response response) throws Exception {
+                response.suspend();
+                synchronized (suspended) {
+                    suspended.add(response);
+                    if (suspended.size() < streams) {
+                        return;
+                    }
+                }
+                executor.execute(() -> {
+                    for (final Response r : suspended) {
+                        writeAndResume(r, new byte[size]);
+                    }
+                });
+            }
+        }, "/");
+        httpServer.start();
+
+        try (Socket socket = new Socket("localhost", port)) {
+            socket.setSoTimeout(2000);
+            final OutputStream out = socket.getOutputStream();
+            out.write("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+            writeFrame(out, 0x4, 0, 0, new byte[0]); // SETTINGS
+            final byte[] authority = "localhost".getBytes(StandardCharsets.US_ASCII);
+            // :method GET, :scheme http, :path /, :authority localhost (HPACK, without indexing)
+            final byte[] headerBlock = new byte[3 + 2 + authority.length];
+            headerBlock[0] = (byte) 0x82;
+            headerBlock[1] = (byte) 0x86;
+            headerBlock[2] = (byte) 0x84;
+            headerBlock[3] = 0x01;
+            headerBlock[4] = (byte) authority.length;
+            System.arraycopy(authority, 0, headerBlock, 5, authority.length);
+            for (int i = 0; i < streams; i++) {
+                writeFrame(out, 0x1, 0x5, 1 + 2 * i, headerBlock); // HEADERS, END_STREAM | END_HEADERS
+            }
+            out.flush();
+
+            final DataInputStream in = new DataInputStream(socket.getInputStream());
+            long dataBytes = 0;
+            try {
+                while (true) {
+                    final int length = in.readUnsignedShort() << 8 | in.readUnsignedByte();
+                    final int type = in.readUnsignedByte();
+                    final int flags = in.readUnsignedByte();
+                    in.readInt();
+                    in.skipNBytes(length);
+                    if (type == 0x0) {
+                        dataBytes += length;
+                    } else if (type == 0x4 && (flags & 0x1) == 0) {
+                        writeFrame(out, 0x4, 0x1, 0, new byte[0]); // SETTINGS ack
+                        out.flush();
+                    }
+                }
+            } catch (SocketTimeoutException expected) {
+                // nothing more is sent before a WINDOW_UPDATE
+            }
+            assertTrue("DATA bytes sent within the connection window: " + dataBytes, dataBytes > 0 && dataBytes <= 65535);
+        }
+    }
+
+    private static void writeFrame(final OutputStream out, final int type, final int flags, final int streamId, final byte[] payload)
+            throws IOException {
+        out.write(new byte[] { (byte) (payload.length >>> 16), (byte) (payload.length >>> 8), (byte) payload.length, (byte) type, (byte) flags,
+                (byte) (streamId >>> 24), (byte) (streamId >>> 16), (byte) (streamId >>> 8), (byte) streamId });
+        out.write(payload);
     }
 
     private TCPNIOTransport transport() {
