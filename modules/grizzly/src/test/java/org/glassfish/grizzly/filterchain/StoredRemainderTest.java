@@ -32,8 +32,8 @@ import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
 import org.junit.Test;
 
 /**
- * A remainder a filter stored with its stop action survives an empty {@link Buffer} reaching that filter, as filters
- * that decode or decrypt input may pass on (e.g. {@code LZMAFilter} when a chunk decodes to nothing).
+ * A remainder a filter stored with its stop action survives an empty {@link Buffer} reaching that filter, e.g. from a
+ * filter before it that decodes the input and got nothing out of a read.
  */
 public class StoredRemainderTest {
 

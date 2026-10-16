@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -453,6 +454,12 @@ public final class DefaultFilterChain extends ListFacadeFilterChain {
             if (message instanceof Buffer) {
                 Buffer bufferMessage = (Buffer) message;
                 if (!bufferMessage.hasRemaining()) {
+                    // nothing to append: give the filter what it stored instead, otherwise the remainder it returns
+                    // for the empty buffer would replace the stored one
+                    if (filtersState.get(ctx.getOperation(), filterIdx) != null) {
+                        bufferMessage.tryDispose();
+                        ctx.setMessage(filtersState.append(ctx.getOperation(), filterIdx, null));
+                    }
                     return;
                 }
             }
