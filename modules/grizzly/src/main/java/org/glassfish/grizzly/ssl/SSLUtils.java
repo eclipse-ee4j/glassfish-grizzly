@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -314,6 +315,10 @@ public final class SSLUtils {
             };
         }
 
+        // the cached buffer may be larger than asked for: offer only the requested size (dispose() clears the limit)
+        if (buffer.remaining() > size) {
+            buffer.limit(buffer.position() + size);
+        }
         return buffer;
     }
 
