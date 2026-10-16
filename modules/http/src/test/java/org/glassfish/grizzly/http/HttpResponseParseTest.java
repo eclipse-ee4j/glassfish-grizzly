@@ -223,6 +223,21 @@ public class HttpResponseParseTest {
         assertEquals("100-continue", header.getHeader("Expect"));
     }
 
+    @Test
+    public void testExpectHeaderInResponseFromNonArrayBuffer() throws IOException {
+        // a composite buffer has no backing array: the header is parsed from the Buffer, not from a byte[]
+        final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
+        final Buffer input = Buffers.appendBuffers(mm, Buffers.wrap(mm, "HTTP/1.1 200 OK\r\nExp"),
+                Buffers.wrap(mm, "ect: 100-continue\r\nContent-Length: 0\r\n\r\n"));
+        assertTrue(!input.hasArray());
+        final HttpClientFilter filter = new HttpClientFilter(4096);
+        final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
+        ctx.setMessage(input);
+        filter.handleRead(ctx);
+        final HttpHeader header = ((HttpContent) ctx.getMessage()).getHttpHeader();
+        assertEquals("100-continue", header.getHeader("Expect"));
+    }
+
     @SuppressWarnings({ "unchecked" })
     private HttpPacket doTestDecoder(String response, int limit) {
 
