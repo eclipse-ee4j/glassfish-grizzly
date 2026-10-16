@@ -210,6 +210,12 @@ public class MimeHeadersTest {
         final DataChunk evil = DataChunk.newInstance();
         evil.setString("evil");
         noop.set(evil, 0, 4);
+        final DataChunk evilBytes = DataChunk.newInstance();
+        evilBytes.setBytes("evil".getBytes(StandardCharsets.ISO_8859_1));
+        noop.duplicate(evilBytes);
+        noop.setStart(1);
+        noop.setEnd(3);
+        noop.trimLeft();
         Assert.assertTrue(MimeHeaders.NOOP_CHUNK.isNull());
     }
 }
