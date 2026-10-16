@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.Locale;
 
 import org.glassfish.grizzly.Buffer;
+import org.glassfish.grizzly.http.HttpHeaderTooLargeException;
 
 /* XXX XXX XXX Need a major rewrite  !!!!
  */
@@ -399,7 +400,8 @@ public class MimeHeaders {
      */
     private MimeHeaderField createHeader() {
         if (maxNumHeaders >= 0 && count == maxNumHeaders) {
-            throw new MaxHeaderCountExceededException();
+            throw new HttpHeaderTooLargeException(
+                    "Illegal attempt to exceed the configured maximum number of headers: " + maxNumHeaders);
         }
         MimeHeaderField mh;
         int len = headers.length;
@@ -651,14 +653,6 @@ public class MimeHeaders {
     public int getMaxNumHeaders() {
         return maxNumHeaders;
     }
-
-    public class MaxHeaderCountExceededException extends IllegalStateException {
-
-        public MaxHeaderCountExceededException() {
-            super("Illegal attempt to exceed the configured maximum number of headers: " + maxNumHeaders);
-        }
-
-    } // END MaxHeaderCountExceededException
 
     private boolean isValidName(final String name) {
         return !marked || Arrays.binarySearch(INVALID_TRAILER_NAMES, name.toLowerCase(Locale.ROOT)) < 0;
