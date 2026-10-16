@@ -388,10 +388,11 @@ public class SSLBaseFilter extends BaseFilter {
 
             if (isHandshaking(sslCtx.getSslEngine())) {
                 // is it re-handshake or graceful ssl termination
+                // the rest of the input (e.g. records the peer sent right after its ClientHello) belongs to the handshake
                 if (result.getSslEngineResult().getStatus() != Status.CLOSED) {
-                    input = rehandshake(ctx, sslCtx);
+                    input = rehandshake(ctx, sslCtx, input);
                 } else {
-                    input = silentRehandshake(ctx, sslCtx); // silent SSL termination
+                    input = silentRehandshake(ctx, sslCtx, input); // silent SSL termination
                     isClosed = true;
                 }
 
@@ -650,7 +651,7 @@ public class SSLBaseFilter extends BaseFilter {
         try {
             // Application data the peer sends during this renegotiation is passed upstream with the next read. Input
             // read beyond the end of the handshake is dropped, as it was before application data was kept.
-            rehandshake(context, sslCtx);
+            rehandshake(context, sslCtx, null);
         } finally {
             if (!authConfigured) {
                 sslEngine.setNeedClientAuth(false);
@@ -674,9 +675,9 @@ public class SSLBaseFilter extends BaseFilter {
         return result;
     }
 
-    private Buffer silentRehandshake(final FilterChainContext context, final SSLConnectionContext sslCtx) throws SSLException {
+    private Buffer silentRehandshake(final FilterChainContext context, final SSLConnectionContext sslCtx, final Buffer input) throws SSLException {
         try {
-            return doHandshakeSync(sslCtx, context, null, handshakeTimeoutMillis);
+            return doHandshakeSync(sslCtx, context, input, handshakeTimeoutMillis);
         } catch (Throwable t) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.log(Level.FINE, "Error during graceful ssl connection close", t);
@@ -690,13 +691,13 @@ public class SSLBaseFilter extends BaseFilter {
         }
     }
 
-    private Buffer rehandshake(final FilterChainContext context, final SSLConnectionContext sslCtx) throws SSLException {
+    private Buffer rehandshake(final FilterChainContext context, final SSLConnectionContext sslCtx, final Buffer input) throws SSLException {
         final Connection c = context.getConnection();
 
         notifyHandshakeStart(c);
 
         try {
-            final Buffer buffer = doHandshakeSync(sslCtx, context, null, handshakeTimeoutMillis);
+            final Buffer buffer = doHandshakeSync(sslCtx, context, input, handshakeTimeoutMillis);
 
             notifyHandshakeComplete(c, sslCtx.getSslEngine());
 
