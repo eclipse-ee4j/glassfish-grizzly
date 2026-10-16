@@ -24,6 +24,7 @@ import static org.glassfish.grizzly.http.util.HttpCodecUtils.skipSpaces;
 import static org.glassfish.grizzly.utils.Charsets.ASCII_CHARSET;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -46,6 +47,8 @@ import org.glassfish.grizzly.http.util.DataChunk;
 import org.glassfish.grizzly.http.util.Header;
 import org.glassfish.grizzly.http.util.HttpStatus;
 import org.glassfish.grizzly.http.util.MimeHeaders;
+import org.glassfish.grizzly.http.util.Swar;
+import org.glassfish.grizzly.memory.ByteBufferWrapper;
 import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.memory.CompositeBuffer;
 import org.glassfish.grizzly.memory.CompositeBuffer.DisposeOrder;
@@ -809,7 +812,8 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
         final int limit = Math.min(end, arrayOffs + parsingState.packetLimit);
         final int start = arrayOffs + parsingState.start;
-        int offset = arrayOffs + parsingState.offset;
+        // letters, digits and '-' are valid token bytes needing nothing but lower-casing: skip them in bulk
+        int offset = Swar.skipAlphaNumDash(input, arrayOffs + parsingState.offset, limit, !preserveHeaderCase);
 
         while (offset < limit) {
             byte b = input[offset];
@@ -856,6 +860,22 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         int offset = arrayOffs + parsingState.offset;
 
         final boolean hasShift = offset != arrayOffs + parsingState.checkpoint;
+
+        if (!hasShift) {
+            // visible ASCII and SP only advance the checkpoints
+            final int stop = Swar.indexOfNonVisible(input, offset, limit);
+            if (stop > offset) {
+                int valueEnd = stop;
+                while (valueEnd > offset && input[valueEnd - 1] == Constants.SP) {
+                    valueEnd--;
+                }
+                if (valueEnd > offset) {
+                    parsingState.checkpoint2 = valueEnd - arrayOffs;
+                }
+                parsingState.checkpoint = stop - arrayOffs;
+                offset = stop;
+            }
+        }
 
         while (offset < limit) {
             final byte b = input[offset];
@@ -1104,6 +1124,12 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         final int start = parsingState.start;
         int offset = parsingState.offset;
 
+        final ByteBuffer words = wordView(input);
+        if (words != null) {
+            // letters, digits and '-' need nothing but lower-casing: skip them a word at a time, as for byte arrays
+            offset = Swar.skipAlphaNumDash(words, offset, limit, !preserveHeaderCase);
+        }
+
         while (offset < limit) {
             byte b = input.get(offset);
             if (b == Constants.COLON) {
@@ -1148,6 +1174,23 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         int offset = parsingState.offset;
 
         final boolean hasShift = offset != parsingState.checkpoint;
+
+        final ByteBuffer words = hasShift ? null : wordView(input);
+        if (words != null) {
+            // visible ASCII and SP only advance the checkpoints, as for byte arrays
+            final int stop = Swar.indexOfNonVisible(words, offset, limit);
+            if (stop > offset) {
+                int valueEnd = stop;
+                while (valueEnd > offset && input.get(valueEnd - 1) == Constants.SP) {
+                    valueEnd--;
+                }
+                if (valueEnd > offset) {
+                    parsingState.checkpoint2 = valueEnd;
+                }
+                parsingState.checkpoint = stop;
+                offset = stop;
+            }
+        }
 
         while (offset < limit) {
             final byte b = input.get(offset);
@@ -1209,6 +1252,14 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         }
         parsingState.offset = offset;
         return -1;
+    }
+
+    /**
+     * A {@link ByteBuffer} with the same absolute indexes as {@code input}, for reading it a word at a time, or
+     * {@code null} if there is none (composite buffers: their components would have to be read one by one).
+     */
+    static ByteBuffer wordView(final Buffer input) {
+        return input instanceof ByteBufferWrapper && !input.isComposite() ? input.toByteBuffer() : null;
     }
 
     private static void finalizeKnownHeaderNames(final HttpHeader httpHeader, final HeaderParsingState parsingState, final Buffer input, final int start,
