@@ -30,125 +30,170 @@ import javax.net.ssl.SSLException;
  * outside the JDK.
  * <p>
  * Such engines (e.g. the OpenSSL based one of Netty) work on native memory: for every heap source or destination they
- * allocate a direct buffer of their own, copy and release it, on every call. Some of them also turn every source
- * buffer of a gathering wrap into a record of its own, or wrap only the first one per call. Staging the data here
- * costs one copy of plain memory per direction and gives the engine one direct source and one direct destination: one
- * record per wrap and no allocation inside the engine.
+ * take a direct buffer of their own, copy and release it, on every call. Some of them also wrap only the first source
+ * buffer of a gathering wrap per call, one record each. Staging the data here costs one copy of plain memory per
+ * direction and gives the engine one direct source and one direct destination: one record per wrap and no buffer
+ * management inside the engine.
  * <p>
- * Only platform threads keep a staging area: a virtual thread gets {@code null} and the caller hands its own buffers
- * to the engine as before.
+ * The staging area of a thread is an array of JDK types only, so it pins no class loader. Only platform threads keep
+ * one: on a virtual thread, while the area is in use on the thread, for a buffer above {@link #MAX_STAGED_BYTES} or when
+ * direct memory runs out, the engine gets the caller's buffers as before.
  */
 final class DirectEngineBuffers {
 
     /** Upper bound of each staging buffer: a record or its plaintext with room to spare. */
     static final int MAX_STAGED_BYTES = 64 * 1024;
 
-    private static final ThreadLocal<DirectEngineBuffers> CACHE = ThreadLocal.withInitial(DirectEngineBuffers::new);
+    private static final int SOURCE = 0;
+    private static final int DESTINATION = 1;
+    private static final int IN_USE = 2;
+    private static final ByteBuffer IN_USE_MARK = ByteBuffer.allocate(0);
+    private static final ByteBuffer NONE = ByteBuffer.allocateDirect(0);
 
-    private ByteBuffer source = ByteBuffer.allocateDirect(0);
-    private ByteBuffer destination = ByteBuffer.allocateDirect(0);
-    private boolean inUse;
+    private static final ThreadLocal<ByteBuffer[]> AREA = ThreadLocal.withInitial(() -> new ByteBuffer[] { NONE, NONE, null });
 
     private DirectEngineBuffers() {
     }
 
     /**
      * @return this thread's staging area, or {@code null} on a virtual thread or while the area is already in use on
-     * this thread. A non-null result must be given back with {@link #release()}.
+     * this thread. A non-null result must be given back with {@link #release(ByteBuffer[])}.
      */
-    static DirectEngineBuffers acquire() {
+    static ByteBuffer[] acquire() {
         if (Thread.currentThread().isVirtual()) {
             return null;
         }
-        final DirectEngineBuffers buffers = CACHE.get();
-        if (buffers.inUse) {
+        final ByteBuffer[] area = AREA.get();
+        if (area[IN_USE] != null) {
             return null;
         }
-        buffers.inUse = true;
-        return buffers;
+        area[IN_USE] = IN_USE_MARK;
+        return area;
     }
 
-    void release() {
-        inUse = false;
+    static void release(final ByteBuffer[] area) {
+        area[IN_USE] = null;
     }
 
     /**
-     * Wraps at most {@code maxPlaintext} bytes of {@code srcs[0..srcsLength)}, gathered into one direct buffer, into
-     * {@code dst}. The positions of the sources are advanced by the bytes the engine consumed, the one of {@code dst} by
-     * the bytes it produced, as a gathering {@link SSLEngine#wrap(ByteBuffer[], int, int, ByteBuffer)} would do.
+     * Wraps at most {@code maxPlaintext} bytes (at most {@link #MAX_STAGED_BYTES}, all of them if {@code maxPlaintext}
+     * is not positive) of {@code srcs[0..srcsLength)}, gathered into one direct buffer, into {@code dst}. The positions
+     * of the sources and of {@code dst} are advanced as a gathering {@link SSLEngine#wrap(ByteBuffer[], int, int,
+     * ByteBuffer)} would do.
+     *
+     * @return the engine's result, or {@code null} if direct memory ran out: then nothing was passed to the engine
      */
-    SSLEngineResult wrap(final SSLEngine engine, final ByteBuffer[] srcs, final int srcsLength, final int maxPlaintext, final ByteBuffer dst)
-            throws SSLException {
-        final ByteBuffer in = source(Math.min(maxPlaintext, MAX_STAGED_BYTES));
-        for (int i = 0; i < srcsLength && in.hasRemaining(); i++) {
-            final ByteBuffer src = srcs[i];
-            final int position = src.position();
-            final int limit = src.limit();
-            src.limit(position + Math.min(src.remaining(), in.remaining()));
-            in.put(src);
-            src.limit(limit);
-            src.position(position);
+    static SSLEngineResult wrap(final ByteBuffer[] area, final SSLEngine engine, final ByteBuffer[] srcs, final int srcsLength,
+            final int maxPlaintext, final ByteBuffer dst) throws SSLException {
+        final ByteBuffer out = destination(area, dst);
+        if (out == null) {
+            return null;
         }
-        in.flip();
 
-        final ByteBuffer out = dst.isDirect() ? dst : destination(dst.remaining());
+        final boolean gather = srcsLength != 1 || !srcs[0].isDirect();
+        final ByteBuffer in;
+        if (!gather) {
+            in = srcs[0];
+        } else {
+            long remaining = 0;
+            for (int i = 0; i < srcsLength; i++) {
+                remaining += srcs[i].remaining();
+            }
+            final int size = (int) Math.min(remaining, maxPlaintext > 0 ? Math.min(maxPlaintext, MAX_STAGED_BYTES) : MAX_STAGED_BYTES);
+            in = buffer(area, SOURCE, size);
+            if (in == null) {
+                return null;
+            }
+            for (int i = 0; i < srcsLength && in.hasRemaining(); i++) {
+                final ByteBuffer src = srcs[i];
+                final int position = src.position();
+                final int limit = src.limit();
+                src.limit(position + Math.min(src.remaining(), in.remaining()));
+                in.put(src);
+                src.limit(limit);
+                src.position(position);
+            }
+            in.flip();
+        }
+
         final SSLEngineResult result = sslEngineWrap(engine, in, out);
 
-        int consumed = in.position();
-        for (int i = 0; i < srcsLength && consumed > 0; i++) {
-            final ByteBuffer src = srcs[i];
-            final int n = Math.min(src.remaining(), consumed);
-            src.position(src.position() + n);
-            consumed -= n;
+        if (gather) {
+            int consumed = in.position();
+            for (int i = 0; i < srcsLength && consumed > 0; i++) {
+                final ByteBuffer src = srcs[i];
+                final int n = Math.min(src.remaining(), consumed);
+                src.position(src.position() + n);
+                consumed -= n;
+            }
         }
-        if (out != dst) {
-            dst.put(out.flip());
-        }
+        copyProduced(out, dst, result);
         return result;
     }
 
     /**
-     * Unwraps {@code src} into {@code dst}, staging either one that is not direct (a source above
-     * {@link #MAX_STAGED_BYTES} is passed as it is). The positions of {@code src} and
+     * Unwraps {@code src} into {@code dst}, staging either one that is not direct. The positions of {@code src} and
      * {@code dst} are advanced as {@link SSLEngine#unwrap(ByteBuffer, ByteBuffer)} would do.
+     *
+     * @return the engine's result, or {@code null} if direct memory ran out: then nothing was passed to the engine
      */
-    SSLEngineResult unwrap(final SSLEngine engine, final ByteBuffer src, final ByteBuffer dst) throws SSLException {
+    static SSLEngineResult unwrap(final ByteBuffer[] area, final SSLEngine engine, final ByteBuffer src, final ByteBuffer dst) throws SSLException {
+        final ByteBuffer out = destination(area, dst);
+        if (out == null) {
+            return null;
+        }
+
         final ByteBuffer in;
         if (src.isDirect() || src.remaining() > MAX_STAGED_BYTES) {
             in = src;
         } else {
-            in = source(src.remaining());
+            in = buffer(area, SOURCE, src.remaining());
+            if (in == null) {
+                return null;
+            }
             final int position = src.position();
             in.put(src).flip();
             src.position(position);
         }
 
-        final ByteBuffer out = dst.isDirect() ? dst : destination(dst.remaining());
         final SSLEngineResult result = sslEngineUnwrap(engine, in, out);
 
         if (in != src) {
             src.position(src.position() + in.position());
         }
-        if (out != dst) {
-            dst.put(out.flip());
-        }
+        copyProduced(out, dst, result);
         return result;
     }
 
-    /** A cleared direct buffer with exactly {@code size} bytes remaining. */
-    private ByteBuffer source(final int size) {
-        if (source.capacity() < size) {
-            source = ByteBuffer.allocateDirect(size);
-        }
-        return source.clear().limit(size);
+    /** {@code dst} itself if it is direct or above the bound, else a staging buffer with as many bytes remaining. */
+    private static ByteBuffer destination(final ByteBuffer[] area, final ByteBuffer dst) {
+        return dst.isDirect() || dst.remaining() > MAX_STAGED_BYTES ? dst : buffer(area, DESTINATION, dst.remaining());
     }
 
-    /** A cleared direct buffer with {@code size} bytes remaining, at most {@link #MAX_STAGED_BYTES}. */
-    private ByteBuffer destination(int size) {
-        size = Math.min(size, MAX_STAGED_BYTES);
-        if (destination.capacity() < size) {
-            destination = ByteBuffer.allocateDirect(size);
+    /**
+     * Copies what the engine produced into a staged destination to {@code dst}: as many bytes as it reported or, if its
+     * position moved further, as its position moved (the caller advances the Grizzly buffer by the reported count).
+     */
+    private static void copyProduced(final ByteBuffer out, final ByteBuffer dst, final SSLEngineResult result) {
+        if (out == dst) {
+            return;
         }
-        return destination.clear().limit(size);
+        final int produced = Math.min(out.limit(), Math.max(out.position(), result.bytesProduced()));
+        dst.put(out.limit(produced).position(0));
+    }
+
+    /** The cleared buffer of the slot with exactly {@code size} bytes remaining, or {@code null} if it can't grow. */
+    private static ByteBuffer buffer(final ByteBuffer[] area, final int slot, final int size) {
+        ByteBuffer buffer = area[slot];
+        if (buffer.capacity() < size) {
+            try {
+                buffer = ByteBuffer.allocateDirect(size);
+            } catch (OutOfMemoryError e) {
+                // direct memory is exhausted (-XX:MaxDirectMemorySize): let the engine work on the caller's buffers
+                return null;
+            }
+            area[slot] = buffer;
+        }
+        return buffer.clear().limit(size);
     }
 }
