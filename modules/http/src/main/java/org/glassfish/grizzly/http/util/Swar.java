@@ -106,7 +106,7 @@ public final class Swar {
             final long word = getLong(array, from);
             final long lower = toLowerCase(word);
             final int n = Long.numberOfTrailingZeros(notAlphaNumDashMask(word, lower)) >>> 3; // 8 if every lane matched
-            if (toLowerCase && n != 0 && lower != word) {
+            if (toLowerCase && changesFirstLanes(word, lower, n)) {
                 LONGS.set(array, from, lowerFirstLanes(word, lower, n));
             }
             from += n;
@@ -129,12 +129,24 @@ public final class Swar {
         return ~((letter | digit | dash) & ~word) & HI;
     }
 
+    private static long firstLanes(final int n) {
+        return n == Long.BYTES ? -1L : (1L << (n << 3)) - 1;
+    }
+
     /**
      * The first {@code n} lanes from {@code lower}, the others from {@code word}.
      */
     private static long lowerFirstLanes(final long word, final long lower, final int n) {
-        final long keep = n == Long.BYTES ? -1L : (1L << (n << 3)) - 1;
+        final long keep = firstLanes(n);
         return lower & keep | word & ~keep;
+    }
+
+    /**
+     * Whether lower-casing changes any of the first {@code n} lanes (upper-case letters after them, e.g. in a header
+     * value in the same word, don't count: nothing is written then).
+     */
+    private static boolean changesFirstLanes(final long word, final long lower, final int n) {
+        return ((lower ^ word) & firstLanes(n)) != 0;
     }
 
     /**
@@ -199,7 +211,7 @@ public final class Swar {
             final long word = getLong(buffer, from);
             final long lower = toLowerCase(word);
             final int n = Long.numberOfTrailingZeros(notAlphaNumDashMask(word, lower)) >>> 3; // 8 if every lane matched
-            if (toLowerCase && n != 0 && lower != word) {
+            if (toLowerCase && changesFirstLanes(word, lower, n)) {
                 BUFFER_LONGS.set(buffer, from, lowerFirstLanes(word, lower, n));
             }
             from += n;

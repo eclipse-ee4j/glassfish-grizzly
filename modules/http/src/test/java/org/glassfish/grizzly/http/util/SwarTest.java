@@ -124,19 +124,20 @@ public class SwarTest {
                 bytes[i] = rnd.nextInt(4) == 0 ? (byte) rnd.nextInt(256) : alphabet[rnd.nextInt(alphabet.length)];
             }
             final int from = len == 0 ? 0 : rnd.nextInt(len);
-            for (final ByteOrder order : new ByteOrder[] { ByteOrder.BIG_ENDIAN, ByteOrder.LITTLE_ENDIAN }) {
-                final ByteBuffer buffer = ByteBuffer.allocateDirect(len + 3).order(order);
-                buffer.position(3);
-                buffer.put(bytes);
-                final String msg = Arrays.toString(bytes) + " from " + from + " " + order;
+            for (int kind = 0; kind < 6; kind++) {
+                final ByteOrder order = kind % 2 == 0 ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN;
+                final boolean direct = kind < 4;
+                final boolean readOnly = kind >= 4;
+                // 3 bytes before and 5 non-matching bytes after the range (beyond the limit)
+                final ByteBuffer buffer = newBuffer(bytes, direct, order, readOnly);
+                final String msg = Arrays.toString(bytes) + " from " + from + " " + order + (direct ? " direct" : " heap")
+                        + (readOnly ? " read-only" : "");
 
                 assertEquals(msg, Swar.indexOfNonVisible(bytes, from, len) + 3, Swar.indexOfNonVisible(buffer, from + 3, len + 3));
                 assertEquals(msg, Swar.indexOfUriDelimiter(bytes, from, len) + 3, Swar.indexOfUriDelimiter(buffer, from + 3, len + 3));
-                for (final boolean lower : new boolean[] { false, true }) {
+                for (final boolean lower : readOnly ? new boolean[] { false } : new boolean[] { false, true }) {
                     final byte[] array = bytes.clone();
-                    final ByteBuffer copy = ByteBuffer.allocateDirect(len + 3).order(order);
-                    copy.position(3);
-                    copy.put(bytes);
+                    final ByteBuffer copy = newBuffer(bytes, direct, order, false);
                     assertEquals(msg + " lower " + lower, Swar.skipAlphaNumDash(array, from, len, lower) + 3,
                             Swar.skipAlphaNumDash(copy, from + 3, len + 3, lower));
                     for (int i = 0; i < len; i++) {
@@ -145,6 +146,18 @@ public class SwarTest {
                 }
             }
         }
+    }
+
+    private static ByteBuffer newBuffer(final byte[] bytes, final boolean direct, final ByteOrder order, final boolean readOnly) {
+        final int capacity = bytes.length + 8;
+        final ByteBuffer buffer = (direct ? ByteBuffer.allocateDirect(capacity) : ByteBuffer.allocate(capacity)).order(order);
+        buffer.position(3);
+        buffer.put(bytes);
+        while (buffer.hasRemaining()) {
+            buffer.put((byte) '\n'); // non-visible, a delimiter and not a token byte: must not be reached
+        }
+        buffer.limit(bytes.length + 3);
+        return readOnly ? buffer.asReadOnlyBuffer().order(order) : buffer;
     }
 
     @Test

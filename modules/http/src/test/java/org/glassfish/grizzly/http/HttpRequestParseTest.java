@@ -51,6 +51,7 @@ import org.glassfish.grizzly.http.util.MimeHeaders;
 import org.glassfish.grizzly.http.util.RequestURIRef;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.impl.SafeFutureImpl;
+import org.glassfish.grizzly.memory.ByteBufferWrapper;
 import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.memory.MemoryManager;
 import org.glassfish.grizzly.nio.NIOConnection;
@@ -440,25 +441,53 @@ public class HttpRequestParseTest {
         }
 
         final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
-        for (final String request : requests) {
-            final byte[] bytes = request.getBytes(StandardCharsets.ISO_8859_1);
-            final String viaArray = parseAndDescribe(Buffers.wrap(mm, bytes.clone()));
+        for (final boolean preserveCase : new boolean[] { false, true }) {
+            for (final String request : requests) {
+                final byte[] bytes = request.getBytes(StandardCharsets.ISO_8859_1);
+                final String viaArray = parseAndDescribe(Buffers.wrap(mm, bytes.clone()), preserveCase);
 
-            for (final ByteOrder order : new ByteOrder[] { ByteOrder.BIG_ENDIAN, ByteOrder.LITTLE_ENDIAN }) {
-                final ByteBuffer direct = ByteBuffer.allocateDirect(bytes.length + 10).order(order);
-                direct.position(5);
-                direct.put(bytes);
-                direct.flip();
-                direct.position(5);
-                assertEquals(request + " (direct, " + order + ")", viaArray, parseAndDescribe(Buffers.wrap(mm, direct)));
-            }
+                for (final ByteOrder order : new ByteOrder[] { ByteOrder.BIG_ENDIAN, ByteOrder.LITTLE_ENDIAN }) {
+                    final ByteBuffer direct = ByteBuffer.allocateDirect(bytes.length + 10).order(order);
+                    direct.position(5);
+                    direct.put(bytes);
+                    direct.flip();
+                    direct.position(5);
+                    assertEquals(request + " (direct, " + order + ")", viaArray, parseAndDescribe(Buffers.wrap(mm, direct), preserveCase));
+                }
 
-            for (int split = 1; split < bytes.length; split += 7) {
-                final Buffer composite = Buffers.appendBuffers(mm, Buffers.wrap(mm, Arrays.copyOfRange(bytes, 0, split)),
-                        Buffers.wrap(mm, Arrays.copyOfRange(bytes, split, bytes.length)));
-                assertEquals(request + " (composite split at " + split + ")", viaArray, parseAndDescribe(composite));
+                for (int split = 1; split < bytes.length; split += 7) {
+                    final Buffer composite = Buffers.appendBuffers(mm, Buffers.wrap(mm, Arrays.copyOfRange(bytes, 0, split)),
+                            Buffers.wrap(mm, Arrays.copyOfRange(bytes, split, bytes.length)));
+                    assertEquals(request + " (composite split at " + split + ")", viaArray, parseAndDescribe(composite, preserveCase));
+                }
             }
         }
+    }
+
+    /**
+     * A direct buffer is scanned a word at a time: far fewer single-byte reads than bytes in the request.
+     */
+    @Test
+    public void testDirectBufferHeadersAreScannedWordAtATime() throws Exception {
+        final String request = "GET /static/js/application.bundle.js?version=20261016 HTTP/1.1\r\n"
+                + "Host: www.example.com\r\n"
+                + "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0\r\n"
+                + "Accept-Language: it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7\r\n"
+                + "X-Request-Identifier-Header: 3f2504e0-4f89-11d3-9a0c-0305e82c3301\r\n\r\n";
+        final byte[] bytes = request.getBytes(StandardCharsets.ISO_8859_1);
+        final ByteBuffer direct = ByteBuffer.allocateDirect(bytes.length);
+        direct.put(bytes).flip();
+        final int[] gets = new int[1];
+        final ByteBufferWrapper input = new ByteBufferWrapper(direct) {
+            @Override
+            public byte get(final int index) {
+                gets[0]++;
+                return super.get(index);
+            }
+        };
+        final String parsed = parseAndDescribe(input, false);
+        assertEquals(parseAndDescribe(Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, bytes), false), parsed);
+        assertTrue("single-byte reads for " + bytes.length + " bytes: " + gets[0], gets[0] < bytes.length / 2);
     }
 
     private static void appendRandom(final StringBuilder sb, final Random random, final String alphabet, final int maxLength) {
@@ -467,8 +496,9 @@ public class HttpRequestParseTest {
         }
     }
 
-    private static String parseAndDescribe(final Buffer input) {
+    private static String parseAndDescribe(final Buffer input, final boolean preserveHeaderCase) {
         final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
+        filter.setPreserveHeaderCase(preserveHeaderCase);
         final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
         ctx.setMessage(input);
         try {
