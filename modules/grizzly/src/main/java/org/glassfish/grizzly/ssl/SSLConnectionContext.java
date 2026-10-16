@@ -97,13 +97,6 @@ public final class SSLConnectionContext {
     static final int MAX_HANDSHAKE_APP_DATA = Integer.getInteger(MAX_HANDSHAKE_APP_DATA_PROPERTY, 64 * 1024);
     private static final AtomicReferenceFieldUpdater<SSLConnectionContext, Buffer> handshakeAppDataUpdater = AtomicReferenceFieldUpdater
             .newUpdater(SSLConnectionContext.class, Buffer.class, "handshakeAppData");
-
-
-    /**
-     * Set once the engine refused a wrap into a buffer sized for the data (the JDK engine wants room for a whole packet
-     * whatever the data): from then on, application data is wrapped into packet-sized buffers.
-     */
-    private boolean wrapNeedsPacketBuffer;
     private final InputBufferWrapper inputBuffer = new InputBufferWrapper();
     private InputBufferWrapper lastInputBuffer;
 
@@ -135,7 +128,6 @@ public final class SSLConnectionContext {
     public void configure(final SSLEngine sslEngine) {
         this.sslEngine = sslEngine;
         this.isServerMode = !sslEngine.getUseClientMode();
-        this.wrapNeedsPacketBuffer = false;
         updateBufferSizes();
     }
 
@@ -341,9 +333,10 @@ public final class SSLConnectionContext {
 
     private SslResult wrap(final Buffer input, final ByteBuffer[] inputArray, final int inputArraySize, Buffer output, final Allocator allocator) {
 
+        // allocated packet-sized as before (so the per-thread cached buffers stay reusable), but only the size computed
+        // for the data is offered to the engine
+        output = ensureBufferSize(output, netBufferSize, allocator);
         final int wrapBufferSize = wrapBufferSize(input, inputArraySize);
-        output = ensureBufferSize(output, wrapBufferSize, allocator);
-        // a reused output buffer (e.g. the per-thread cached one) may be much larger: offer only the size computed above
         final int offered = (int) (wrapBufferSize * BUFFER_SIZE_COEF);
         if (output.remaining() > offered) {
             output.limit(output.position() + offered);
@@ -372,14 +365,14 @@ public final class SSLConnectionContext {
 
         final boolean isOverflow = status == Status.BUFFER_OVERFLOW;
         if (allocator != null && isOverflow) {
-            if (!wrapNeedsPacketBuffer) {
-                wrapNeedsPacketBuffer = true;
+            if (wrapBufferSize < netBufferSize) {
+                // refused a destination sized for the data: this engine class wants room for a whole packet
                 NEEDS_PACKET_BUFFER.get(sslEngine.getClass()).set(true);
-                if (outPos == 0) {
-                    // nothing was written into it: it is replaced by a larger one
-                    output.dispose();
-                    output = null;
-                }
+            }
+            if (outPos == 0) {
+                // nothing was written into it: it is replaced
+                output.dispose();
+                output = null;
             }
             updateBufferSizes();
             output = ensureBufferSize(output, netBufferSize, allocator);
@@ -464,7 +457,7 @@ public final class SSLConnectionContext {
      * engine class that refuses it once gets packet-sized destinations from then on.
      */
     private int wrapBufferSize(final Buffer input, final int inputArraySize) {
-        if (wrapNeedsPacketBuffer || NEEDS_PACKET_BUFFER.get(sslEngine.getClass()).get()) {
+        if (NEEDS_PACKET_BUFFER.get(sslEngine.getClass()).get()) {
             return netBufferSize;
         }
         final int overheadPerRecord = Math.max(netBufferSize - appBufferSize, MIN_WRAP_OVERHEAD);

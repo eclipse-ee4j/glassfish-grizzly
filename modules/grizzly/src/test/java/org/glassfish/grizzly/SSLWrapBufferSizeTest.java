@@ -29,6 +29,7 @@ import java.security.cert.X509Certificate;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BiFunction;
+import java.util.function.UnaryOperator;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
@@ -49,6 +50,7 @@ import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
 import org.glassfish.grizzly.ssl.SSLContextConfigurator;
 import org.glassfish.grizzly.ssl.SSLEngineConfigurator;
 import org.glassfish.grizzly.ssl.SSLFilter;
+import org.glassfish.grizzly.strategies.SameThreadIOStrategy;
 import org.glassfish.grizzly.utils.EchoFilter;
 import org.junit.Test;
 
@@ -92,7 +94,7 @@ public class SSLWrapBufferSizeTest {
         echo(engine -> new DestinationRecordingSSLEngine(engine, destinations));
     }
 
-    private void echo(final java.util.function.UnaryOperator<SSLEngine> engines) throws Exception {
+    private void echo(final UnaryOperator<SSLEngine> engines) throws Exception {
         final SSLContextConfigurator config = new SSLContextConfigurator();
         final URL keystore = getClass().getClassLoader().getResource("ssltest-keystore.jks");
         config.setKeyStoreFile(keystore.getFile());
@@ -105,7 +107,10 @@ public class SSLWrapBufferSizeTest {
             }
         };
 
-        final TCPNIOTransport transport = TCPNIOTransportBuilder.newInstance().build();
+        // one thread does the handshake and the writes, so the per-thread cached output buffer (packet-sized by the
+        // handshake) is the one offered to the engine
+        final TCPNIOTransport transport = TCPNIOTransportBuilder.newInstance().setIOStrategy(SameThreadIOStrategy.getInstance())
+                .setSelectorRunnersCount(1).build();
         transport.setProcessor(FilterChainBuilder.stateless().add(new TransportFilter()).add(new SSLFilter(serverEngines, null))
                 .add(new EchoFilter()).build());
         try {
