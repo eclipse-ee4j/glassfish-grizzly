@@ -388,6 +388,13 @@ public class HttpRequestParseTest {
                 // split > 0: the request arrives in two reads, the second one appended to the first
                 final Buffer first = bufferAtPosition(prefix, Arrays.copyOfRange(request, 0, split == 0 ? request.length : split), kind);
                 final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
+                final int[] headerSize = { -1 };
+                filter.getMonitoringConfig().addProbes(new HttpProbe.Adapter() {
+                    @Override
+                    public void onHeaderParseEvent(final Connection connection, final HttpHeader header, final int size) {
+                        headerSize[0] = size;
+                    }
+                });
                 final StandaloneConnection connection = new StandaloneConnection();
                 FilterChainContext ctx = FilterChainContext.create(connection);
                 ctx.setMessage(first);
@@ -399,7 +406,26 @@ public class HttpRequestParseTest {
                     filter.handleRead(ctx);
                 }
                 assertRequestAtPosition(ctx, kind + " split " + split);
+                assertEquals(kind + " split " + split + ": header size", request.length, headerSize[0]);
             }
+
+            // three reads: the second and the third are appended to the first
+            final Buffer first = bufferAtPosition(prefix, Arrays.copyOfRange(request, 0, 10), kind);
+            final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
+            final StandaloneConnection connection = new StandaloneConnection();
+            FilterChainContext ctx = FilterChainContext.create(connection);
+            ctx.setMessage(first);
+            filter.handleRead(ctx);
+            final Buffer second = Buffers.appendBuffers(MemoryManager.DEFAULT_MEMORY_MANAGER, first,
+                    Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, Arrays.copyOfRange(request, 10, 25)));
+            ctx = FilterChainContext.create(connection);
+            ctx.setMessage(second);
+            filter.handleRead(ctx);
+            ctx = FilterChainContext.create(connection);
+            ctx.setMessage(Buffers.appendBuffers(MemoryManager.DEFAULT_MEMORY_MANAGER, second,
+                    Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, Arrays.copyOfRange(request, 25, request.length))));
+            filter.handleRead(ctx);
+            assertRequestAtPosition(ctx, kind + " three reads");
         }
     }
 
