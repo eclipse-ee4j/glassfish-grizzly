@@ -388,12 +388,22 @@ public class SSLBaseFilter extends BaseFilter {
 
             if (isHandshaking(sslCtx.getSslEngine())) {
                 // is it re-handshake or graceful ssl termination
-                // the rest of the input (e.g. records the peer sent right after its ClientHello) belongs to the handshake
-                if (result.getSslEngineResult().getStatus() != Status.CLOSED) {
-                    input = rehandshake(ctx, sslCtx, input);
-                } else {
-                    input = silentRehandshake(ctx, sslCtx, input); // silent SSL termination
-                    isClosed = true;
+                try {
+                    if (result.getSslEngineResult().getStatus() != Status.CLOSED) {
+                        // the rest of the input (e.g. records the peer sent right after its ClientHello) belongs to
+                        // the handshake
+                        input = rehandshake(ctx, sslCtx, input);
+                    } else {
+                        // records after close_notify are ignored
+                        input.tryDispose();
+                        input = silentRehandshake(ctx, sslCtx); // silent SSL termination
+                        isClosed = true;
+                    }
+                } catch (SSLException e) {
+                    if (output != null) {
+                        output.dispose();
+                    }
+                    throw e;
                 }
 
                 // application data decrypted during the re-handshake follows the records unwrapped before it
@@ -675,9 +685,9 @@ public class SSLBaseFilter extends BaseFilter {
         return result;
     }
 
-    private Buffer silentRehandshake(final FilterChainContext context, final SSLConnectionContext sslCtx, final Buffer input) throws SSLException {
+    private Buffer silentRehandshake(final FilterChainContext context, final SSLConnectionContext sslCtx) throws SSLException {
         try {
-            return doHandshakeSync(sslCtx, context, input, handshakeTimeoutMillis);
+            return doHandshakeSync(sslCtx, context, null, handshakeTimeoutMillis);
         } catch (Throwable t) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.log(Level.FINE, "Error during graceful ssl connection close", t);

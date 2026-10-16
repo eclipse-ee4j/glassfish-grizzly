@@ -74,10 +74,15 @@ public final class SSLConnectionContext {
     /** Set once the kept data has been disposed of (handshake failure or close): nothing is kept after that. */
     private volatile boolean handshakeAppDataDisposed;
     /**
-     * Most application data kept during one handshake. Above it the handshake fails: a peer could otherwise send data
-     * records forever in the middle of a renegotiation it never finishes.
+     * System property with the most application data, in bytes, kept during one handshake (default 64 KiB). Above it
+     * the handshake fails: a peer could otherwise send data records forever in the middle of a renegotiation it never
+     * finishes.
+     *
+     * @since 5.0.4
      */
-    static final int MAX_HANDSHAKE_APP_DATA = 64 * 1024;
+    public static final String MAX_HANDSHAKE_APP_DATA_PROPERTY = SSLConnectionContext.class.getName() + ".maxHandshakeAppData";
+
+    static final int MAX_HANDSHAKE_APP_DATA = Integer.getInteger(MAX_HANDSHAKE_APP_DATA_PROPERTY, 64 * 1024);
     private static final AtomicReferenceFieldUpdater<SSLConnectionContext, Buffer> handshakeAppDataUpdater = AtomicReferenceFieldUpdater
             .newUpdater(SSLConnectionContext.class, Buffer.class, "handshakeAppData");
     private final InputBufferWrapper inputBuffer = new InputBufferWrapper();

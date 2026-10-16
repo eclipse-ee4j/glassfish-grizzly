@@ -49,6 +49,7 @@ import org.glassfish.grizzly.filterchain.FilterChainBuilder;
 import org.glassfish.grizzly.filterchain.TransportFilter;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
+import org.glassfish.grizzly.ssl.SSLBaseFilter;
 import org.glassfish.grizzly.ssl.SSLContextConfigurator;
 import org.glassfish.grizzly.ssl.SSLEngineConfigurator;
 import org.glassfish.grizzly.ssl.SSLFilter;
@@ -65,6 +66,7 @@ import org.junit.Test;
 public class SSLHandshakeAppDataTest {
 
     private TCPNIOTransport transport;
+    private final java.util.Queue<Throwable> handshakeFailures = new java.util.concurrent.ConcurrentLinkedQueue<>();
 
     @After
     public void after() throws IOException {
@@ -171,6 +173,8 @@ public class SSLHandshakeAppDataTest {
                 // reset by the server
             }
         }
+        final Throwable failure = handshakeFailures.peek();
+        assertTrue(String.valueOf(failure), failure != null && String.valueOf(failure.getMessage()).startsWith("More than "));
     }
 
     private int startEchoServer(final boolean deferFinished, final boolean synchronousHandshake) throws IOException {
@@ -189,6 +193,20 @@ public class SSLHandshakeAppDataTest {
         };
 
         final SSLFilter sslFilter = new SSLFilter(serverEngines, null);
+        sslFilter.addHandshakeListener(new SSLBaseFilter.HandshakeListener() {
+            @Override
+            public void onStart(final Connection<?> connection) {
+            }
+
+            @Override
+            public void onComplete(final Connection<?> connection) {
+            }
+
+            @Override
+            public void onFailure(final Connection<?> connection, final Throwable t) {
+                handshakeFailures.add(t);
+            }
+        });
         if (synchronousHandshake) {
             sslFilter.setHandshakeTimeout(10, TimeUnit.SECONDS);
         }
