@@ -315,10 +315,6 @@ public final class SSLUtils {
             };
         }
 
-        // the cached buffer may be larger than asked for: offer only the requested size (dispose() clears the limit)
-        if (buffer.remaining() > size) {
-            buffer.limit(buffer.position() + size);
-        }
         return buffer;
     }
 

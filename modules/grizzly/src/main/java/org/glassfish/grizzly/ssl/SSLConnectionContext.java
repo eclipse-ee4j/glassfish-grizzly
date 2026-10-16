@@ -270,7 +270,13 @@ public final class SSLConnectionContext {
 
     private SslResult wrap(final Buffer input, final ByteBuffer[] inputArray, final int inputArraySize, Buffer output, final Allocator allocator) {
 
-        output = ensureBufferSize(output, wrapBufferSize(input, inputArraySize), allocator);
+        final int wrapBufferSize = wrapBufferSize(input, inputArraySize);
+        output = ensureBufferSize(output, wrapBufferSize, allocator);
+        // a reused output buffer (e.g. the per-thread cached one) may be much larger: offer only the size computed above
+        final int offered = (int) (wrapBufferSize * BUFFER_SIZE_COEF);
+        if (output.remaining() > offered) {
+            output.limit(output.position() + offered);
+        }
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.log(Level.FINE, "wrap engine: {0} input: {1} output: {2}", new Object[] { sslEngine, input, output });
@@ -403,7 +409,8 @@ public final class SSLConnectionContext {
             output = allocator.grow(this, null, sz);
         } else if (output.remaining() < sz) {
             assert allocator != null;
-            output = allocator.grow(this, output, output.capacity() + sz - output.remaining());
+            // room for what is already in the buffer plus sz (the limit may be below the capacity)
+            output = allocator.grow(this, output, output.position() + sz);
         }
         return output;
     }
