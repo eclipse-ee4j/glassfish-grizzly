@@ -19,6 +19,8 @@ package org.glassfish.grizzly.http;
 
 import java.io.IOException;
 import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -237,6 +239,30 @@ public class HttpResponseParseTest {
         filter.handleRead(ctx);
         final HttpHeader header = ((HttpContent) ctx.getMessage()).getHttpHeader();
         assertEquals("100-continue", header.getHeader("Expect"));
+    }
+
+    /**
+     * A response that starts at a non-zero position of its buffer is parsed from that position, from a heap buffer
+     * (byte[] path) and from a direct one (Buffer path).
+     */
+    @Test
+    public void testResponseAtNonZeroBufferPosition() throws Exception {
+        final byte[] prefix = "junk".getBytes(StandardCharsets.ISO_8859_1);
+        final byte[] response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nX-A: b\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
+        for (final boolean direct : new boolean[] { false, true }) {
+            final ByteBuffer bb = direct ? ByteBuffer.allocateDirect(prefix.length + response.length)
+                    : ByteBuffer.allocate(prefix.length + response.length);
+            bb.put(prefix).put(response).flip().position(prefix.length);
+            final HttpClientFilter filter = new HttpClientFilter(4096);
+            final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
+            ctx.setMessage(Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, bb));
+            filter.handleRead(ctx);
+            final HttpResponsePacket parsed = (HttpResponsePacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
+            final String kind = direct ? "direct" : "heap";
+            assertEquals(kind, "HTTP/1.1", parsed.getProtocolString());
+            assertEquals(kind, 404, parsed.getStatus());
+            assertEquals(kind, "b", parsed.getHeader("X-A"));
+        }
     }
 
     @SuppressWarnings({ "unchecked" })
