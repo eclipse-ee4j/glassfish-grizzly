@@ -62,6 +62,7 @@ import static java.util.Arrays.asList;
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_NAME_VALIDATION_RFC_9110;
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_VALUE_VALIDATION_RFC_9110;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -229,7 +230,7 @@ public class HttpResponseParseTest {
         final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
         final Buffer input = Buffers.appendBuffers(mm, Buffers.wrap(mm, "HTTP/1.1 200 OK\r\nExp"),
                 Buffers.wrap(mm, "ect: 100-continue\r\nContent-Length: 0\r\n\r\n"));
-        assertTrue(!input.hasArray());
+        assertFalse(input.hasArray());
         final HttpClientFilter filter = new HttpClientFilter(4096);
         final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
         ctx.setMessage(input);
