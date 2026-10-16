@@ -489,6 +489,8 @@ public class HttpClientFilter extends HttpCodecFilter {
                     input.position(parsingState.offset);
                     input.shrink();
                     parsingState.offset = 0;
+                    // the final response now starts at index 0
+                    parsingState.messageStart = 0;
                     return false;
                 }
                 return true;

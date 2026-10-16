@@ -21,6 +21,9 @@ import java.io.CharConversionException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
@@ -369,6 +372,100 @@ public class HttpRequestParseTest {
         assertDecodeRejected("/a\\..\\b");
         // mixed: one literal is enough to reject, even if another is encoded
         assertDecodeRejected("/a\\b%5Cc");
+    }
+
+    /**
+     * A request that starts at a non-zero position of its buffer (e.g. after a prefix consumed by an upstream filter)
+     * is parsed from that position, from a heap buffer (byte[] path) and from a direct one (Buffer path).
+     */
+    @Test
+    public void testRequestAtNonZeroBufferPosition() throws Exception {
+        // an example of bytes an upstream filter could consume before passing the buffer on
+        final byte[] prefix = "PREFIX\r\n".getBytes(StandardCharsets.ISO_8859_1);
+        final byte[] request = "GET /p?q=1 HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
+        for (final String kind : new String[] { "heap", "direct", "composite" }) {
+            for (int split = 0; split < request.length; split++) {
+                // split > 0: the request arrives in two reads, the second one appended to the first
+                final Buffer first = bufferAtPosition(prefix, Arrays.copyOfRange(request, 0, split == 0 ? request.length : split), kind);
+                final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
+                final int[] headerSize = { -1 };
+                filter.getMonitoringConfig().addProbes(new HttpProbe.Adapter() {
+                    @Override
+                    public void onHeaderParseEvent(final Connection connection, final HttpHeader header, final int size) {
+                        headerSize[0] = size;
+                    }
+                });
+                final StandaloneConnection connection = new StandaloneConnection();
+                FilterChainContext ctx = FilterChainContext.create(connection);
+                ctx.setMessage(first);
+                filter.handleRead(ctx);
+                if (split > 0) {
+                    ctx = FilterChainContext.create(connection);
+                    ctx.setMessage(Buffers.appendBuffers(MemoryManager.DEFAULT_MEMORY_MANAGER, first,
+                            Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, Arrays.copyOfRange(request, split, request.length))));
+                    filter.handleRead(ctx);
+                }
+                assertRequestAtPosition(ctx, kind + " split " + split);
+                assertEquals(kind + " split " + split + ": header size", request.length, headerSize[0]);
+            }
+
+            // three reads: the second and the third are appended to the first
+            final Buffer first = bufferAtPosition(prefix, Arrays.copyOfRange(request, 0, 10), kind);
+            final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
+            final StandaloneConnection connection = new StandaloneConnection();
+            FilterChainContext ctx = FilterChainContext.create(connection);
+            ctx.setMessage(first);
+            filter.handleRead(ctx);
+            final Buffer second = Buffers.appendBuffers(MemoryManager.DEFAULT_MEMORY_MANAGER, first,
+                    Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, Arrays.copyOfRange(request, 10, 25)));
+            ctx = FilterChainContext.create(connection);
+            ctx.setMessage(second);
+            filter.handleRead(ctx);
+            ctx = FilterChainContext.create(connection);
+            ctx.setMessage(Buffers.appendBuffers(MemoryManager.DEFAULT_MEMORY_MANAGER, second,
+                    Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, Arrays.copyOfRange(request, 25, request.length))));
+            filter.handleRead(ctx);
+            assertRequestAtPosition(ctx, kind + " three reads");
+        }
+    }
+
+    /**
+     * The prefix and the data in one buffer, at the position after the prefix: a heap buffer (byte[] parsing path), a
+     * direct one (Buffer path) or a composite of two heap buffers split inside the prefix (the next read is then appended
+     * to it in place).
+     */
+    static Buffer bufferAtPosition(final byte[] prefix, final byte[] data, final String kind) {
+        final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
+        final byte[] all = new byte[prefix.length + data.length];
+        System.arraycopy(prefix, 0, all, 0, prefix.length);
+        System.arraycopy(data, 0, all, prefix.length, data.length);
+        final Buffer buffer;
+        switch (kind) {
+        case "direct": {
+            final ByteBuffer bb = ByteBuffer.allocateDirect(all.length);
+            bb.put(all).flip();
+            buffer = Buffers.wrap(mm, bb);
+            break;
+        }
+        case "composite":
+            buffer = Buffers.appendBuffers(mm, Buffers.wrap(mm, Arrays.copyOfRange(all, 0, 3)),
+                    Buffers.wrap(mm, Arrays.copyOfRange(all, 3, all.length)));
+            break;
+        default:
+            buffer = Buffers.wrap(mm, all);
+        }
+        buffer.position(prefix.length);
+        return buffer;
+    }
+
+    private static void assertRequestAtPosition(final FilterChainContext ctx, final String kind) {
+        assertTrue(kind + ": " + ctx.getMessage(), ctx.getMessage() instanceof HttpContent);
+        final HttpRequestPacket parsed = (HttpRequestPacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
+        assertEquals(kind, Method.GET, parsed.getMethod());
+        assertEquals(kind, "/p", parsed.getRequestURI());
+        assertEquals(kind, "q=1", parsed.getQueryString());
+        assertEquals(kind, "HTTP/1.1", parsed.getProtocolString());
+        assertEquals(kind, "localhost", parsed.getHeader("host"));
     }
 
     @SuppressWarnings({ "unchecked" })
