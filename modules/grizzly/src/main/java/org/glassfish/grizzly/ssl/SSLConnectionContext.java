@@ -85,6 +85,13 @@ public final class SSLConnectionContext {
     static final int MAX_HANDSHAKE_APP_DATA = Integer.getInteger(MAX_HANDSHAKE_APP_DATA_PROPERTY, 64 * 1024);
     private static final AtomicReferenceFieldUpdater<SSLConnectionContext, Buffer> handshakeAppDataUpdater = AtomicReferenceFieldUpdater
             .newUpdater(SSLConnectionContext.class, Buffer.class, "handshakeAppData");
+
+
+    /**
+     * Set once the engine refused a wrap into a buffer sized for the data (the JDK engine wants room for a whole packet
+     * whatever the data): from then on, application data is wrapped into packet-sized buffers.
+     */
+    private boolean wrapNeedsPacketBuffer;
     private final InputBufferWrapper inputBuffer = new InputBufferWrapper();
     private InputBufferWrapper lastInputBuffer;
 
@@ -321,7 +328,7 @@ public final class SSLConnectionContext {
 
     private SslResult wrap(final Buffer input, final ByteBuffer[] inputArray, final int inputArraySize, Buffer output, final Allocator allocator) {
 
-        output = ensureBufferSize(output, netBufferSize, allocator);
+        output = ensureBufferSize(output, wrapBufferSize(input, inputArraySize), allocator);
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.log(Level.FINE, "wrap engine: {0} input: {1} output: {2}", new Object[] { sslEngine, input, output });
@@ -346,6 +353,7 @@ public final class SSLConnectionContext {
 
         final boolean isOverflow = status == Status.BUFFER_OVERFLOW;
         if (allocator != null && isOverflow) {
+            wrapNeedsPacketBuffer = true;
             updateBufferSizes();
             output = ensureBufferSize(output, netBufferSize, allocator);
             return wrap(input, inputArray, inputArraySize, output, null);
@@ -421,6 +429,23 @@ public final class SSLConnectionContext {
 
         return new SslResult(output, sslEngineResult);
     }
+
+    /**
+     * Engines that encrypt through a temporary direct buffer as large as the destination (e.g. Netty's OpenSSL engine
+     * with a heap destination) would allocate and clear a packet-sized buffer for every small write: give them a
+     * destination sized for the data instead, i.e. at most one record of plaintext plus the per-record overhead.
+     */
+    private int wrapBufferSize(final Buffer input, final int inputArraySize) {
+        if (wrapNeedsPacketBuffer) {
+            return netBufferSize;
+        }
+        final int overheadPerRecord = Math.max(netBufferSize - appBufferSize, MIN_WRAP_OVERHEAD);
+        final long size = (long) Math.min(input.remaining(), appBufferSize) + (long) overheadPerRecord * Math.max(1, inputArraySize);
+        return (int) Math.min(size, netBufferSize);
+    }
+
+    /** Lower bound for the per-record overhead of a wrap (header, MAC/tag, padding). */
+    private static final int MIN_WRAP_OVERHEAD = 256;
 
     private Buffer ensureBufferSize(Buffer output, final int size, final Allocator allocator) {
         final int sz = (int) (size * BUFFER_SIZE_COEF);
