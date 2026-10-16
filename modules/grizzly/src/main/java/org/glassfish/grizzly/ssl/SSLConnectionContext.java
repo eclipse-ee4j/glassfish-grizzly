@@ -22,6 +22,7 @@ import static org.glassfish.grizzly.ssl.SSLUtils.sslEngineUnwrap;
 import static org.glassfish.grizzly.ssl.SSLUtils.sslEngineWrap;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -47,6 +48,17 @@ import org.glassfish.grizzly.memory.MemoryManager;
 public final class SSLConnectionContext {
     private static final Logger LOGGER = Grizzly.logger(SSLConnectionContext.class);
     private static final float BUFFER_SIZE_COEF;
+
+    /** Lower bound for the per-record overhead of a wrap (header, MAC/tag, padding). */
+    private static final int MIN_WRAP_OVERHEAD = 512;
+
+    /** Engine classes that refused a destination sized for the data, see {@link #wrapBufferSize(Buffer, int)}. */
+    private static final ClassValue<AtomicBoolean> NEEDS_PACKET_BUFFER = new ClassValue<AtomicBoolean>() {
+        @Override
+        protected AtomicBoolean computeValue(final Class<?> engineClass) {
+            return new AtomicBoolean();
+        }
+    };
 
     static {
         final String coef = System.getProperty(SSLConnectionContext.class.getName(), "1.5");
@@ -102,6 +114,7 @@ public final class SSLConnectionContext {
     public void configure(final SSLEngine sslEngine) {
         this.sslEngine = sslEngine;
         this.isServerMode = !sslEngine.getUseClientMode();
+        this.wrapNeedsPacketBuffer = false;
         updateBufferSizes();
     }
 
@@ -282,7 +295,15 @@ public final class SSLConnectionContext {
 
         final boolean isOverflow = status == Status.BUFFER_OVERFLOW;
         if (allocator != null && isOverflow) {
-            wrapNeedsPacketBuffer = true;
+            if (!wrapNeedsPacketBuffer) {
+                wrapNeedsPacketBuffer = true;
+                NEEDS_PACKET_BUFFER.get(sslEngine.getClass()).set(true);
+                if (outPos == 0) {
+                    // nothing was written into it: it is replaced by a larger one
+                    output.dispose();
+                    output = null;
+                }
+            }
             updateBufferSizes();
             output = ensureBufferSize(output, netBufferSize, allocator);
             return wrap(input, inputArray, inputArraySize, output, null);
@@ -362,19 +383,17 @@ public final class SSLConnectionContext {
     /**
      * Engines that encrypt through a temporary direct buffer as large as the destination (e.g. Netty's OpenSSL engine
      * with a heap destination) would allocate and clear a packet-sized buffer for every small write: give them a
-     * destination sized for the data instead, i.e. at most one record of plaintext plus the per-record overhead.
+     * destination sized for the data instead, i.e. at most one record of plaintext plus the per-record overhead. An
+     * engine class that refuses it once gets packet-sized destinations from then on.
      */
     private int wrapBufferSize(final Buffer input, final int inputArraySize) {
-        if (wrapNeedsPacketBuffer) {
+        if (wrapNeedsPacketBuffer || NEEDS_PACKET_BUFFER.get(sslEngine.getClass()).get()) {
             return netBufferSize;
         }
         final int overheadPerRecord = Math.max(netBufferSize - appBufferSize, MIN_WRAP_OVERHEAD);
         final long size = (long) Math.min(input.remaining(), appBufferSize) + (long) overheadPerRecord * Math.max(1, inputArraySize);
         return (int) Math.min(size, netBufferSize);
     }
-
-    /** Lower bound for the per-record overhead of a wrap (header, MAC/tag, padding). */
-    private static final int MIN_WRAP_OVERHEAD = 256;
 
     private Buffer ensureBufferSize(Buffer output, final int size, final Allocator allocator) {
         final int sz = (int) (size * BUFFER_SIZE_COEF);
