@@ -234,6 +234,10 @@ public final class SSLUtils {
         return !(handshakeStatus == HandshakeStatus.FINISHED || handshakeStatus == HandshakeStatus.NOT_HANDSHAKING);
     }
 
+    /**
+     * Unwraps one handshake record. Application data the engine decrypts meanwhile is kept in {@code sslCtx} (to be
+     * passed upstream once the handshake is done) and removed from {@code tmpOutputBuffer}, whose position is moved back.
+     */
     public static SSLEngineResult handshakeUnwrap(final int length, final SSLConnectionContext sslCtx, final Buffer inputBuffer, final Buffer tmpOutputBuffer)
             throws SSLException {
 

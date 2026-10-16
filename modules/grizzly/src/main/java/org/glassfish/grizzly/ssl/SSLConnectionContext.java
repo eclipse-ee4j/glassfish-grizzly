@@ -22,6 +22,7 @@ import static org.glassfish.grizzly.ssl.SSLUtils.sslEngineUnwrap;
 import static org.glassfish.grizzly.ssl.SSLUtils.sslEngineWrap;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -66,9 +67,12 @@ public final class SSLConnectionContext {
 
     private Buffer lastOutputBuffer;
     /**
-     * Application data decrypted by the unwrap that completed the handshake, not yet passed upstream.
+     * Application data decrypted while unwrapping handshake records, not yet passed upstream. Added and taken by the thread
+     * processing the connection's input or handshake; taken atomically, as a close may dispose of it concurrently.
      */
-    private Buffer handshakeAppData;
+    private volatile Buffer handshakeAppData;
+    private static final AtomicReferenceFieldUpdater<SSLConnectionContext, Buffer> handshakeAppDataUpdater = AtomicReferenceFieldUpdater
+            .newUpdater(SSLConnectionContext.class, Buffer.class, "handshakeAppData");
     private final InputBufferWrapper inputBuffer = new InputBufferWrapper();
     private InputBufferWrapper lastInputBuffer;
 
@@ -156,9 +160,14 @@ public final class SSLConnectionContext {
     }
 
     Buffer takeHandshakeAppData() {
-        final Buffer data = handshakeAppData;
-        handshakeAppData = null;
-        return data;
+        return handshakeAppData == null ? null : handshakeAppDataUpdater.getAndSet(this, null);
+    }
+
+    void disposeHandshakeAppData() {
+        final Buffer data = takeHandshakeAppData();
+        if (data != null) {
+            data.dispose();
+        }
     }
 
     Buffer resetLastOutputBuffer() {

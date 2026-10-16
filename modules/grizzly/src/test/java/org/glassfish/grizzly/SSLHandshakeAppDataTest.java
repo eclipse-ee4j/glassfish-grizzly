@@ -27,6 +27,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
 import java.util.function.BiFunction;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
@@ -60,6 +61,18 @@ public class SSLHandshakeAppDataTest {
 
     @Test
     public void applicationDataDecryptedWithTheLastHandshakeRecordIsDelivered() throws Exception {
+        echoAfterHandshake(false);
+    }
+
+    /**
+     * The same with a handshake timeout, so the server handshakes through SSLBaseFilter#doHandshakeSync.
+     */
+    @Test
+    public void applicationDataIsDeliveredAfterASynchronousHandshake() throws Exception {
+        echoAfterHandshake(true);
+    }
+
+    private void echoAfterHandshake(final boolean synchronousHandshake) throws Exception {
         final SSLContextConfigurator config = new SSLContextConfigurator();
         final URL keystore = getClass().getClassLoader().getResource("ssltest-keystore.jks");
         config.setKeyStoreFile(keystore.getFile());
@@ -73,10 +86,14 @@ public class SSLHandshakeAppDataTest {
             }
         };
 
+        final SSLFilter sslFilter = new SSLFilter(serverEngines, null);
+        if (synchronousHandshake) {
+            sslFilter.setHandshakeTimeout(10, TimeUnit.SECONDS);
+        }
         final TCPNIOTransport transport = TCPNIOTransportBuilder.newInstance().build();
         transport.setProcessor(FilterChainBuilder.stateless()
                 .add(new TransportFilter())
-                .add(new SSLFilter(serverEngines, null))
+                .add(sslFilter)
                 .add(new EchoFilter())
                 .build());
         try {
@@ -90,7 +107,9 @@ public class SSLHandshakeAppDataTest {
                     socket.setSoTimeout(10_000);
                     socket.setEnabledProtocols(new String[] { protocol });
                     final OutputStream out = socket.getOutputStream();
-                    out.write("hello\n".getBytes(StandardCharsets.US_ASCII));
+                    // two records: the second one is unwrapped after (and appended to) the data kept from the handshake
+                    out.write("hel".getBytes(StandardCharsets.US_ASCII));
+                    out.write("lo\n".getBytes(StandardCharsets.US_ASCII));
                     out.flush();
 
                     final InputStream in = socket.getInputStream();

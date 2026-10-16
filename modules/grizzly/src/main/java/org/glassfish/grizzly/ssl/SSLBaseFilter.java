@@ -351,6 +351,15 @@ public class SSLBaseFilter extends BaseFilter {
         }
     }
 
+    @Override
+    public NextAction handleClose(final FilterChainContext ctx) throws IOException {
+        final SSLConnectionContext sslCtx = getSslConnectionContext(ctx.getConnection());
+        if (sslCtx != null) {
+            sslCtx.disposeHandshakeAppData();
+        }
+        return ctx.getInvokeAction();
+    }
+
     // ------------------------------------------------------- Protected Methods
 
     protected NextAction unwrapAll(final FilterChainContext ctx, final SSLConnectionContext sslCtx) throws SSLException {
@@ -385,6 +394,9 @@ public class SSLBaseFilter extends BaseFilter {
                     input = silentRehandshake(ctx, sslCtx); // silent SSL termination
                     isClosed = true;
                 }
+
+                // application data decrypted during the re-handshake follows the records unwrapped before it
+                output = appendHandshakeAppData(output, sslCtx.takeHandshakeAppData(), ctx);
 
                 if (input == null) {
                     break;
@@ -636,12 +648,29 @@ public class SSLBaseFilter extends BaseFilter {
         }
 
         try {
+            // application data the peer sends during this renegotiation is passed upstream with the next read
             rehandshake(context, sslCtx);
         } finally {
             if (!authConfigured) {
                 sslEngine.setNeedClientAuth(false);
             }
         }
+    }
+
+    private static Buffer appendHandshakeAppData(final Buffer output, final Buffer data, final FilterChainContext ctx) {
+        if (data == null) {
+            return output;
+        }
+        if (output == null) {
+            return data; // in write mode, like an unwrap output
+        }
+        data.flip();
+        final Buffer result = output.remaining() < data.remaining()
+                ? ctx.getMemoryManager().reallocate(output, output.position() + data.remaining())
+                : output;
+        result.put(data);
+        data.dispose();
+        return result;
     }
 
     private Buffer silentRehandshake(final FilterChainContext context, final SSLConnectionContext sslCtx) throws SSLException {
@@ -834,6 +863,10 @@ public class SSLBaseFilter extends BaseFilter {
     }
 
     protected void notifyHandshakeFailed(final Connection connection, final Throwable t) {
+        final SSLConnectionContext sslCtx = getSslConnectionContext(connection);
+        if (sslCtx != null) {
+            sslCtx.disposeHandshakeAppData();
+        }
         if (!handshakeListeners.isEmpty()) {
             for (final HandshakeListener listener : handshakeListeners) {
                 listener.onFailure(connection, t);
