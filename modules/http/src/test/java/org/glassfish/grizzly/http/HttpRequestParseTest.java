@@ -21,6 +21,8 @@ import java.io.CharConversionException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
@@ -369,6 +371,33 @@ public class HttpRequestParseTest {
         assertDecodeRejected("/a\\..\\b");
         // mixed: one literal is enough to reject, even if another is encoded
         assertDecodeRejected("/a\\b%5Cc");
+    }
+
+    /**
+     * A request that starts at a non-zero position of its buffer (e.g. after a prefix consumed by an upstream filter)
+     * is parsed from that position, from a heap buffer (byte[] path) and from a direct one (Buffer path).
+     */
+    @Test
+    public void testRequestAtNonZeroBufferPosition() throws Exception {
+        final byte[] prefix = "PROXY TCP4 1.2.3.4 5.6.7.8 1 2\r\n".getBytes(StandardCharsets.ISO_8859_1);
+        final byte[] request = "GET /p?q=1 HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
+        final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
+        for (final boolean direct : new boolean[] { false, true }) {
+            final ByteBuffer bb = direct ? ByteBuffer.allocateDirect(prefix.length + request.length)
+                    : ByteBuffer.allocate(prefix.length + request.length);
+            bb.put(prefix).put(request).flip().position(prefix.length);
+            final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
+            final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
+            ctx.setMessage(Buffers.wrap(mm, bb));
+            filter.handleRead(ctx);
+            final HttpRequestPacket parsed = (HttpRequestPacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
+            final String kind = direct ? "direct" : "heap";
+            assertEquals(kind, Method.GET, parsed.getMethod());
+            assertEquals(kind, "/p", parsed.getRequestURI());
+            assertEquals(kind, "q=1", parsed.getQueryString());
+            assertEquals(kind, "HTTP/1.1", parsed.getProtocolString());
+            assertEquals(kind, "localhost", parsed.getHeader("host"));
+        }
     }
 
     @SuppressWarnings({ "unchecked" })

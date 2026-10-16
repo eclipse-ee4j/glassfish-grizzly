@@ -1947,6 +1947,8 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
         public void initialize(final HttpCodecFilter codecFilter, final int initialOffset, final int maxHeaderSize) {
             this.codecFilter = codecFilter;
+            // the message starts at the buffer's position, e.g. after a prefix consumed by an upstream filter
+            start = initialOffset;
             offset = initialOffset;
             packetLimit = offset + maxHeaderSize;
         }
