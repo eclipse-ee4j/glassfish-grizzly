@@ -36,6 +36,7 @@ import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.filterchain.FilterChainEvent;
 import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.http.Method.PayloadExpectation;
+import org.glassfish.grizzly.http.io.OutputBuffer;
 import org.glassfish.grizzly.http.util.Constants;
 import org.glassfish.grizzly.http.util.ContentType;
 import org.glassfish.grizzly.http.util.DataChunk;
@@ -45,6 +46,7 @@ import org.glassfish.grizzly.http.util.HttpStatus;
 import org.glassfish.grizzly.http.util.HttpUtils;
 import org.glassfish.grizzly.http.util.MimeHeaders;
 import org.glassfish.grizzly.memory.MemoryManager;
+import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.utils.DelayedExecutor;
 
 /**
@@ -60,6 +62,17 @@ import org.glassfish.grizzly.utils.DelayedExecutor;
  */
 public class HttpServerFilter extends HttpCodecFilter {
     public static final String HTTP_SERVER_REQUEST_ATTR_NAME = HttpServerFilter.class.getName() + ".HttpRequest";
+
+    /**
+     * System property to disable coalescing the responses to pipelined requests into one write (enabled by default).
+     *
+     * @since 5.0.4
+     */
+    public static final String PIPELINED_WRITE_COALESCING_PROPERTY = HttpServerFilter.class.getName() + ".pipelinedWriteCoalescing";
+
+    private static final boolean PIPELINED_WRITE_COALESCING =
+            Boolean.parseBoolean(System.getProperty(PIPELINED_WRITE_COALESCING_PROPERTY, "true"))
+            && !OutputBuffer.isBlockingWrites();
 
     public static final FilterChainEvent RESPONSE_COMPLETE_EVENT = new HttpEvents.ResponseCompleteEvent();
 
@@ -296,6 +309,18 @@ public class HttpServerFilter extends HttpCodecFilter {
         }
 
         return handleRead(ctx, httpRequest);
+    }
+
+    /**
+     * Corks the connection's writes while pipelined requests are pending, so the responses to a batch of pipelined
+     * requests leave in one gathering write when processing of the input ends, see {@link NIOConnection#corkWrites()}.
+     * Disabled with blocking response writes, which bypass the write queue.
+     */
+    @Override
+    protected void onPipelinedInput(final FilterChainContext ctx) {
+        if (PIPELINED_WRITE_COALESCING && ctx.getConnection() instanceof NIOConnection) {
+            ((NIOConnection) ctx.getConnection()).corkWrites();
+        }
     }
 
     @Override

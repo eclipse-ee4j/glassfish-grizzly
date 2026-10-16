@@ -50,6 +50,12 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
     private final static Logger LOGGER = Grizzly.logger(AbstractNIOAsyncQueueWriter.class);
 
+    /**
+     * Pending bytes from which writes held back by a corked connection are written without waiting for the uncork, unless
+     * the connection's max async write queue size is lower, see {@link NIOConnection#corkWrites()}.
+     */
+    static final int MAX_CORKED_BYTES = 64 * 1024;
+
     protected final NIOTransport transport;
 
     protected volatile int maxPendingBytes = AUTO_SIZE;
@@ -89,7 +95,18 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
         final TaskQueue<AsyncWriteQueueRecord> connectionQueue = nioConnection.getAsyncWriteQueue();
         final int size = connectionQueue.spaceInBytes();
 
-        return size == 0 || size < connectionMaxPendingBytes;
+        if (size == 0 || size < connectionMaxPendingBytes) {
+            return true;
+        }
+
+        if (nioConnection.heldWritesState == NIOConnection.HELD && nioConnection.isWritesCorked()) {
+            // the caller would wait for writes it holds back itself: write them now
+            flushHeldWrites(nioConnection);
+            final int sizeAfterFlush = connectionQueue.spaceInBytes();
+            return sizeAfterFlush == 0 || sizeAfterFlush < connectionMaxPendingBytes;
+        }
+
+        return false;
     }
 
     /**
@@ -103,7 +120,12 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
     @Override
     public void notifyWritePossible(final Connection<SocketAddress> connection, final WriteHandler writeHandler) {
-        ((NIOConnection) connection).getAsyncWriteQueue().notifyWritePossible(writeHandler);
+        final NIOConnection nioConnection = (NIOConnection) connection;
+        if (nioConnection.isWritesCorked()) {
+            // the caller would wait for writes it holds back itself: write them now
+            flushHeldWrites(nioConnection);
+        }
+        nioConnection.getAsyncWriteQueue().notifyWritePossible(writeHandler);
     }
 
     /**
@@ -251,6 +273,27 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
                 return;
             }
 
+            if (nioConnection.isWritesCorked()) {
+                // Corked by this thread: queue without writing and without asking for OP_WRITE, see
+                // NIOConnection#corkWrites(). A record that becomes the head of the queue marks it HELD: processAsync()
+                // leaves the queue alone until this thread writes it, together with the records of any thread queued
+                // behind it, in flushHeldWrites().
+                queueRecord.setMessage(cloneRecordIfNeeded(nioConnection, cloner, message));
+                if (isCurrent) {
+                    // fails if processAsync() of a WRITE event is still running: then it writes the record, as one that
+                    // found the queue empty returns EXPECTING_MORE (WRITE interest stays enabled) and runs again
+                    NIOConnection.heldWritesStateUpdater.compareAndSet(nioConnection, NIOConnection.NONE_HELD, NIOConnection.HELD);
+                    writeTaskQueue.setCurrentElement(queueRecord);
+                } else {
+                    writeTaskQueue.offer(queueRecord);
+                }
+
+                if (pendingBytes >= (maxPendingBytes < 0 ? MAX_CORKED_BYTES : Math.min(MAX_CORKED_BYTES, maxPendingBytes))) {
+                    flushHeldWrites(nioConnection);
+                }
+                return;
+            }
+
             if (isCurrent && isAllowDirectWrite) {
 
                 // If we can write directly - do it w/o creating queue record (simple)
@@ -315,6 +358,13 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
             return AsyncResult.COMPLETE;
         }
 
+        if (!NIOConnection.heldWritesStateUpdater.compareAndSet(nioConnection, NIOConnection.NONE_HELD, NIOConnection.WRITING)) {
+            // the queue holds writes back for the thread that corked the connection; it writes them itself, and asks for
+            // OP_WRITE if anything is left: don't enable it again from here
+            context.setManualIOEventControl();
+            return AsyncResult.COMPLETE;
+        }
+
         final TaskQueue<AsyncWriteQueueRecord> writeTaskQueue = nioConnection.getAsyncWriteQueue();
 
         int bytesReleased = 0;
@@ -354,6 +404,8 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
                     break;
                 }
             }
+
+            nioConnection.heldWritesState = NIOConnection.NONE_HELD;
 
             boolean isComplete = false;
 
@@ -398,10 +450,69 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
             if (isLogFine) {
                 LOGGER.log(Level.FINEST, "AsyncQueueWriter.processAsync " + "exception connection=" + nioConnection + " peekRecord=" + queueRecord, e);
             }
+            nioConnection.heldWritesState = NIOConnection.NONE_HELD;
             onWriteFailure(nioConnection, queueRecord, e);
+        } catch (RuntimeException | Error e) {
+            nioConnection.heldWritesState = NIOConnection.NONE_HELD;
+            throw e;
         }
 
         return AsyncResult.COMPLETE;
+    }
+
+    /**
+     * Writes the records held back for the thread that corked the connection (see {@link NIOConnection#corkWrites()}),
+     * and the records of any thread queued behind them, on the calling thread. What can't be written now is left to
+     * {@link #processAsync(Context)}.
+     */
+    final void flushHeldWrites(final NIOConnection nioConnection) {
+        if (!NIOConnection.heldWritesStateUpdater.compareAndSet(nioConnection, NIOConnection.HELD, NIOConnection.DRAINING)) {
+            return; // nothing held, or a completion handler writes while the held records are being written
+        }
+
+        final TaskQueue<AsyncWriteQueueRecord> writeTaskQueue = nioConnection.getAsyncWriteQueue();
+        // Keeps the queue from becoming empty while it's drained here, so no other thread writes directly meanwhile and
+        // the written bytes can be released record by record (completion handlers asking canWrite() see what's left,
+        // plus this one byte). Records written by completion handlers are queued behind.
+        writeTaskQueue.reserveSpace(1);
+        boolean failed = false;
+        AsyncWriteQueueRecord queueRecord = null;
+        try {
+            while ((queueRecord = aggregate(writeTaskQueue)) != null) {
+                final RecordWriteResult writeResult = write0(nioConnection, queueRecord);
+                writeTaskQueue.releaseSpace((int) writeResult.bytesToReleaseAfterLastWrite());
+
+                if (!queueRecord.isFinished()) {
+                    queueRecord.notifyIncomplete();
+                    writeTaskQueue.setCurrentElement(queueRecord);
+                    break;
+                }
+
+                try {
+                    finishQueueRecord(nioConnection, queueRecord);
+                } catch (RuntimeException e) {
+                    // don't fail the caller (e.g. a write, canWrite(), the end of a READ run) for a completion handler
+                    LOGGER.log(Level.WARNING, "Completion handler of a write failed", e);
+                }
+            }
+        } catch (IOException e) {
+            failed = true;
+            nioConnection.heldWritesState = NIOConnection.NONE_HELD;
+            // not gracefully: the close would be queued behind records nobody writes any more
+            onWriteFailure(nioConnection, queueRecord, false, e);
+        } finally {
+            nioConnection.heldWritesState = NIOConnection.NONE_HELD;
+            // an incomplete record, or records queued meanwhile, are written as usual; also if a completion handler threw
+            if (writeTaskQueue.releaseSpace(1) > 0 && !failed) {
+                try {
+                    onReadyToWrite(nioConnection);
+                } catch (IOException e) {
+                    LOGGER.log(Level.FINE, "Could not register for OP_WRITE", e);
+                    nioConnection.terminateSilently();
+                }
+            }
+            writeTaskQueue.doNotify();
+        }
     }
 
     private static void finishQueueRecord(final NIOConnection nioConnection, final AsyncWriteQueueRecord queueRecord) {
