@@ -447,11 +447,12 @@ public class HttpRequestParseTest {
                 final String viaArray = parseAndDescribe(Buffers.wrap(mm, bytes.clone()), preserveCase);
 
                 for (final ByteOrder order : new ByteOrder[] { ByteOrder.BIG_ENDIAN, ByteOrder.LITTLE_ENDIAN }) {
-                    final ByteBuffer direct = ByteBuffer.allocateDirect(bytes.length + 10).order(order);
-                    direct.position(5);
-                    direct.put(bytes);
-                    direct.flip();
-                    direct.position(5);
+                    // a slice of a larger direct buffer, with other bytes around it (the Buffer parsing path starts at
+                    // index 0, so the request starts there)
+                    final ByteBuffer outer = ByteBuffer.allocateDirect(bytes.length + 10);
+                    outer.put(new byte[] { 'x', 'x', 'x', 'x', 'x' });
+                    final ByteBuffer direct = outer.slice().order(order);
+                    direct.put(bytes).flip();
                     assertEquals(request + " (direct, " + order + ")", viaArray, parseAndDescribe(Buffers.wrap(mm, direct), preserveCase));
                 }
 
