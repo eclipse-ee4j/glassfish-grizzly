@@ -19,8 +19,8 @@ package org.glassfish.grizzly.http;
 
 import java.io.IOException;
 import java.net.SocketAddress;
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -249,28 +249,29 @@ public class HttpResponseParseTest {
     public void testResponseAtNonZeroBufferPosition() throws Exception {
         final byte[] prefix = "junk".getBytes(StandardCharsets.ISO_8859_1);
         final byte[] response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nX-A: b\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
-        for (final boolean direct : new boolean[] { false, true }) {
-            final byte[] all = new byte[prefix.length + response.length];
-            System.arraycopy(prefix, 0, all, 0, prefix.length);
-            System.arraycopy(response, 0, all, prefix.length, response.length);
-            final Buffer buffer;
-            if (direct) {
-                final ByteBuffer bb = ByteBuffer.allocateDirect(all.length);
-                bb.put(all).flip();
-                buffer = Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, bb);
-            } else {
-                buffer = Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, all);
+        for (final String kind : new String[] { "heap", "direct", "composite" }) {
+            for (int split = 0; split < response.length; split++) {
+                // split > 0: the response arrives in two reads, the second one appended to the first
+                final Buffer first = HttpRequestParseTest.bufferAtPosition(prefix,
+                        Arrays.copyOfRange(response, 0, split == 0 ? response.length : split), kind);
+                final HttpClientFilter filter = new HttpClientFilter(4096);
+                final StandaloneConnection connection = new StandaloneConnection();
+                FilterChainContext ctx = FilterChainContext.create(connection);
+                ctx.setMessage(first);
+                filter.handleRead(ctx);
+                if (split > 0) {
+                    ctx = FilterChainContext.create(connection);
+                    ctx.setMessage(Buffers.appendBuffers(MemoryManager.DEFAULT_MEMORY_MANAGER, first,
+                            Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, Arrays.copyOfRange(response, split, response.length))));
+                    filter.handleRead(ctx);
+                }
+                final String msg = kind + " split " + split;
+                assertTrue(msg + ": " + ctx.getMessage(), ctx.getMessage() instanceof HttpContent);
+                final HttpResponsePacket parsed = (HttpResponsePacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
+                assertEquals(msg, "HTTP/1.1", parsed.getProtocolString());
+                assertEquals(msg, 404, parsed.getStatus());
+                assertEquals(msg, "b", parsed.getHeader("X-A"));
             }
-            buffer.position(prefix.length);
-            final HttpClientFilter filter = new HttpClientFilter(4096);
-            final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
-            ctx.setMessage(buffer);
-            filter.handleRead(ctx);
-            final HttpResponsePacket parsed = (HttpResponsePacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
-            final String kind = direct ? "direct" : "heap";
-            assertEquals(kind, "HTTP/1.1", parsed.getProtocolString());
-            assertEquals(kind, 404, parsed.getStatus());
-            assertEquals(kind, "b", parsed.getHeader("X-A"));
         }
     }
 
