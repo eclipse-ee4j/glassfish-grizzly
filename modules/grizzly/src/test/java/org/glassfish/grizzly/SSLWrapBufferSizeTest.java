@@ -69,12 +69,30 @@ public class SSLWrapBufferSizeTest {
         }
     }
 
+    /**
+     * The JDK engine refuses a destination smaller than a packet: the first refusal switches its engine class to
+     * packet-sized destinations, so later writes and connections don't pay for another refusal.
+     */
     @Test
-    public void engineWantingAWholePacketStillWorks() throws Exception {
-        echo(null);
+    public void engineWantingAWholePacketGetsPacketSizedDestinations() throws Exception {
+        final List<Integer> destinations = new CopyOnWriteArrayList<>();
+        final List<Integer> overflows = new CopyOnWriteArrayList<>();
+        final int[] packetSize = new int[1];
+        echo(engine -> {
+            packetSize[0] = engine.getSession().getPacketBufferSize();
+            return new PacketRecordingSSLEngine(engine, destinations, overflows);
+        });
+        assertEquals("refused wraps: " + destinations, 1, overflows.size());
+        for (final int size : destinations.subList(overflows.get(0) + 1, destinations.size())) {
+            assertTrue("destination of " + size + " bytes after the refusal: " + destinations, size >= packetSize[0]);
+        }
     }
 
     private void echo(final List<Integer> destinations) throws Exception {
+        echo(engine -> new DestinationRecordingSSLEngine(engine, destinations));
+    }
+
+    private void echo(final java.util.function.UnaryOperator<SSLEngine> engines) throws Exception {
         final SSLContextConfigurator config = new SSLContextConfigurator();
         final URL keystore = getClass().getClassLoader().getResource("ssltest-keystore.jks");
         config.setKeyStoreFile(keystore.getFile());
@@ -83,8 +101,7 @@ public class SSLWrapBufferSizeTest {
         final SSLEngineConfigurator serverEngines = new SSLEngineConfigurator(serverContext, false, false, false) {
             @Override
             public SSLEngine createSSLEngine(final String peerHost, final int peerPort) {
-                final SSLEngine engine = super.createSSLEngine(peerHost, peerPort);
-                return destinations == null ? engine : new DestinationRecordingSSLEngine(engine, destinations);
+                return engines.apply(super.createSSLEngine(peerHost, peerPort));
             }
         };
 
@@ -129,17 +146,16 @@ public class SSLWrapBufferSizeTest {
     };
 
     /**
-     * Delegates to the JDK engine, but keeps reporting NEED_UNWRAP once the handshake is done (on a wrap or an unwrap)
-     * until the next record has been unwrapped, and returns FINISHED together with that record's application data.
-     */
-    /**
      * Encrypts like Netty's OpenSSL engine with a heap destination: refuses a destination smaller than the plaintext of
      * one record plus the record overhead, and otherwise uses a temporary buffer as large as the destination. Records the
      * destination sizes offered for application data.
      */
-    private static final class DestinationRecordingSSLEngine extends SSLEngine {
-        private final SSLEngine delegate;
-        private final List<Integer> appDataDestinations;
+    private static class DestinationRecordingSSLEngine extends SSLEngine {
+        /** Overhead OpenSSL reserves per record (SSL_max_seal_overhead for TLS), more than the JDK's. */
+        static final int OPENSSL_MAX_WRAP_OVERHEAD = 325;
+
+        final SSLEngine delegate;
+        final List<Integer> appDataDestinations;
 
         DestinationRecordingSSLEngine(final SSLEngine delegate, final List<Integer> appDataDestinations) {
             this.delegate = delegate;
@@ -155,8 +171,7 @@ public class SSLWrapBufferSizeTest {
             final SSLSession session = delegate.getSession();
             if (plaintext > 0 && delegate.getHandshakeStatus() == HandshakeStatus.NOT_HANDSHAKING) {
                 appDataDestinations.add(dst.remaining());
-                final long needed = Math.min(plaintext, session.getApplicationBufferSize())
-                        + (session.getPacketBufferSize() - session.getApplicationBufferSize());
+                final long needed = Math.min(plaintext, session.getApplicationBufferSize()) + OPENSSL_MAX_WRAP_OVERHEAD;
                 if (dst.remaining() < needed) {
                     return new SSLEngineResult(Status.BUFFER_OVERFLOW, HandshakeStatus.NOT_HANDSHAKING, 0, 0);
                 }
@@ -319,6 +334,35 @@ public class SSLWrapBufferSizeTest {
         @Override
         public BiFunction<SSLEngine, List<String>, String> getHandshakeApplicationProtocolSelector() {
             return delegate.getHandshakeApplicationProtocolSelector();
+        }
+    }
+
+    /**
+     * The JDK engine as it is, recording the destination sizes offered for application data and which wraps it refused.
+     */
+    private static final class PacketRecordingSSLEngine extends DestinationRecordingSSLEngine {
+        private final List<Integer> overflows;
+
+        PacketRecordingSSLEngine(final SSLEngine delegate, final List<Integer> appDataDestinations, final List<Integer> overflows) {
+            super(delegate, appDataDestinations);
+            this.overflows = overflows;
+        }
+
+        @Override
+        public SSLEngineResult wrap(final ByteBuffer[] srcs, final int offset, final int length, final ByteBuffer dst) throws SSLException {
+            long plaintext = 0;
+            for (int i = offset; i < offset + length; i++) {
+                plaintext += srcs[i].remaining();
+            }
+            final boolean appData = plaintext > 0 && delegate.getHandshakeStatus() == HandshakeStatus.NOT_HANDSHAKING;
+            if (appData) {
+                appDataDestinations.add(dst.remaining());
+            }
+            final SSLEngineResult result = delegate.wrap(srcs, offset, length, dst);
+            if (appData && result.getStatus() == Status.BUFFER_OVERFLOW) {
+                overflows.add(appDataDestinations.size() - 1);
+            }
+            return result;
         }
     }
 }
