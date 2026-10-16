@@ -147,16 +147,16 @@ public class DirectEngineBuffersTest {
 
     @Test
     public void theStagingAreaIsNotSharedByNestedCalls() {
-        final DirectEngineBuffers buffers = DirectEngineBuffers.acquire();
-        assertNotNull(buffers);
+        final ByteBuffer[] area = DirectEngineBuffers.acquire();
+        assertNotNull(area);
         try {
             assertNull(DirectEngineBuffers.acquire());
         } finally {
-            buffers.release();
+            DirectEngineBuffers.release(area);
         }
-        final DirectEngineBuffers again = DirectEngineBuffers.acquire();
-        assertSame(buffers, again);
-        again.release();
+        final ByteBuffer[] again = DirectEngineBuffers.acquire();
+        assertSame(area, again);
+        DirectEngineBuffers.release(again);
     }
 
     /** The sources are advanced by what the engine consumed of the gathered buffer, not by what was gathered. */
@@ -169,13 +169,7 @@ public class DirectEngineBuffersTest {
         final ByteBuffer[] srcs = { a, empty, b };
         final ByteBuffer dst = ByteBuffer.allocate(8);
 
-        final DirectEngineBuffers buffers = DirectEngineBuffers.acquire();
-        final SSLEngineResult result;
-        try {
-            result = buffers.wrap(engine, srcs, srcs.length, 10, dst);
-        } finally {
-            buffers.release();
-        }
+        final SSLEngineResult result = staged(area -> DirectEngineBuffers.wrap(area, engine, srcs, srcs.length, 10, dst));
 
         assertEquals("gathered", 10, engine.lastSourceLength);
         assertTrue(engine.lastSourceDirect);
@@ -185,6 +179,24 @@ public class DirectEngineBuffersTest {
         assertArrayEquals(bytes(0, 8), dst.flip().array());
     }
 
+    /** An engine reporting no application buffer size still gets all the plaintext (up to the bound). */
+    @Test
+    public void wrapWithoutAPlaintextLimitGathersEverything() throws Exception {
+        final CopyingSSLEngine engine = new CopyingSSLEngine();
+        final ByteBuffer[] srcs = { ByteBuffer.wrap(bytes(0, 5)), ByteBuffer.wrap(bytes(5, 7)) };
+        staged(area -> DirectEngineBuffers.wrap(area, engine, srcs, srcs.length, 0, ByteBuffer.allocate(20)));
+        assertEquals(12, engine.lastSourceLength);
+    }
+
+    @Test
+    public void aSingleDirectSourceIsPassedAsItIs() throws Exception {
+        final CopyingSSLEngine engine = new CopyingSSLEngine();
+        final ByteBuffer src = ByteBuffer.allocateDirect(10);
+        staged(area -> DirectEngineBuffers.wrap(area, engine, new ByteBuffer[] { src }, 1, 100, ByteBuffer.allocate(20)));
+        assertSame(src, engine.lastSource);
+        assertEquals(10, src.position());
+    }
+
     @Test
     public void unwrapAdvancesSourceAndDestination() throws Exception {
         final CopyingSSLEngine engine = new CopyingSSLEngine();
@@ -192,12 +204,7 @@ public class DirectEngineBuffersTest {
         final ByteBuffer dst = ByteBuffer.allocate(20).position(4);
         dst.limit(10);
 
-        final DirectEngineBuffers buffers = DirectEngineBuffers.acquire();
-        try {
-            assertEquals(6, buffers.unwrap(engine, src, dst).bytesProduced());
-        } finally {
-            buffers.release();
-        }
+        assertEquals(6, staged(area -> DirectEngineBuffers.unwrap(area, engine, src, dst)).bytesProduced());
 
         assertTrue(engine.lastSourceDirect);
         assertTrue(engine.lastDestinationDirect);
@@ -208,23 +215,112 @@ public class DirectEngineBuffersTest {
         assertArrayEquals(bytes(2, 6), produced);
     }
 
-    /** No staging buffer grows above the bound: a larger source goes to the engine as it is, a destination is capped. */
+    /** What an engine reports as produced is copied back even if it wrote without moving the buffer position. */
+    @Test
+    public void reportedBytesAreCopiedBack() throws Exception {
+        final CopyingSSLEngine engine = new CopyingSSLEngine();
+        engine.absolutePuts = true;
+        final ByteBuffer dst = ByteBuffer.allocate(10);
+
+        staged(area -> DirectEngineBuffers.unwrap(area, engine, ByteBuffer.wrap(bytes(1, 6)), dst));
+
+        final byte[] produced = new byte[6];
+        dst.get(0, produced);
+        assertArrayEquals(bytes(1, 6), produced);
+    }
+
+    /** No staging buffer grows above the bound: larger buffers go to the engine as they are, a source is capped. */
     @Test
     public void stagingBuffersAreBounded() throws Exception {
         final CopyingSSLEngine engine = new CopyingSSLEngine();
         final int above = DirectEngineBuffers.MAX_STAGED_BYTES + 1;
 
-        final DirectEngineBuffers buffers = DirectEngineBuffers.acquire();
-        try {
-            buffers.unwrap(engine, ByteBuffer.allocate(above), ByteBuffer.allocate(above));
-            assertFalse("large source staged", engine.lastSourceDirect);
-            assertEquals(DirectEngineBuffers.MAX_STAGED_BYTES, engine.lastDestinationRemaining);
+        staged(area -> DirectEngineBuffers.unwrap(area, engine, ByteBuffer.allocate(above), ByteBuffer.allocate(above)));
+        assertFalse("large source staged", engine.lastSourceDirect);
+        assertFalse("large destination staged", engine.lastDestinationDirect);
+        assertEquals(above, engine.lastDestinationRemaining);
 
-            buffers.wrap(engine, new ByteBuffer[] { ByteBuffer.allocate(above) }, 1, above, ByteBuffer.allocate(above));
-            assertEquals(DirectEngineBuffers.MAX_STAGED_BYTES, engine.lastSourceLength);
-            assertEquals(DirectEngineBuffers.MAX_STAGED_BYTES, engine.lastDestinationRemaining);
+        staged(area -> DirectEngineBuffers.wrap(area, engine, new ByteBuffer[] { ByteBuffer.allocate(above) }, 1, above,
+                ByteBuffer.allocate(above)));
+        assertEquals(DirectEngineBuffers.MAX_STAGED_BYTES, engine.lastSourceLength);
+        assertTrue(engine.lastSourceDirect);
+        assertFalse("large destination staged", engine.lastDestinationDirect);
+    }
+
+    /** Every call gives the area back, also when the engine fails, so the next call on the thread is staged too. */
+    @Test
+    public void everyCallReleasesTheStagingArea() throws Exception {
+        final CopyingSSLEngine engine = new CopyingSSLEngine();
+        final SSLConnectionContext sslCtx = new SSLConnectionContext(null);
+        sslCtx.configure(engine);
+        assertTrue(sslCtx.isStagingInDirectBuffers());
+
+        for (int i = 0; i < 2; i++) {
+            engine.lastSourceDirect = false;
+            final Buffer output = sslCtx.wrapAll(Buffers.wrap(MM, bytes(0, 100)), (ctx, old, size) -> Buffers.wrap(MM, new byte[size]));
+            assertEquals(100, output.remaining());
+            assertTrue("wrap " + i + " staged", engine.lastSourceDirect);
+        }
+        for (int i = 0; i < 2; i++) {
+            engine.lastSourceDirect = false;
+            final Buffer input = Buffers.wrap(MM, bytes(0, 100));
+            assertFalse(sslCtx.unwrap(100, input, Buffers.wrap(MM, new byte[OUTPUT_SIZE]), null).isError());
+            assertTrue("unwrap " + i + " staged", engine.lastSourceDirect);
+        }
+
+        engine.fail = true;
+        assertTrue(sslCtx.unwrap(100, Buffers.wrap(MM, bytes(0, 100)), Buffers.wrap(MM, new byte[OUTPUT_SIZE]), null).isError());
+        engine.fail = false;
+        final ByteBuffer[] area = DirectEngineBuffers.acquire();
+        assertNotNull("area kept by a failed unwrap", area);
+        DirectEngineBuffers.release(area);
+    }
+
+    /** A composite destination goes to the engine as it is. */
+    @Test
+    public void compositeOutputIsNotStaged() throws Exception {
+        final CopyingSSLEngine engine = new CopyingSSLEngine();
+        final SSLConnectionContext sslCtx = new SSLConnectionContext(null);
+        sslCtx.configure(engine);
+        final Buffer output = CompositeBuffer.newBuffer(MM, Buffers.wrap(MM, new byte[OUTPUT_SIZE / 2]),
+                Buffers.wrap(MM, new byte[OUTPUT_SIZE / 2]));
+
+        assertFalse(sslCtx.unwrap(100, Buffers.wrap(MM, bytes(0, 100)), output, null).isError());
+        assertFalse(engine.lastDestinationDirect);
+        assertEquals(100, output.position());
+    }
+
+    @Test
+    public void stagingCanBeSwitchedOff() throws Exception {
+        final boolean before = SSLConnectionContext.directEngineBuffers;
+        SSLConnectionContext.directEngineBuffers = false;
+        try {
+            final SSLConnectionContext sslCtx = new SSLConnectionContext(null);
+            sslCtx.configure(new CopyingSSLEngine());
+            assertFalse(sslCtx.isStagingInDirectBuffers());
         } finally {
-            buffers.release();
+            SSLConnectionContext.directEngineBuffers = before;
+        }
+    }
+
+    private static final MemoryManager MM = MemoryManager.DEFAULT_MEMORY_MANAGER;
+
+    /** Above what the context asks for (1.5 times the application buffer size), so no allocator is needed. */
+    private static final int OUTPUT_SIZE = 64 * 1024;
+
+    private interface StagedCall {
+        SSLEngineResult run(ByteBuffer[] area) throws SSLException;
+    }
+
+    private static SSLEngineResult staged(final StagedCall call) throws SSLException {
+        final ByteBuffer[] area = DirectEngineBuffers.acquire();
+        assertNotNull(area);
+        try {
+            final SSLEngineResult result = call.run(area);
+            assertNotNull("staged", result);
+            return result;
+        } finally {
+            DirectEngineBuffers.release(area);
         }
     }
 
@@ -388,35 +484,50 @@ public class DirectEngineBuffersTest {
 
     /** Copies plaintext as it is, recording the buffers it was given. */
     private static final class CopyingSSLEngine extends ForwardingSSLEngine {
+        ByteBuffer lastSource;
         int lastSourceLength;
         boolean lastSourceDirect;
         boolean lastDestinationDirect;
         int lastDestinationRemaining;
+        /** Writes with absolute puts, leaving the destination position where it was. */
+        boolean absolutePuts;
+        boolean fail;
 
         CopyingSSLEngine() throws Exception {
             super(SSLContext.getDefault().createSSLEngine());
         }
 
         @Override
-        public SSLEngineResult wrap(final ByteBuffer[] srcs, final int offset, final int length, final ByteBuffer dst) {
+        public HandshakeStatus getHandshakeStatus() {
+            return HandshakeStatus.NOT_HANDSHAKING;
+        }
+
+        @Override
+        public SSLEngineResult wrap(final ByteBuffer[] srcs, final int offset, final int length, final ByteBuffer dst) throws SSLException {
             assertEquals("one source", 1, length);
             return copy(srcs[offset], dst);
         }
 
         @Override
-        public SSLEngineResult unwrap(final ByteBuffer src, final ByteBuffer[] dsts, final int offset, final int length) {
-            assertEquals("one destination", 1, length);
+        public SSLEngineResult unwrap(final ByteBuffer src, final ByteBuffer[] dsts, final int offset, final int length) throws SSLException {
             return copy(src, dsts[offset]);
         }
 
-        private SSLEngineResult copy(final ByteBuffer src, final ByteBuffer dst) {
+        private SSLEngineResult copy(final ByteBuffer src, final ByteBuffer dst) throws SSLException {
+            lastSource = src;
             lastSourceLength = src.remaining();
             lastSourceDirect = src.isDirect();
             lastDestinationDirect = dst.isDirect();
             lastDestinationRemaining = dst.remaining();
+            if (fail) {
+                throw new SSLException("failing on purpose");
+            }
             final int n = Math.min(src.remaining(), dst.remaining());
-            final ByteBuffer slice = src.slice().limit(n);
-            dst.put(slice);
+            if (absolutePuts) {
+                dst.put(dst.position(), src, src.position(), n);
+            } else {
+                dst.put(src.slice().limit(n));
+            }
             src.position(src.position() + n);
             return new SSLEngineResult(Status.OK, HandshakeStatus.NOT_HANDSHAKING, n, n);
         }
