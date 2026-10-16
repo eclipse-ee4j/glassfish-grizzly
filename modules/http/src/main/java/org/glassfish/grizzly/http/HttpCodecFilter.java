@@ -1519,7 +1519,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
                     // Serialize the headers without marking them as serialized, so that they are still emitted with the
                     // final response.
-                    encodedBuffer = encodeMimeHeaders(memoryManager, encodedBuffer, response.getHeaders(), response.getTempHeaderEncodingBuffer(),
+                    encodedBuffer = encodeMimeHeaders(memoryManager, encodedBuffer, response.getHeaders(), response.getTempHeaderEncodingBuffer(encodedBuffer),
                             false);
                     onHttpHeadersEncoded(httpHeader, ctx);
                     encodedBuffer = put(memoryManager, encodedBuffer, CRLF_BYTES);
@@ -1547,7 +1547,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
             encodedBuffer = encodeKnownHeaders(memoryManager, encodedBuffer, httpHeader);
 
             final MimeHeaders mimeHeaders = httpHeader.getHeaders();
-            final byte[] tempEncodingBuffer = httpHeader.getTempHeaderEncodingBuffer();
+            final byte[] tempEncodingBuffer = httpHeader.getTempHeaderEncodingBuffer(encodedBuffer);
             encodedBuffer = encodeMimeHeaders(memoryManager, encodedBuffer, mimeHeaders, tempEncodingBuffer);
             onHttpHeadersEncoded(httpHeader, ctx);
             encodedBuffer = put(memoryManager, encodedBuffer, CRLF_BYTES);
@@ -1620,7 +1620,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         value.reset();
         httpHeader.extractContentEncoding(value);
         boolean needComma = !value.isNull();
-        final byte[] tempBuffer = httpHeader.getTempHeaderEncodingBuffer();
+        final byte[] tempBuffer = httpHeader.getTempHeaderEncodingBuffer(buffer);
 
         buffer = encodeMimeHeader(memoryManager, buffer, name, value, tempBuffer, false);
         for (ContentEncoding encoding : packetContentEncodings) {

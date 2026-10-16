@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -55,7 +56,7 @@ public abstract class HttpHeader extends HttpPacket implements MimeHeadersPacket
 
     protected boolean isChunked;
     private final byte[] tmpContentLengthBuffer = new byte[20];
-    private final byte[] tmpHeaderEncodingBuffer = new byte[512];
+    private byte[] tmpHeaderEncodingBuffer; // lazily allocated: only needed to encode into non-array Buffers
 
     protected long contentLength = -1;
 
@@ -886,8 +887,33 @@ public abstract class HttpHeader extends HttpPacket implements MimeHeadersPacket
         return c == 'C' || c == 'c' || c == 'U' || c == 'u';
     }
 
+    /**
+     * Returns the scratch buffer used to encode {@link String}s into {@link Buffer}s that have no backing array,
+     * creating it on first use. Like the rest of the header, it must not be used by several threads at a time.
+     *
+     * @return the scratch buffer
+     */
     public byte[] getTempHeaderEncodingBuffer() {
-        return tmpHeaderEncodingBuffer;
+        byte[] buffer = tmpHeaderEncodingBuffer;
+        if (buffer == null) {
+            buffer = tmpHeaderEncodingBuffer = new byte[512];
+        }
+        return buffer;
+    }
+
+    /**
+     * Returns the scratch buffer needed to encode {@link String}s into {@code output}: {@code null} when
+     * {@code output} has a backing array (Strings are then written into that array directly), otherwise
+     * {@link #getTempHeaderEncodingBuffer()}. The encoding methods of {@code HttpCodecUtils} accept {@code null}; if
+     * {@code output} loses its backing array while encoding (e.g. a pooled buffer reallocated into a composite one),
+     * they then use a temporary array per String instead.
+     *
+     * @param output the buffer to encode into
+     * @return the scratch buffer, or {@code null} if none is needed
+     * @since 5.0.4
+     */
+    public byte[] getTempHeaderEncodingBuffer(final Buffer output) {
+        return output.hasArray() ? null : getTempHeaderEncodingBuffer();
     }
 
     // --------------------------------------------------------- Private Methods
