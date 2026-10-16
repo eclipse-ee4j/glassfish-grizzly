@@ -183,7 +183,11 @@ public final class ProcessorExecutor {
         } catch (Throwable t) {
             if (!runEnded) {
                 runEnded = true;
-                run.end();
+                try {
+                    run.end();
+                } catch (Throwable endFailure) {
+                    t.addSuppressed(endFailure);
+                }
             }
 
             if (LOGGER.isLoggable(Level.WARNING)) {

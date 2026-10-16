@@ -148,6 +148,8 @@ public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddre
         final FutureImpl<WriteResult<WritableMessage, SocketAddress>> future = Futures.createSafeFuture();
         ((NIOTransport) connection.getTransport()).getAsyncQueueIO().getWriter().write(connection, dstAddress, message,
                 Futures.toCompletionHandler(future, completionHandler));
+        // the queue may have drained meanwhile, and then the write above was held back as the head of the queue
+        connection.flushCorkedWrites();
         try {
             if (timeout >= 0) {
                 future.get(timeout, timeunit);
@@ -156,12 +158,12 @@ public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddre
             }
         } catch (ExecutionException e) {
             // the completion handler has been notified
-        } catch (TimeoutException e) {
-            connection.closeSilently();
-            failure(new IOException("Write timeout exceeded", e), completionHandler);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            failure(new IOException(e), completionHandler);
+        } catch (TimeoutException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            // fails the queued write, which notifies the completion handler (a graceful close would queue behind it)
+            connection.terminateWithReason(new IOException(e instanceof TimeoutException ? "Write timeout exceeded" : "Interrupted", e));
         }
     }
 

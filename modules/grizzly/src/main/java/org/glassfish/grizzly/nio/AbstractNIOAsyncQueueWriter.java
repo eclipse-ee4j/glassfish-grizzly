@@ -280,7 +280,8 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
                 // behind it, in flushHeldWrites().
                 queueRecord.setMessage(cloneRecordIfNeeded(nioConnection, cloner, message));
                 if (isCurrent) {
-                    // fails if processAsync() of a WRITE event is still running: then it writes the record
+                    // fails if processAsync() of a WRITE event is still running: then it writes the record, as one that
+                    // found the queue empty returns EXPECTING_MORE (WRITE interest stays enabled) and runs again
                     NIOConnection.heldWritesStateUpdater.compareAndSet(nioConnection, NIOConnection.NONE_HELD, NIOConnection.HELD);
                     writeTaskQueue.setCurrentElement(queueRecord);
                 } else {
@@ -359,7 +360,8 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
         if (!NIOConnection.heldWritesStateUpdater.compareAndSet(nioConnection, NIOConnection.NONE_HELD, NIOConnection.WRITING)) {
             // the queue holds writes back for the thread that corked the connection; it writes them itself, and asks for
-            // OP_WRITE if anything is left
+            // OP_WRITE if anything is left: don't enable it again from here
+            context.setManualIOEventControl();
             return AsyncResult.COMPLETE;
         }
 
@@ -470,8 +472,8 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
         final TaskQueue<AsyncWriteQueueRecord> writeTaskQueue = nioConnection.getAsyncWriteQueue();
         // Keeps the queue from becoming empty while it's drained here, so no other thread writes directly meanwhile and
-        // the written bytes can be released record by record (completion handlers asking canWrite() see what's left).
-        // Records written by completion handlers are queued behind.
+        // the written bytes can be released record by record (completion handlers asking canWrite() see what's left,
+        // plus this one byte). Records written by completion handlers are queued behind.
         writeTaskQueue.reserveSpace(1);
         boolean failed = false;
         AsyncWriteQueueRecord queueRecord = null;
@@ -486,12 +488,18 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
                     break;
                 }
 
-                finishQueueRecord(nioConnection, queueRecord);
+                try {
+                    finishQueueRecord(nioConnection, queueRecord);
+                } catch (RuntimeException e) {
+                    // don't fail the caller (e.g. a write, canWrite(), the end of a READ run) for a completion handler
+                    LOGGER.log(Level.WARNING, "Completion handler of a write failed", e);
+                }
             }
         } catch (IOException e) {
             failed = true;
             nioConnection.heldWritesState = NIOConnection.NONE_HELD;
-            onWriteFailure(nioConnection, queueRecord, e);
+            // not gracefully: the close would be queued behind records nobody writes any more
+            onWriteFailure(nioConnection, queueRecord, false, e);
         } finally {
             nioConnection.heldWritesState = NIOConnection.NONE_HELD;
             // an incomplete record, or records queued meanwhile, are written as usual; also if a completion handler threw
@@ -500,12 +508,11 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
                     onReadyToWrite(nioConnection);
                 } catch (IOException e) {
                     LOGGER.log(Level.FINE, "Could not register for OP_WRITE", e);
-                    nioConnection.closeSilently();
+                    nioConnection.terminateSilently();
                 }
             }
+            writeTaskQueue.doNotify();
         }
-
-        writeTaskQueue.doNotify();
     }
 
     private static void finishQueueRecord(final NIOConnection nioConnection, final AsyncWriteQueueRecord queueRecord) {
