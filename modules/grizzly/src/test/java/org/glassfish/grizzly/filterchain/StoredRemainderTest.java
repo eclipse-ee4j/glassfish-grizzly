@@ -52,12 +52,15 @@ public class StoredRemainderTest {
                 final InputStream in = socket.getInputStream();
 
                 // one read per chunk: the server acknowledges each read before the next chunk is sent
+                send(out, "!"); // nothing stored yet: the line filter gets the empty buffer
+                assertEquals(".", read(in, 1));
                 send(out, "hel");
                 assertEquals(".", read(in, 1));
                 send(out, "!");
                 assertEquals(".", read(in, 1));
                 send(out, "lo\n");
-                assertEquals(".hello\n", read(in, 7));
+                assertEquals(".hel", read(in, 4));
+                assertEquals("lo\n", read(in, 3));
             }
         } finally {
             transport.shutdownNow();

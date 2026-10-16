@@ -454,11 +454,13 @@ public final class DefaultFilterChain extends ListFacadeFilterChain {
             if (message instanceof Buffer) {
                 Buffer bufferMessage = (Buffer) message;
                 if (!bufferMessage.hasRemaining()) {
-                    // nothing to append: give the filter what it stored instead, otherwise the remainder it returns
-                    // for the empty buffer would replace the stored one
-                    if (filtersState.get(ctx.getOperation(), filterIdx) != null) {
+                    // nothing to append: give the filter the incomplete chunk it stored instead, otherwise the remainder
+                    // it returns for the empty buffer would replace the stored one. An unparsed remainder keeps its own
+                    // delivery path.
+                    final FilterStateElement stored = filtersState.get(ctx.getOperation(), filterIdx);
+                    if (stored != null && stored.isIncomplete) {
                         bufferMessage.tryDispose();
-                        ctx.setMessage(filtersState.append(ctx.getOperation(), filterIdx, null));
+                        ctx.setMessage(stored.append(null));
                     }
                     return;
                 }
