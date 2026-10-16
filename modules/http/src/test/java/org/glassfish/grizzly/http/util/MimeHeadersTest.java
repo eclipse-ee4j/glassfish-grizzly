@@ -156,14 +156,20 @@ public class MimeHeadersTest {
     @Test
     public void testForbiddenTrailerNamesAreRejectedInTurkishLocale() {
         final Locale defaultLocale = Locale.getDefault();
+        final Locale displayLocale = Locale.getDefault(Locale.Category.DISPLAY);
+        final Locale formatLocale = Locale.getDefault(Locale.Category.FORMAT);
         Locale.setDefault(Locale.forLanguageTag("tr-TR"));
         try {
             // "IF-MATCH".toLowerCase() is "ıf-match" (dotless i) in Turkish
             final byte[] input = "IF-MATCH".getBytes(StandardCharsets.ISO_8859_1);
             Assert.assertSame(MimeHeaders.NOOP_CHUNK, mimeHeaders.addValue(input, 0, input.length));
             Assert.assertSame(MimeHeaders.NOOP_CHUNK, mimeHeaders.addValue("IF-MATCH"));
+            final Buffer buffer = Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, "IF-MATCH", StandardCharsets.ISO_8859_1);
+            Assert.assertSame(MimeHeaders.NOOP_CHUNK, mimeHeaders.addValue(buffer, 0, 8));
         } finally {
             Locale.setDefault(defaultLocale);
+            Locale.setDefault(Locale.Category.DISPLAY, displayLocale);
+            Locale.setDefault(Locale.Category.FORMAT, formatLocale);
         }
     }
 
@@ -200,6 +206,10 @@ public class MimeHeadersTest {
         Assert.assertSame(MimeHeaders.NOOP_CHUNK, noop);
         noop.setBytes("evil".getBytes(StandardCharsets.ISO_8859_1));
         noop.setBytes("evil".getBytes(StandardCharsets.ISO_8859_1), 0, 4);
+        noop.setBuffer(Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, "evil", StandardCharsets.ISO_8859_1));
+        final DataChunk evil = DataChunk.newInstance();
+        evil.setString("evil");
+        noop.set(evil, 0, 4);
         Assert.assertTrue(MimeHeaders.NOOP_CHUNK.isNull());
     }
 }
