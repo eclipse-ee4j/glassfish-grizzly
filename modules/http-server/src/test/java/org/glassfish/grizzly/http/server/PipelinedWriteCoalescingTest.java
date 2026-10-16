@@ -62,7 +62,11 @@ public class PipelinedWriteCoalescingTest {
                 if (uri.startsWith("/boom")) {
                     throw new IllegalStateException("boom");
                 }
-                if (uri.startsWith("/echo")) {
+                if (uri.startsWith("/ack")) {
+                    // the 100 Continue has been written before service(); read the body only later
+                    Thread.sleep(SLEEP_MILLIS);
+                }
+                if (uri.startsWith("/echo") || uri.startsWith("/ack")) {
                     final String echo = new String(request.getInputStream().readAllBytes(), StandardCharsets.US_ASCII);
                     response.setContentType("text/plain");
                     response.setContentLength(echo.length());
@@ -190,16 +194,19 @@ public class PipelinedWriteCoalescingTest {
 
     /**
      * The client sends the body of a request with "Expect: 100-continue" only after the 100 Continue response, which must
-     * not be held back (the handler of the request waits for the body). The second request corks the connection.
+     * not be held back until the handler reads the body. The second request corks the connection.
      */
     @Test
     public void continueResponseIsNotHeldBack() throws Exception {
         try (Socket socket = connect()) {
-            send(socket, get("/a") + get("/b") + "POST /echo HTTP/1.1\r\nHost: localhost\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n");
+            final long start = System.nanoTime();
+            send(socket, get("/a") + get("/b") + "POST /ack HTTP/1.1\r\nHost: localhost\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n");
             final InputStream in = socket.getInputStream();
             assertEquals("/a", readResponseBody(in));
             assertEquals("/b", readResponseBody(in));
             assertEquals("HTTP/1.1 100 Continue", readLine(in));
+            final long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            assertTrue("100 Continue arrived after " + millis + " ms", millis < SLEEP_MILLIS / 2);
             assertEquals("", readLine(in));
             send(socket, "hello");
             assertEquals("hello", readResponseBody(in));
