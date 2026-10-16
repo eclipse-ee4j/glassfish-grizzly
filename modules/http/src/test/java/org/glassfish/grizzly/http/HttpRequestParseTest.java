@@ -383,10 +383,10 @@ public class HttpRequestParseTest {
         // an example of bytes an upstream filter could consume before passing the buffer on
         final byte[] prefix = "PREFIX\r\n".getBytes(StandardCharsets.ISO_8859_1);
         final byte[] request = "GET /p?q=1 HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
-        for (final boolean direct : new boolean[] { false, true }) {
-            for (int split = 0; split < request.length; split += 5) {
+        for (final String kind : new String[] { "heap", "direct", "composite" }) {
+            for (int split = 0; split < request.length; split++) {
                 // split > 0: the request arrives in two reads, the second one appended to the first
-                final Buffer first = bufferAtPosition(prefix, Arrays.copyOfRange(request, 0, split == 0 ? request.length : split), direct);
+                final Buffer first = bufferAtPosition(prefix, Arrays.copyOfRange(request, 0, split == 0 ? request.length : split), kind);
                 final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
                 final StandaloneConnection connection = new StandaloneConnection();
                 FilterChainContext ctx = FilterChainContext.create(connection);
@@ -398,22 +398,34 @@ public class HttpRequestParseTest {
                             Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, Arrays.copyOfRange(request, split, request.length))));
                     filter.handleRead(ctx);
                 }
-                assertRequestAtPosition(ctx, (direct ? "direct" : "heap") + " split " + split);
+                assertRequestAtPosition(ctx, kind + " split " + split);
             }
         }
     }
 
-    private static Buffer bufferAtPosition(final byte[] prefix, final byte[] data, final boolean direct) {
+    /**
+     * The prefix and the data in one buffer, at the position after the prefix: a heap buffer (byte[] parsing path), a
+     * direct one (Buffer path) or a composite of two heap buffers split inside the prefix (the next read is then appended
+     * to it in place).
+     */
+    static Buffer bufferAtPosition(final byte[] prefix, final byte[] data, final String kind) {
         final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
         final byte[] all = new byte[prefix.length + data.length];
         System.arraycopy(prefix, 0, all, 0, prefix.length);
         System.arraycopy(data, 0, all, prefix.length, data.length);
         final Buffer buffer;
-        if (direct) {
+        switch (kind) {
+        case "direct": {
             final ByteBuffer bb = ByteBuffer.allocateDirect(all.length);
             bb.put(all).flip();
             buffer = Buffers.wrap(mm, bb);
-        } else {
+            break;
+        }
+        case "composite":
+            buffer = Buffers.appendBuffers(mm, Buffers.wrap(mm, Arrays.copyOfRange(all, 0, 3)),
+                    Buffers.wrap(mm, Arrays.copyOfRange(all, 3, all.length)));
+            break;
+        default:
             buffer = Buffers.wrap(mm, all);
         }
         buffer.position(prefix.length);

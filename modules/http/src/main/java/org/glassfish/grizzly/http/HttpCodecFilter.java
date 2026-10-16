@@ -531,9 +531,10 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
                 // if header wasn't parsed - parse
                 if (!decodeHttpPacket(ctx, parsingState, input)) {
                     // if there is not enough data to parse the HTTP header - stop
-                    // filterchain processing. The input is kept from its position on and the next read is appended
-                    // to it: index 0 of that buffer is the current position.
-                    parsingState.getHeaderParsingState().rebase(input.position());
+                    // filterchain processing. The input is kept from its position on and the next read is appended to
+                    // it: at position 0, index 0 of the combined buffer stays index 0 of this one (also when the next
+                    // read is appended in place to a composite), so the parsing indexes stay valid.
+                    input.position(0);
                     return ctx.getStopAction(input);
                 } else {
                     final int headerSizeInBytes = input.position() - parsingState.getHeaderParsingState().messageStart;
@@ -1957,27 +1958,6 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
             start = initialOffset;
             offset = initialOffset;
             packetLimit = offset + maxHeaderSize;
-        }
-
-        /**
-         * Moves the indexes kept while parsing by {@code -delta}, when the buffer's first {@code delta} bytes are dropped.
-         */
-        void rebase(final int delta) {
-            if (delta == 0) {
-                return;
-            }
-            messageStart -= delta;
-            packetLimit -= delta;
-            offset -= delta;
-            if (start != -1) {
-                start -= delta;
-            }
-            if (checkpoint != -1) {
-                checkpoint -= delta;
-            }
-            if (checkpoint2 != -1) {
-                checkpoint2 -= delta;
-            }
         }
 
         public void set(int state, int subState, int start, int offset) {
