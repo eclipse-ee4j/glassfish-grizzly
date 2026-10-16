@@ -215,6 +215,14 @@ public class HttpResponseParseTest {
         }
     }
 
+    @Test
+    public void testExpectHeaderInResponse() {
+        // Expect is a request header; a response carrying it must still parse
+        final HttpPacket packet = doTestDecoder("HTTP/1.1 200 OK\r\nExpect: 100-continue\r\nContent-Length: 0\r\n\r\n", 4096);
+        final HttpHeader header = ((HttpContent) packet).getHttpHeader();
+        assertEquals("100-continue", header.getHeader("Expect"));
+    }
+
     @SuppressWarnings({ "unchecked" })
     private HttpPacket doTestDecoder(String response, int limit) {
 

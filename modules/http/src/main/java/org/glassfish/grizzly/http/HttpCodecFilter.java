@@ -937,7 +937,8 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
                 parsingState.isUpgradeHeader = true;
             }
         } else if (size == Header.Expect.getLowerCaseBytes().length) {
-            if (ByteChunk.equalsIgnoreCaseLowerCase(input, start, end, Header.Expect.getLowerCaseBytes())) {
+            // Expect is a request header; a response may still carry it
+            if (httpHeader.isRequest() && ByteChunk.equalsIgnoreCaseLowerCase(input, start, end, Header.Expect.getLowerCaseBytes())) {
                 ((HttpRequestPacket) httpHeader).requiresAcknowledgement(true);
             }
         }
@@ -1227,7 +1228,8 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
                 parsingState.isUpgradeHeader = true;
             }
         } else if (size == Header.Expect.getLowerCaseBytes().length) {
-            if (BufferChunk.equalsIgnoreCaseLowerCase(input, start, end, Header.Expect.getLowerCaseBytes())) {
+            // Expect is a request header; a response may still carry it
+            if (httpHeader.isRequest() && BufferChunk.equalsIgnoreCaseLowerCase(input, start, end, Header.Expect.getLowerCaseBytes())) {
                 ((HttpRequestPacket) httpHeader).requiresAcknowledgement(true);
             }
         }
