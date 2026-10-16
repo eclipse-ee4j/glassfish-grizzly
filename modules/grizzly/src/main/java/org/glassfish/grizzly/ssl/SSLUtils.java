@@ -253,8 +253,15 @@ public final class SSLUtils {
             final int produced = result.getSslEngineResult().bytesProduced();
             if (produced > 0) {
                 final int end = output.position();
-                sslCtx.addHandshakeAppData(output, end - produced, end);
+                final boolean kept = sslCtx.addHandshakeAppData(output, end - produced, end);
                 output.position(end - produced);
+                if (!kept) {
+                    if (output != tmpOutputBuffer) {
+                        output.dispose();
+                    }
+                    throw new SSLException("More than " + SSLConnectionContext.MAX_HANDSHAKE_APP_DATA
+                            + " bytes of application data received during the handshake");
+                }
             }
         }
 

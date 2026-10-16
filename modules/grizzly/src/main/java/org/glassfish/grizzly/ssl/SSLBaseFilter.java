@@ -648,7 +648,8 @@ public class SSLBaseFilter extends BaseFilter {
         }
 
         try {
-            // application data the peer sends during this renegotiation is passed upstream with the next read
+            // Application data the peer sends during this renegotiation is passed upstream with the next read. Input
+            // read beyond the end of the handshake is dropped, as it was before application data was kept.
             rehandshake(context, sslCtx);
         } finally {
             if (!authConfigured) {

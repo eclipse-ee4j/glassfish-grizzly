@@ -71,6 +71,13 @@ public final class SSLConnectionContext {
      * processing the connection's input or handshake; taken atomically, as a close may dispose of it concurrently.
      */
     private volatile Buffer handshakeAppData;
+    /** Set once the kept data has been disposed of (handshake failure or close): nothing is kept after that. */
+    private volatile boolean handshakeAppDataDisposed;
+    /**
+     * Most application data kept during one handshake. Above it the handshake fails: a peer could otherwise send data
+     * records forever in the middle of a renegotiation it never finishes.
+     */
+    static final int MAX_HANDSHAKE_APP_DATA = 64 * 1024;
     private static final AtomicReferenceFieldUpdater<SSLConnectionContext, Buffer> handshakeAppDataUpdater = AtomicReferenceFieldUpdater
             .newUpdater(SSLConnectionContext.class, Buffer.class, "handshakeAppData");
     private final InputBufferWrapper inputBuffer = new InputBufferWrapper();
@@ -142,17 +149,29 @@ public final class SSLConnectionContext {
      * @param from index of the first decrypted byte
      * @param to index after the last decrypted byte
      */
-    void addHandshakeAppData(final Buffer src, final int from, final int to) {
+    boolean addHandshakeAppData(final Buffer src, final int from, final int to) {
         final int length = to - from;
-        Buffer data = handshakeAppData;
+        Buffer data = takeHandshakeAppData();
+        final int size = (data == null ? 0 : data.position()) + length;
+        if (size > MAX_HANDSHAKE_APP_DATA) {
+            if (data != null) {
+                data.dispose();
+            }
+            return false;
+        }
         if (data == null) {
-            data = connection.getMemoryManager().allocate(length);
+            data = connection.getMemoryManager().allocate(Math.max(length, appBufferSize));
         } else if (data.remaining() < length) {
-            data = connection.getMemoryManager().reallocate(data, data.position() + length);
+            data = connection.getMemoryManager().reallocate(data, Math.min(Math.max(size, data.capacity() * 2), MAX_HANDSHAKE_APP_DATA));
         }
         data.put(src, from, length);
         // left in write mode (position after the data): unwrapAll() appends the next decrypted records to it
         handshakeAppData = data;
+        if (handshakeAppDataDisposed) {
+            // disposed of concurrently (the connection was closed): don't keep anything
+            disposeHandshakeAppData();
+        }
+        return true;
     }
 
     boolean hasHandshakeAppData() {
@@ -164,6 +183,7 @@ public final class SSLConnectionContext {
     }
 
     void disposeHandshakeAppData() {
+        handshakeAppDataDisposed = true;
         final Buffer data = takeHandshakeAppData();
         if (data != null) {
             data.dispose();
