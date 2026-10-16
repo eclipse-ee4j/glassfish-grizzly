@@ -1027,6 +1027,26 @@ public class DataChunk implements Chunk {
         }
 
         @Override
+        public void duplicate(DataChunk src) {
+        }
+
+        @Override
+        public void trimLeft() {
+        }
+
+        @Override
+        public void setStart(int start) {
+        }
+
+        @Override
+        public void setEnd(int end) {
+        }
+
+        @Override
+        public void notifyDirectUpdate() {
+        }
+
+        @Override
         public void setBytes(final byte[] bytes) {
         }
 
