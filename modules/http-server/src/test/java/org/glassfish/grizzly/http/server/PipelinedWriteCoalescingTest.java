@@ -122,7 +122,9 @@ public class PipelinedWriteCoalescingTest {
 
     /**
      * Each handler takes 100 ms. Written one by one, the responses would arrive about 100 ms apart; held back until
-     * the batch is processed, they leave in one gathering write and arrive together.
+     * the batch is processed, they leave in one gathering write and arrive together. The first one leaves on its own:
+     * the selector thread parses the first request and hands it to a worker thread, which corks the connection only
+     * when it parses the second one.
      */
     @Test
     public void responsesToABatchOfPipelinedRequestsLeaveTogether() throws Exception {
@@ -134,15 +136,15 @@ public class PipelinedWriteCoalescingTest {
             }
             send(socket, requests.toString());
             final InputStream in = socket.getInputStream();
-            long first = 0;
+            long second = 0;
             for (int i = 0; i < n; i++) {
                 assertEquals("/nap" + i, readResponseBody(in));
-                if (i == 0) {
-                    first = System.nanoTime();
+                if (i == 1) {
+                    second = System.nanoTime();
                 }
             }
-            final long spreadMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - first);
-            assertTrue("first to last response: " + spreadMillis + " ms", spreadMillis < NAP_MILLIS * 3);
+            final long spreadMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - second);
+            assertTrue("second to last response: " + spreadMillis + " ms", spreadMillis < NAP_MILLIS * 3);
         }
     }
 
@@ -187,17 +189,34 @@ public class PipelinedWriteCoalescingTest {
     }
 
     /**
-     * The client sends the body of a request with "Expect: 100-continue" only after the 100 Continue response, which the
-     * handler blocking on the body must not hold back, nor the response pipelined before it.
+     * The client sends the body of a request with "Expect: 100-continue" only after the 100 Continue response, which must
+     * not be held back (the handler of the request waits for the body). The second request corks the connection.
      */
     @Test
     public void continueResponseIsNotHeldBack() throws Exception {
         try (Socket socket = connect()) {
-            send(socket, get("/a") + "POST /echo HTTP/1.1\r\nHost: localhost\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n");
+            send(socket, get("/a") + get("/b") + "POST /echo HTTP/1.1\r\nHost: localhost\r\nExpect: 100-continue\r\nContent-Length: 5\r\n\r\n");
             final InputStream in = socket.getInputStream();
             assertEquals("/a", readResponseBody(in));
+            assertEquals("/b", readResponseBody(in));
             assertEquals("HTTP/1.1 100 Continue", readLine(in));
             assertEquals("", readLine(in));
+            send(socket, "hello");
+            assertEquals("hello", readResponseBody(in));
+        }
+    }
+
+    /**
+     * The client sends the body of the last request only after the response to the one before it, which the handler
+     * blocking on the body must not hold back.
+     */
+    @Test
+    public void responseIsNotHeldBackByABlockingRead() throws Exception {
+        try (Socket socket = connect()) {
+            send(socket, get("/a") + get("/b") + "POST /echo HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\n\r\n");
+            final InputStream in = socket.getInputStream();
+            assertEquals("/a", readResponseBody(in));
+            assertEquals("/b", readResponseBody(in));
             send(socket, "hello");
             assertEquals("hello", readResponseBody(in));
         }
@@ -223,8 +242,10 @@ public class PipelinedWriteCoalescingTest {
     public void explicitFlushIsNotHeldBackByTheNextPipelinedRequest() throws Exception {
         try (Socket socket = connect()) {
             final long start = System.nanoTime();
-            send(socket, get("/flush") + get("/sleep"));
+            // the first response leaves on its own anyway, see responsesToABatchOfPipelinedRequestsLeaveTogether
+            send(socket, get("/a") + get("/flush") + get("/sleep"));
             final InputStream in = socket.getInputStream();
+            assertEquals("/a", readResponseBody(in));
             assertEquals("/flush", readResponseBody(in));
             final long millis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
             assertTrue("flushed response arrived after " + millis + " ms", millis < SLEEP_MILLIS / 2);
