@@ -1015,7 +1015,15 @@ public class DataChunk implements Chunk {
         }
 
         @Override
+        public void set(DataChunk value, int start, int end) {
+        }
+
+        @Override
         public void setBuffer(Buffer buffer, int start, int end) {
+        }
+
+        @Override
+        public void setBuffer(Buffer buffer) {
         }
 
         @Override
