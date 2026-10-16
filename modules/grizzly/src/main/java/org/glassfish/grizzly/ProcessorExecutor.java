@@ -161,6 +161,7 @@ public final class ProcessorExecutor {
         boolean isRerun;
         ProcessorResult result;
         boolean runEnded = run == null;
+        Error endError = null;
 
         try {
             do {
@@ -175,7 +176,12 @@ public final class ProcessorExecutor {
 
             runEnded = true;
             if (run != null) {
-                run.end();
+                try {
+                    run.end();
+                } catch (Error e) {
+                    // complete the context first, so READ interest is enabled again
+                    endError = e;
+                }
             }
 
             complete0(context, result);
@@ -199,6 +205,10 @@ public final class ProcessorExecutor {
                 error(context, t);
             } catch (Exception ignored) {
             }
+        }
+
+        if (endError != null) {
+            throw endError;
         }
     }
 

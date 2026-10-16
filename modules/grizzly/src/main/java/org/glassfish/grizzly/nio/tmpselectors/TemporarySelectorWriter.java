@@ -37,6 +37,7 @@ import org.glassfish.grizzly.asyncqueue.WritableMessage;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.nio.NIOTransport;
+import org.glassfish.grizzly.threadpool.Threads;
 import org.glassfish.grizzly.utils.Futures;
 
 /**
@@ -117,7 +118,7 @@ public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddre
             // take all of them now, queue this write behind them and wait for it
             nioConnection.flushCorkedWrites();
             if (!nioConnection.getAsyncWriteQueue().isEmpty()) {
-                writeBehindQueuedWrites(nioConnection, dstAddress, message, completionHandler, timeout, timeunit);
+                writeBehindQueuedWrites(nioConnection, dstAddress, message, completionHandler, pushBackHandler, timeout, timeunit);
                 return;
             }
         }
@@ -144,12 +145,17 @@ public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddre
     }
 
     private static void writeBehindQueuedWrites(final NIOConnection connection, final SocketAddress dstAddress, final WritableMessage message,
-            final CompletionHandler<WriteResult<WritableMessage, SocketAddress>> completionHandler, final long timeout, final TimeUnit timeunit) {
+            final CompletionHandler<WriteResult<WritableMessage, SocketAddress>> completionHandler,
+            final org.glassfish.grizzly.asyncqueue.PushBackHandler pushBackHandler, final long timeout, final TimeUnit timeunit) {
         final FutureImpl<WriteResult<WritableMessage, SocketAddress>> future = Futures.createSafeFuture();
         ((NIOTransport) connection.getTransport()).getAsyncQueueIO().getWriter().write(connection, dstAddress, message,
-                Futures.toCompletionHandler(future, completionHandler));
+                Futures.toCompletionHandler(future, completionHandler), pushBackHandler);
         // the queue may have drained meanwhile, and then the write above was held back as the head of the queue
         connection.flushCorkedWrites();
+        if (Threads.isService()) {
+            // a selector thread would wait for the OP_WRITE processing it does itself: the completion handler tells
+            return;
+        }
         try {
             if (timeout >= 0) {
                 future.get(timeout, timeunit);
