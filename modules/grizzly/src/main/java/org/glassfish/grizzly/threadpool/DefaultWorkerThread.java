@@ -91,7 +91,8 @@ public class DefaultWorkerThread extends Thread implements WorkerThread {
     }
 
     /**
-     * @return this thread's object cache, see {@link ThreadCache}
+     * @return this thread's object cache, see {@link ThreadCache}. Like the cache methods of this class, it may only be
+     * used from this thread.
      * @since 5.0.4
      */
     public final ObjectCache getObjectCache() {

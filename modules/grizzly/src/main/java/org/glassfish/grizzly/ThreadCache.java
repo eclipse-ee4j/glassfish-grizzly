@@ -61,7 +61,7 @@ public final class ThreadCache {
 
     /**
      * The {@link Owner} of the current thread's cache: an object taken from the cache (or created) on this thread can
-     * remember it, so that {@link #putToCache(Owner, CachedTypeIndex, Object)} gives it back to this thread when another
+     * remember it, so that {@link #putToOwnerCache(Owner, CachedTypeIndex, Object)} gives it back to this thread when another
      * thread recycles it.
      *
      * @return the current thread's {@link Owner}
@@ -84,11 +84,17 @@ public final class ThreadCache {
      * @return {@code true} if the object was cached
      * @since 5.0.4
      */
-    public static <E> boolean putToCache(final Owner owner, final CachedTypeIndex<E> index, final E o) {
-        final ObjectCache objectCache = currentObjectCache();
-        if (owner == null || owner == objectCache.owner) {
-            return objectCache.put(index, o);
+    public static <E> boolean putToOwnerCache(final Owner owner, final CachedTypeIndex<E> index, final E o) {
+        if (owner == null) {
+            return putToCache(index, o);
         }
+        final Thread currentThread = Thread.currentThread();
+        final ObjectCache currentCache = currentThread instanceof DefaultWorkerThread ? ((DefaultWorkerThread) currentThread).getObjectCache()
+                : genericCacheAttr.get();
+        if (currentCache != null && owner == currentCache.owner) {
+            return currentCache.put(index, o);
+        }
+        // another thread's object: no cache is created on this thread for it
         return owner.giveBack(index, o);
     }
 
@@ -326,7 +332,7 @@ public final class ThreadCache {
 
     /**
      * The objects that other threads gave back to a thread's cache, see {@link ThreadCache#currentOwner()}. Any thread may
-     * give an object back; only the owner thread takes them.
+     * give an object back; the owner thread takes them when its own cache is empty.
      *
      * @since 5.0.4
      */
@@ -366,8 +372,9 @@ public final class ThreadCache {
     }
 
     /**
-     * A bounded stack that many threads push to and one thread pops from. A node is never pushed twice, so popping with
-     * a compare-and-set has no ABA problem.
+     * A bounded lock-free stack. Every push allocates a new node and writes its link before the publishing
+     * compare-and-set, and a node is never pushed twice, so popping with a compare-and-set has no ABA problem, even if
+     * several threads pop. The size can exceed the bound only transiently, by the number of concurrent offers.
      */
     private static final class ReturnQueue {
         private final AtomicReference<Node> head = new AtomicReference<>();

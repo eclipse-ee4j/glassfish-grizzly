@@ -91,7 +91,7 @@ public class ThreadCacheTest {
             try {
                 final Object o = new Object();
                 final ThreadCache.Owner owner = ownerThread.submit(ThreadCache::currentOwner).get(10, TimeUnit.SECONDS);
-                assertTrue(otherThread.submit(() -> ThreadCache.putToCache(owner, idx, o)).get(10, TimeUnit.SECONDS));
+                assertTrue(otherThread.submit(() -> ThreadCache.putToOwnerCache(owner, idx, o)).get(10, TimeUnit.SECONDS));
                 assertNull("not in the other thread's cache", otherThread.submit(() -> ThreadCache.takeFromCache(idx)).get(10, TimeUnit.SECONDS));
                 assertSame("worker thread: " + workerThread, o, ownerThread.submit(() -> ThreadCache.takeFromCache(idx)).get(10, TimeUnit.SECONDS));
                 assertNull(ownerThread.submit(() -> ThreadCache.takeFromCache(idx)).get(10, TimeUnit.SECONDS));
@@ -107,10 +107,10 @@ public class ThreadCacheTest {
     public void theOwnerThreadPutsIntoItsOwnCache() {
         final ThreadCache.CachedTypeIndex<Object> idx = ThreadCache.obtainIndex("ownerLocal", Object.class, 2);
         final Object o = new Object();
-        assertTrue(ThreadCache.putToCache(ThreadCache.currentOwner(), idx, o));
+        assertTrue(ThreadCache.putToOwnerCache(ThreadCache.currentOwner(), idx, o));
         assertSame(o, ThreadCache.getFromCache(idx));
         assertSame(o, ThreadCache.takeFromCache(idx));
-        assertTrue(ThreadCache.putToCache((ThreadCache.Owner) null, idx, o));
+        assertTrue(ThreadCache.putToOwnerCache(null, idx, o));
         assertSame(o, ThreadCache.takeFromCache(idx));
     }
 
@@ -126,9 +126,26 @@ public class ThreadCacheTest {
             ownerThread.shutdownNow();
         }
         for (int i = 0; i < 3; i++) {
-            assertTrue(ThreadCache.putToCache(owner, idx, new Object()));
+            assertTrue(ThreadCache.putToOwnerCache(owner, idx, new Object()));
         }
-        assertFalse(ThreadCache.putToCache(owner, idx, new Object()));
+        assertFalse(ThreadCache.putToOwnerCache(owner, idx, new Object()));
+    }
+
+    /** Taking a given-back object makes room for another one. */
+    @Test
+    public void takingMakesRoomForMoreGiveBacks() throws Exception {
+        final ThreadCache.CachedTypeIndex<Object> idx = ThreadCache.obtainIndex("giveBackRoom", Object.class, 2);
+        final ExecutorService ownerThread = Executors.newSingleThreadExecutor();
+        try {
+            final ThreadCache.Owner owner = ownerThread.submit(ThreadCache::currentOwner).get(10, TimeUnit.SECONDS);
+            assertTrue(ThreadCache.putToOwnerCache(owner, idx, new Object()));
+            assertTrue(ThreadCache.putToOwnerCache(owner, idx, new Object()));
+            assertFalse(ThreadCache.putToOwnerCache(owner, idx, new Object()));
+            assertNotNull(ownerThread.submit(() -> ThreadCache.takeFromCache(idx)).get(10, TimeUnit.SECONDS));
+            assertTrue(ThreadCache.putToOwnerCache(owner, idx, new Object()));
+        } finally {
+            ownerThread.shutdownNow();
+        }
     }
 
     /** Many threads give back while the owner takes: every accepted object is taken exactly once. */
@@ -151,7 +168,9 @@ public class ThreadCacheTest {
                     if (!taken.add(o)) {
                         duplicates.incrementAndGet();
                     }
-                } else if (producersDone.getCount() == 0) {
+                } else if (producersDone.getCount() != 0) {
+                    Thread.onSpinWait();
+                } else {
                     // a last pass after all producers ended
                     Object rest;
                     while ((rest = ThreadCache.takeFromCache(idx)) != null) {
@@ -169,7 +188,7 @@ public class ThreadCacheTest {
         for (int p = 0; p < producers; p++) {
             final Thread t = new Thread(() -> {
                 for (int i = 0; i < perProducer; i++) {
-                    if (ThreadCache.putToCache(owner, idx, new Object())) {
+                    if (ThreadCache.putToOwnerCache(owner, idx, new Object())) {
                         accepted.incrementAndGet();
                     }
                 }
@@ -183,7 +202,8 @@ public class ThreadCacheTest {
         }
         consumer.join(30_000);
         assertFalse(consumer.isAlive());
-        assertTrue("nothing accepted", accepted.get() > 0);
+        // far more than the bound: what the owner takes makes room again
+        assertTrue("accepted " + accepted.get(), accepted.get() > 2 * size);
         assertEquals("taken twice", 0, duplicates.get());
         assertEquals("accepted and taken", accepted.get(), taken.size());
     }

@@ -1367,7 +1367,10 @@ public class HttpServerFilter extends HttpCodecFilter {
                 return;
             }
             reset();
-            ThreadCache.putToCache(cacheOwner, CACHE_IDX, this);
+            final ThreadCache.Owner owner = cacheOwner;
+            // a retained packet must not keep its owner's returned objects alive
+            cacheOwner = null;
+            ThreadCache.putToOwnerCache(owner, CACHE_IDX, this);
         }
     }
 }

@@ -17,6 +17,7 @@
 package org.glassfish.grizzly.http.server;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.io.InputStream;
@@ -77,6 +78,26 @@ public class RequestReuseTest {
         assertEquals("service() on one worker thread: " + serviceThreads, 1, serviceThreads.size());
         assertTrue("distinct request packets for " + REQUESTS + " requests: " + packets.size(), packets.size() <= 3);
         assertTrue("distinct requests for " + REQUESTS + " requests: " + requests.size(), requests.size() <= 3);
+        // every one of them is recycled now: none keeps the selector thread's returned objects alive
+        for (final Object o : packets) {
+            assertNull("owner kept by a recycled " + o.getClass().getSimpleName(), cacheOwner(o));
+        }
+        for (final Object o : requests) {
+            assertNull("owner kept by a recycled Request", cacheOwner(o));
+        }
+    }
+
+    private static Object cacheOwner(final Object o) throws ReflectiveOperationException {
+        for (Class<?> c = o.getClass(); c != null; c = c.getSuperclass()) {
+            try {
+                final java.lang.reflect.Field field = c.getDeclaredField("cacheOwner");
+                field.setAccessible(true);
+                return field.get(o);
+            } catch (NoSuchFieldException e) {
+                // look in the superclass
+            }
+        }
+        throw new NoSuchFieldException("cacheOwner in " + o.getClass());
     }
 
     /** Reads a response with a 5-byte body and returns its head. */
