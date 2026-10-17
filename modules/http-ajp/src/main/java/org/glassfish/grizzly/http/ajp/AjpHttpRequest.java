@@ -54,12 +54,13 @@ public final class AjpHttpRequest extends HttpRequestPacket {
         return httpRequestImpl.init();
     }
 
-    private ThreadCache.Owner cacheOwner;
-
     private final DataChunk instanceId = DataChunk.newInstance();
     private final DataChunk sslCert = DataChunk.newInstance();
 
     final DataChunk tmpDataChunk = DataChunk.newInstance();
+
+    // the cache of the thread that created this request, see #create()
+    private ThreadCache.Owner cacheOwner;
 
     private String secret;
 

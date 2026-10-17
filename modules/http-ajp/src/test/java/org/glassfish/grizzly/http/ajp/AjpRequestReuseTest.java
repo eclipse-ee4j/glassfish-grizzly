@@ -16,6 +16,8 @@
 
 package org.glassfish.grizzly.http.ajp;
 
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import java.util.Collections;
@@ -39,6 +41,7 @@ public class AjpRequestReuseTest extends AjpTestBase {
     @Test
     public void ajpRequestsAreReusedWhenServiceRunsOnAWorker() throws Exception {
         final Set<Object> packets = Collections.newSetFromMap(new IdentityHashMap<>());
+        final Set<String> serviceThreads = Collections.synchronizedSet(new java.util.TreeSet<>());
         httpServer.getListener(LISTENER_NAME).getTransport()
                 .setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().copy().setCorePoolSize(1).setMaxPoolSize(1));
         startHttpServer(new HttpHandler() {
@@ -47,6 +50,7 @@ public class AjpRequestReuseTest extends AjpTestBase {
                 synchronized (packets) {
                     packets.add(request.getRequest());
                 }
+                serviceThreads.add(Thread.currentThread().getName());
                 response.setStatus(200, "FINE");
             }
         }, "/");
@@ -54,6 +58,8 @@ public class AjpRequestReuseTest extends AjpTestBase {
         for (int i = 0; i < REQUESTS; i++) {
             final AjpForwardRequestPacket headersPacket = new AjpForwardRequestPacket("GET", "/reuse", 80, port);
             headersPacket.addHeader("Host", "localhost:80");
+            // no body: no remainder is kept between the requests
+            headersPacket.addHeader("Content-Length", "0");
             send(headersPacket.toByteArray());
             // SEND_HEADERS, then END_RESPONSE
             byte[] message;
@@ -62,6 +68,20 @@ public class AjpRequestReuseTest extends AjpTestBase {
             } while (message[4] != AjpConstants.JK_AJP13_END_RESPONSE);
         }
 
+        assertEquals("service() on one worker thread: " + serviceThreads, 1, serviceThreads.size());
         assertTrue("distinct AJP requests for " + REQUESTS + " requests: " + packets.size(), packets.size() <= 3);
+        final long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+        for (final Object o : packets) {
+            while (cacheOwner(o) != null && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
+            assertNull("owner kept by a recycled AJP request", cacheOwner(o));
+        }
+    }
+
+    private static Object cacheOwner(final Object o) throws ReflectiveOperationException {
+        final java.lang.reflect.Field field = AjpHttpRequest.class.getDeclaredField("cacheOwner");
+        field.setAccessible(true);
+        return field.get(o);
     }
 }

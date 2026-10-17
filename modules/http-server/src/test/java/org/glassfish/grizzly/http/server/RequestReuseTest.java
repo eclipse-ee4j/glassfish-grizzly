@@ -93,16 +93,25 @@ public class RequestReuseTest {
         assertTrue("distinct request packets for " + REQUESTS + " requests: " + packets.size(), packets.size() <= 3);
         assertTrue("distinct requests for " + REQUESTS + " requests: " + requests.size(), requests.size() <= 3);
         assertTrue("distinct filter chain contexts for " + REQUESTS + " requests: " + contexts.size(), contexts.size() <= 4);
-        // every one of them is recycled now: none keeps the selector thread's returned objects alive
-        for (final Object o : packets) {
+        // every one of them is recycled (the worker may still be finishing the last one): none keeps the selector
+        // thread's returned objects alive
+        awaitNoOwner(packets);
+        awaitNoOwner(requests);
+        awaitNoOwner(contexts);
+    }
+
+    /** Waits up to 10 s until none of the objects references an owner any more. */
+    static void awaitNoOwner(final Set<Object> objects) throws Exception {
+        final long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+        for (final Object o : objects) {
+            while (cacheOwner(o) != null && System.nanoTime() < deadline) {
+                Thread.sleep(10);
+            }
             assertNull("owner kept by a recycled " + o.getClass().getSimpleName(), cacheOwner(o));
-        }
-        for (final Object o : requests) {
-            assertNull("owner kept by a recycled Request", cacheOwner(o));
         }
     }
 
-    private static Object cacheOwner(final Object o) throws ReflectiveOperationException {
+    static Object cacheOwner(final Object o) throws ReflectiveOperationException {
         for (Class<?> c = o.getClass(); c != null; c = c.getSuperclass()) {
             try {
                 final java.lang.reflect.Field field = c.getDeclaredField("cacheOwner");

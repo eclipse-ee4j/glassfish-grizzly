@@ -74,7 +74,7 @@ public class FilterChainContext implements AttributeStorage {
         if (context == null) {
             context = new FilterChainContext();
         }
-        // a read is processed on a selector thread and often completes on a worker: give it back to this thread
+        // the processing may complete on another thread (e.g. resumed by a worker): give it back to this one
         context.cacheOwner = ThreadCache.currentOwner();
 
         context.setConnection(connection);
@@ -86,7 +86,6 @@ public class FilterChainContext implements AttributeStorage {
 
     public static final int NO_FILTER_INDEX = Integer.MIN_VALUE;
 
-    private ThreadCache.Owner cacheOwner;
 
     /**
      * Cached {@link NextAction} instance for "Invoke action" implementation
@@ -107,6 +106,9 @@ public class FilterChainContext implements AttributeStorage {
     private static final NextAction RERUN_FILTER_ACTION = new RerunFilterAction();
 
     final InternalContextImpl internalContext = new InternalContextImpl(this);
+
+    // the cache of the thread that took this context, see #create(Connection, Closeable)
+    private ThreadCache.Owner cacheOwner;
 
     final TransportContext transportFilterContext = new TransportContext();
 
@@ -928,6 +930,8 @@ public class FilterChainContext implements AttributeStorage {
 
     public void completeAndRelease() {
         notifyComplete(this, completionListeners);
+        // not cached again: a kept reference must not keep the owner's returned objects alive
+        cacheOwner = null;
     }
 
     @Override
