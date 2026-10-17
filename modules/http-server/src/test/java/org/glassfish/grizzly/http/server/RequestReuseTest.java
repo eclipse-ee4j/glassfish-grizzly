@@ -362,7 +362,7 @@ public class RequestReuseTest {
                     socket.setSoTimeout(10_000);
                     final OutputStream out = socket.getOutputStream();
                     final Request previous = last.get();
-                    out.write("POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+                    out.write("POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n".getBytes(StandardCharsets.US_ASCII));
                     out.flush();
                     final long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
                     while (last.get() == previous && System.nanoTime() < deadline) {
