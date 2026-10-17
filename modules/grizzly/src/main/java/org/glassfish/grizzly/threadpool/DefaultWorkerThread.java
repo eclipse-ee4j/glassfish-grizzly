@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright 2021 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
@@ -87,6 +88,14 @@ public class DefaultWorkerThread extends Thread implements WorkerThread {
 
     public final <E> boolean putToCache(final ThreadCache.CachedTypeIndex<E> index, final E o) {
         return objectCache.put(index, o);
+    }
+
+    /**
+     * @return this thread's object cache, see {@link ThreadCache}
+     * @since 5.0.4
+     */
+    public final ObjectCache getObjectCache() {
+        return objectCache;
     }
 
     @Override

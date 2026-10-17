@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -19,6 +20,8 @@ package org.glassfish.grizzly;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.glassfish.grizzly.threadpool.DefaultWorkerThread;
 
@@ -54,6 +57,52 @@ public final class ThreadCache {
 
     public static <E> boolean putToCache(final CachedTypeIndex<E> index, final E o) {
         return putToCache(Thread.currentThread(), index, o);
+    }
+
+    /**
+     * The {@link Owner} of the current thread's cache: an object taken from the cache (or created) on this thread can
+     * remember it, so that {@link #putToCache(Owner, CachedTypeIndex, Object)} gives it back to this thread when another
+     * thread recycles it.
+     *
+     * @return the current thread's {@link Owner}
+     * @since 5.0.4
+     */
+    public static Owner currentOwner() {
+        return currentObjectCache().owner();
+    }
+
+    /**
+     * Puts the object back into the cache of the thread that {@code owner} belongs to. On that thread this is
+     * {@link #putToCache(CachedTypeIndex, Object)}; from any other thread the object goes to a bounded queue of the owner,
+     * which the owner's {@link #takeFromCache(CachedTypeIndex)} drains when its own cache is empty. This keeps objects
+     * reusable when they are created on one thread (for example a selector thread) and recycled on another (a worker).
+     *
+     * @param owner the {@link Owner} of the thread the object was taken or created on, or {@code null} for the current
+     * thread
+     * @param index the cached object type index
+     * @param o the object
+     * @return {@code true} if the object was cached
+     * @since 5.0.4
+     */
+    public static <E> boolean putToCache(final Owner owner, final CachedTypeIndex<E> index, final E o) {
+        final ObjectCache objectCache = currentObjectCache();
+        if (owner == null || owner == objectCache.owner) {
+            return objectCache.put(index, o);
+        }
+        return owner.giveBack(index, o);
+    }
+
+    private static ObjectCache currentObjectCache() {
+        final Thread currentThread = Thread.currentThread();
+        if (currentThread instanceof DefaultWorkerThread) {
+            return ((DefaultWorkerThread) currentThread).getObjectCache();
+        }
+        ObjectCache genericCache = genericCacheAttr.get();
+        if (genericCache == null) {
+            genericCache = new ObjectCache();
+            genericCacheAttr.set(genericCache);
+        }
+        return genericCache;
     }
 
     public static <E> boolean putToCache(final Thread currentThread, final CachedTypeIndex<E> index, final E o) {
@@ -142,6 +191,15 @@ public final class ThreadCache {
 
     public static final class ObjectCache {
         private ObjectCacheElement[] objectCacheElements;
+        // created when an object of this thread may be recycled elsewhere, see ThreadCache#currentOwner()
+        private Owner owner;
+
+        Owner owner() {
+            if (owner == null) {
+                owner = new Owner();
+            }
+            return owner;
+        }
 
         public boolean put(final CachedTypeIndex index, final Object o) {
             if (objectCacheElements != null && index.getIndex() < objectCacheElements.length) {
@@ -202,14 +260,16 @@ public final class ThreadCache {
             if (objectCacheElements != null && (idx = index.getIndex()) < objectCacheElements.length) {
 
                 final ObjectCacheElement objectCache = objectCacheElements[idx];
-                if (objectCache == null) {
-                    return null;
+                if (objectCache != null) {
+                    final Object o = objectCache.take();
+                    if (o != null) {
+                        return (E) o;
+                    }
                 }
-
-                return (E) objectCache.take();
             }
 
-            return null;
+            // objects of this thread that other threads recycled
+            return owner != null ? (E) owner.takeBack(index) : null;
         }
     }
 
@@ -261,6 +321,91 @@ public final class ThreadCache {
             }
 
             return null;
+        }
+    }
+
+    /**
+     * The objects that other threads gave back to a thread's cache, see {@link ThreadCache#currentOwner()}. Any thread may
+     * give an object back; only the owner thread takes them.
+     *
+     * @since 5.0.4
+     */
+    public static final class Owner {
+        private volatile ReturnQueue[] queues = new ReturnQueue[0];
+
+        Owner() {
+        }
+
+        boolean giveBack(final CachedTypeIndex<?> index, final Object o) {
+            return queue(index.getIndex()).offer(o, index.getSize());
+        }
+
+        Object takeBack(final CachedTypeIndex<?> index) {
+            final ReturnQueue[] q = queues;
+            final int idx = index.getIndex();
+            return idx < q.length && q[idx] != null ? q[idx].poll() : null;
+        }
+
+        private ReturnQueue queue(final int idx) {
+            ReturnQueue[] q = queues;
+            if (idx < q.length && q[idx] != null) {
+                return q[idx];
+            }
+            synchronized (this) {
+                q = queues;
+                if (idx >= q.length) {
+                    q = Arrays.copyOf(q, Math.max(idx + 1, q.length * 3 / 2 + 1));
+                }
+                if (q[idx] == null) {
+                    q[idx] = new ReturnQueue();
+                }
+                queues = q;
+                return q[idx];
+            }
+        }
+    }
+
+    /**
+     * A bounded stack that many threads push to and one thread pops from. A node is never pushed twice, so popping with
+     * a compare-and-set has no ABA problem.
+     */
+    private static final class ReturnQueue {
+        private final AtomicReference<Node> head = new AtomicReference<>();
+        private final AtomicInteger size = new AtomicInteger();
+
+        boolean offer(final Object o, final int max) {
+            if (size.incrementAndGet() > max) {
+                size.decrementAndGet();
+                return false;
+            }
+            final Node node = new Node(o);
+            Node h;
+            do {
+                h = head.get();
+                node.next = h;
+            } while (!head.compareAndSet(h, node));
+            return true;
+        }
+
+        Object poll() {
+            Node h;
+            do {
+                h = head.get();
+                if (h == null) {
+                    return null;
+                }
+            } while (!head.compareAndSet(h, h.next));
+            size.decrementAndGet();
+            return h.item;
+        }
+
+        private static final class Node {
+            final Object item;
+            Node next;
+
+            Node(final Object item) {
+                this.item = item;
+            }
         }
     }
 

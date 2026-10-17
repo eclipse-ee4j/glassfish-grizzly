@@ -98,13 +98,16 @@ public class Request {
     private static final AtomicLong REQUEST_ID_GENERATOR = new AtomicLong(0);
 
     public static Request create() {
-        final Request request = ThreadCache.takeFromCache(CACHE_IDX);
-        if (request != null) {
-            return request;
+        Request request = ThreadCache.takeFromCache(CACHE_IDX);
+        if (request == null) {
+            request = new Request(new Response());
         }
-
-        return new Request(new Response());
+        // service() and the recycle usually run on a worker thread, not on this one: give it back to this thread
+        request.cacheOwner = ThreadCache.currentOwner();
+        return request;
     }
+
+    private ThreadCache.Owner cacheOwner;
 
     /**
      * Request attribute will be associated with a boolean value indicating whether or not it's possible to transfer a
@@ -599,7 +602,7 @@ public class Request {
             cachedMappingData.recycle();
         }
 
-        ThreadCache.putToCache(CACHE_IDX, this);
+        ThreadCache.putToCache(cacheOwner, CACHE_IDX, this);
     }
 
     // -------------------------------------------------------- Request Methods

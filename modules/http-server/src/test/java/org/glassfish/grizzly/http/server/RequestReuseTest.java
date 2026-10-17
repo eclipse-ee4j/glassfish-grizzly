@@ -1,0 +1,93 @@
+/*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
+ *
+ * This program and the accompanying materials are made available under the
+ * terms of the Eclipse Public License v. 2.0, which is available at
+ * http://www.eclipse.org/legal/epl-2.0.
+ *
+ * This Source Code may also be made available under the following Secondary
+ * Licenses when the conditions for such availability set forth in the
+ * Eclipse Public License v. 2.0 are satisfied: GNU General Public License,
+ * version 2 with the GNU Classpath Exception, which is available at
+ * https://www.gnu.org/software/classpath/license.html.
+ *
+ * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
+ */
+
+package org.glassfish.grizzly.http.server;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.Socket;
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Set;
+
+import org.glassfish.grizzly.threadpool.ThreadPoolConfig;
+import org.junit.Test;
+
+/**
+ * With the default setup the request objects are created on the selector thread and recycled on a worker thread; they
+ * are given back to the selector thread, so a keep-alive connection reuses them instead of allocating new ones for every
+ * request.
+ */
+public class RequestReuseTest {
+
+    private static final int REQUESTS = 50;
+
+    @Test
+    public void requestObjectsAreReusedWhenServiceRunsOnAWorker() throws Exception {
+        final Set<Object> packets = Collections.newSetFromMap(new IdentityHashMap<>());
+        final Set<Object> requests = Collections.newSetFromMap(new IdentityHashMap<>());
+        final Set<String> serviceThreads = Collections.synchronizedSet(new java.util.TreeSet<>());
+        final HttpServer server = new HttpServer();
+        final NetworkListener listener = new NetworkListener("reuse", "127.0.0.1", 0);
+        server.addListener(listener);
+        listener.getTransport().setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().copy().setCorePoolSize(1).setMaxPoolSize(1));
+        server.getServerConfiguration().addHttpHandler(new HttpHandler() {
+            @Override
+            public void service(final Request request, final Response response) throws Exception {
+                synchronized (packets) {
+                    packets.add(request.getRequest());
+                    requests.add(request);
+                }
+                serviceThreads.add(Thread.currentThread().getName());
+                response.setContentLength(5);
+                response.getOutputStream().write("hello".getBytes(StandardCharsets.US_ASCII));
+            }
+        }, "/");
+        server.start();
+        try (Socket socket = new Socket("127.0.0.1", listener.getPort())) {
+            socket.setSoTimeout(10_000);
+            final OutputStream out = socket.getOutputStream();
+            final InputStream in = socket.getInputStream();
+            for (int i = 0; i < REQUESTS; i++) {
+                out.write("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+                out.flush();
+                final String head = readResponse(in);
+                assertTrue(head, head.startsWith("HTTP/1.1 200"));
+            }
+        } finally {
+            server.shutdownNow();
+        }
+        assertEquals("service() on one worker thread: " + serviceThreads, 1, serviceThreads.size());
+        assertTrue("distinct request packets for " + REQUESTS + " requests: " + packets.size(), packets.size() <= 3);
+        assertTrue("distinct requests for " + REQUESTS + " requests: " + requests.size(), requests.size() <= 3);
+    }
+
+    /** Reads a response with a 5-byte body and returns its head. */
+    private static String readResponse(final InputStream in) throws Exception {
+        final StringBuilder head = new StringBuilder();
+        while (head.indexOf("\r\n\r\n") < 0) {
+            final int b = in.read();
+            assertTrue("end of stream after:\n" + head, b >= 0);
+            head.append((char) b);
+        }
+        assertEquals(5, in.readNBytes(5).length);
+        return head.toString();
+    }
+}
