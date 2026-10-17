@@ -110,6 +110,43 @@ public class WriterCharBufferTest {
         assertEquals(expected.toString(), body(response));
     }
 
+    /** A first write longer than the small array takes the whole capacity at once: one array, as before. */
+    @Test
+    public void aLongerFirstWriteTakesTheWholeArray() throws Exception {
+        final AtomicInteger first = new AtomicInteger();
+        final AtomicInteger last = new AtomicInteger();
+        final String body = body(run(r -> {
+            final Writer writer = r.getWriter();
+            writer.write("b".repeat(600));
+            first.set(System.identityHashCode(charsArray(r.getOutputBuffer())));
+            writer.write("c");
+            last.set(System.identityHashCode(charsArray(r.getOutputBuffer())));
+            assertEquals(8192, charsArrayLength(r.getOutputBuffer()));
+        }));
+        assertEquals("b".repeat(600) + "c", body);
+        assertEquals("arrays allocated", first.get(), last.get());
+    }
+
+    /** A refused first write fixes the flush point too, as the whole array used to be allocated before the check. */
+    @Test
+    public void aRefusedFirstWriteKeepsTheFlushPoint() throws Exception {
+        final String chars = "a".repeat(2000);
+        final String response = run(r -> {
+            final Writer writer = r.getWriter();
+            try {
+                writer.write("abc", 0, -1);
+            } catch (IndexOutOfBoundsException expected) {
+                // refused
+            }
+            r.setBufferSize(600);
+            writer.write(chars);
+            r.setHeader("X-After", "yes");
+        });
+        assertTrue(response, head(response).contains("\r\nx-after: yes\r\n"));
+        assertTrue(response, head(response).contains("\r\ncontent-length: 2000\r\n"));
+        assertEquals(chars, body(response));
+    }
+
     /** A negative length is refused as it was, with an IndexOutOfBoundsException, also on the first write. */
     @Test
     public void aNegativeLengthIsRefused() throws Exception {
@@ -127,7 +164,7 @@ public class WriterCharBufferTest {
         assertEquals("refused;refused;", body);
     }
 
-    /** Surrogate pairs written right after the first array's end come out whole (no flush splits them there). */
+    /** Surrogate pairs written around the end of the first, small array come out whole when the array grows. */
     @Test
     public void surrogatePairsAcrossTheFirstArray() throws Exception {
         final StringBuilder expected = new StringBuilder();
@@ -204,9 +241,13 @@ public class WriterCharBufferTest {
     }
 
     private static int charsArrayLength(final OutputBuffer outputBuffer) throws ReflectiveOperationException {
+        final char[] chars = charsArray(outputBuffer);
+        return chars == null ? 0 : chars.length;
+    }
+
+    private static char[] charsArray(final OutputBuffer outputBuffer) throws ReflectiveOperationException {
         final Field field = OutputBuffer.class.getDeclaredField("charsArray");
         field.setAccessible(true);
-        final char[] chars = (char[]) field.get(outputBuffer);
-        return chars == null ? 0 : chars.length;
+        return (char[]) field.get(outputBuffer);
     }
 }

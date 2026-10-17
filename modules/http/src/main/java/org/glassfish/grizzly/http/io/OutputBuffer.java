@@ -1011,24 +1011,26 @@ public class OutputBuffer {
     }
 
     /**
-     * Makes room for {@code needed} more chars, up to {@link #charsCapacity}. The array starts with what the first write
-     * needs (at least {@code MIN_BUFFER_SIZE} chars), so that a short response doesn't allocate and clear a whole buffer,
-     * and the next time it grows it takes the whole capacity. When {@code needed} doesn't fit in the whole capacity, the
-     * callers flush as before.
+     * Makes room for {@code needed} more chars, up to {@link #charsCapacity}. A first write of at most
+     * {@code MIN_BUFFER_SIZE} chars gets an array of that size, so that a short response doesn't allocate and clear a
+     * whole buffer; any other allocation takes the whole capacity at once. A response longer than {@code MIN_BUFFER_SIZE}
+     * chars therefore allocates at most {@code MIN_BUFFER_SIZE} chars more than before. When {@code needed} doesn't fit
+     * in the whole capacity, the callers flush as before.
      */
     private void checkCharBuffer(final int needed) {
+        if (charsCapacity == 0) {
+            // as the whole array used to be allocated here, the capacity is fixed now, also by a write that is refused
+            charsCapacity = bufferSize;
+        }
         if (needed < 0) {
             throw new IndexOutOfBoundsException("length: " + needed);
-        }
-        if (charsCapacity == 0) {
-            charsCapacity = bufferSize;
         }
         final int length = charsArray == null ? 0 : charsArray.length;
         if (length - charsArrayLength >= needed || length >= charsCapacity) {
             return;
         }
 
-        final int newLength = charsArray == null ? Math.min(charsCapacity, Math.max(needed, MIN_BUFFER_SIZE)) : charsCapacity;
+        final int newLength = charsArray == null && needed <= MIN_BUFFER_SIZE ? Math.min(charsCapacity, MIN_BUFFER_SIZE) : charsCapacity;
         final char[] newCharsArray = new char[newLength];
         if (charsArrayLength > 0) {
             System.arraycopy(charsArray, 0, newCharsArray, 0, charsArrayLength);
