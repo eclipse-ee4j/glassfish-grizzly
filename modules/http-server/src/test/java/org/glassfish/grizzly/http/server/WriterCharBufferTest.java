@@ -17,6 +17,7 @@
 package org.glassfish.grizzly.http.server;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import java.io.ByteArrayOutputStream;
@@ -27,13 +28,14 @@ import java.lang.reflect.Field;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.glassfish.grizzly.http.io.OutputBuffer;
 import org.junit.Test;
 
 /**
- * The Writer's char array starts with what the first write needs and grows up to the buffer size, instead of
- * allocating the whole buffer size for every response.
+ * The Writer's char array is allocated small (512 chars) for a short first write and whole otherwise, instead of
+ * whole for every response, while the chars are flushed to bytes at the same points as before.
  */
 public class WriterCharBufferTest {
 
@@ -113,18 +115,18 @@ public class WriterCharBufferTest {
     /** A first write longer than the small array takes the whole capacity at once: one array, as before. */
     @Test
     public void aLongerFirstWriteTakesTheWholeArray() throws Exception {
-        final AtomicInteger first = new AtomicInteger();
-        final AtomicInteger last = new AtomicInteger();
+        final AtomicReference<char[]> first = new AtomicReference<>();
+        final AtomicReference<char[]> last = new AtomicReference<>();
         final String body = body(run(r -> {
             final Writer writer = r.getWriter();
             writer.write("b".repeat(600));
-            first.set(System.identityHashCode(charsArray(r.getOutputBuffer())));
+            first.set(charsArray(r.getOutputBuffer()));
             writer.write("c");
-            last.set(System.identityHashCode(charsArray(r.getOutputBuffer())));
+            last.set(charsArray(r.getOutputBuffer()));
             assertEquals(8192, charsArrayLength(r.getOutputBuffer()));
         }));
         assertEquals("b".repeat(600) + "c", body);
-        assertEquals("arrays allocated", first.get(), last.get());
+        assertSame("one array allocated", first.get(), last.get());
     }
 
     /** A refused first write fixes the flush point too, as the whole array used to be allocated before the check. */
@@ -147,21 +149,100 @@ public class WriterCharBufferTest {
         assertEquals(chars, body(response));
     }
 
-    /** A negative length is refused as it was, with an IndexOutOfBoundsException, also on the first write. */
+    /** A negative length is refused as it was, with the same exceptions, also on the first write. */
     @Test
     public void aNegativeLengthIsRefused() throws Exception {
         final String body = body(run(r -> {
             final Writer writer = r.getWriter();
-            for (final Runnable write : new Runnable[] { () -> uncheckedWrite(writer, "abc", -1), () -> uncheckedWrite(writer, "abc".toCharArray(), -1) }) {
+            for (final Runnable write : new Runnable[] { () -> uncheckedWrite(writer, (String) null, -1), () -> uncheckedWrite(writer, (char[]) null, -1),
+                    () -> uncheckedWrite(writer, "abc", -1), () -> uncheckedWrite(writer, "abc".toCharArray(), -1) }) {
                 try {
                     write.run();
                     writer.write("accepted;");
-                } catch (IndexOutOfBoundsException e) {
-                    writer.write("refused;");
+                } catch (RuntimeException e) {
+                    writer.write(e.getClass().getSimpleName() + ";");
                 }
             }
         }));
-        assertEquals("refused;refused;", body);
+        assertEquals("NullPointerException;NullPointerException;StringIndexOutOfBoundsException;ArrayIndexOutOfBoundsException;", body);
+    }
+
+    /**
+     * A recycled OutputBuffer (reused when service() runs on the selector thread) drops a capacity above the maximum
+     * kept char array, as it dropped the array: the next response is flushed at the default buffer size again.
+     */
+    @Test
+    public void aLargeCapacityIsNotKeptAcrossRecycle() throws Exception {
+        final HttpServer server = new HttpServer();
+        final NetworkListener listener = new NetworkListener("writer", "127.0.0.1", 0);
+        server.addListener(listener);
+        final java.util.Set<Object> responses = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        server.getServerConfiguration().addHttpHandler(new HttpHandler() {
+            @Override
+            public RequestExecutorProvider getRequestExecutorProvider() {
+                return new RequestExecutorProvider.SameThreadProvider();
+            }
+
+            @Override
+            public void service(final Request request, final Response response) throws Exception {
+                responses.add(response.getOutputBuffer());
+                final Writer writer = response.getWriter();
+                if (request.getRequestURI().equals("/first")) {
+                    response.setBufferSize(70_000);
+                    try {
+                        writer.write("abc", 0, -1);
+                    } catch (IndexOutOfBoundsException refused) {
+                        // the capacity is fixed anyway, with no array (nothing else is written)
+                    }
+                } else {
+                    writer.write("a".repeat(10_000));
+                }
+            }
+        }, "/");
+        server.start();
+        try (Socket socket = new Socket("127.0.0.1", listener.getPort())) {
+            socket.setSoTimeout(10_000);
+            final OutputStream out = socket.getOutputStream();
+            final InputStream in = socket.getInputStream();
+            out.write("GET /first HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            readHttp11(in);
+            out.write("GET /second HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            final String second = readHttp11(in);
+            assertEquals("OutputBuffer reused", 1, responses.size());
+            assertTrue("flushed at 8192 chars, so chunked:\n" + head(second), head(second).contains("\r\ntransfer-encoding: chunked\r\n"));
+        } finally {
+            server.shutdownNow();
+        }
+    }
+
+    /** Reads one HTTP/1.1 response (Content-Length or chunked) and returns its head and a blank line. */
+    private static String readHttp11(final InputStream in) throws Exception {
+        final StringBuilder head = new StringBuilder();
+        while (head.indexOf("\r\n\r\n") < 0) {
+            final int b = in.read();
+            assertTrue("end of stream in:\n" + head, b >= 0);
+            head.append((char) b);
+        }
+        final String lower = head.toString().toLowerCase();
+        final int cl = lower.indexOf("\r\ncontent-length: ");
+        if (cl >= 0) {
+            in.readNBytes(Integer.parseInt(lower.substring(cl + 18, lower.indexOf("\r\n", cl + 2)).trim()));
+        } else {
+            while (true) {
+                final StringBuilder line = new StringBuilder();
+                while (line.indexOf("\r\n") < 0) {
+                    line.append((char) in.read());
+                }
+                final int size = Integer.parseInt(line.toString().trim(), 16);
+                in.readNBytes(size + 2);
+                if (size == 0) {
+                    break;
+                }
+            }
+        }
+        return head.toString();
     }
 
     /** Surrogate pairs written around the end of the first, small array come out whole when the array grows. */

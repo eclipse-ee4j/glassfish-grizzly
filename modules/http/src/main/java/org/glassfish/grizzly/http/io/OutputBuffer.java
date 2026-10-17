@@ -308,16 +308,13 @@ public class OutputBuffer {
 
         temporaryWriteBuffer.recycle();
 
-        if (charsArray != null) {
-            charsArrayLength = 0;
-
-            if (charsCapacity < MAX_CHAR_BUFFER_SIZE) {
-                charsBuffer.clear();
-            } else {
-                charsBuffer = null;
-                charsArray = null;
-                charsCapacity = 0;
-            }
+        charsArrayLength = 0;
+        if (charsCapacity >= MAX_CHAR_BUFFER_SIZE) {
+            charsBuffer = null;
+            charsArray = null;
+            charsCapacity = 0;
+        } else if (charsArray != null) {
+            charsBuffer.clear();
         }
 //        charBuf.position(0);
 
@@ -416,6 +413,11 @@ public class OutputBuffer {
             flushBinaryBuffers(false);
         }
 
+        if (len < 0) {
+            fixCharsCapacity();
+            // refused by the copy, as before: same exception (null array, bad offset or length)
+            System.arraycopy(cbuf, off, cbuf, off, len);
+        }
         checkCharBuffer(len);
 
         final int remaining = charsArray.length - charsArrayLength;
@@ -459,6 +461,11 @@ public class OutputBuffer {
             flushBinaryBuffers(false);
         }
 
+        if (len < 0) {
+            fixCharsCapacity();
+            // refused by the copy, as before: same exception (null string, bad offset or length)
+            str.getChars(off, off + len, new char[0], 0);
+        }
         checkCharBuffer(len);
 
         if (charsArray.length - charsArrayLength >= len) {
@@ -1011,20 +1018,14 @@ public class OutputBuffer {
     }
 
     /**
-     * Makes room for {@code needed} more chars, up to {@link #charsCapacity}. A first write of at most
+     * Makes room for {@code needed} (at least 0) more chars, up to {@link #charsCapacity}. A first write of at most
      * {@code MIN_BUFFER_SIZE} chars gets an array of that size, so that a short response doesn't allocate and clear a
      * whole buffer; any other allocation takes the whole capacity at once. A response longer than {@code MIN_BUFFER_SIZE}
      * chars therefore allocates at most {@code MIN_BUFFER_SIZE} chars more than before. When {@code needed} doesn't fit
      * in the whole capacity, the callers flush as before.
      */
     private void checkCharBuffer(final int needed) {
-        if (charsCapacity == 0) {
-            // as the whole array used to be allocated here, the capacity is fixed now, also by a write that is refused
-            charsCapacity = bufferSize;
-        }
-        if (needed < 0) {
-            throw new IndexOutOfBoundsException("length: " + needed);
-        }
+        fixCharsCapacity();
         final int length = charsArray == null ? 0 : charsArray.length;
         if (length - charsArrayLength >= needed || length >= charsCapacity) {
             return;
@@ -1037,6 +1038,16 @@ public class OutputBuffer {
         }
         charsArray = newCharsArray;
         charsBuffer = CharBuffer.wrap(newCharsArray);
+    }
+
+    /**
+     * Fixes {@link #charsCapacity} where the whole array used to be allocated: at the first char write, also one that is
+     * then refused.
+     */
+    private void fixCharsCapacity() {
+        if (charsCapacity == 0) {
+            charsCapacity = bufferSize;
+        }
     }
 
     private boolean writingChars() {
