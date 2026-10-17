@@ -83,9 +83,21 @@ public class AjpRequestReuseTest extends AjpTestBase {
     @Test
     public void suspendedAjpRequestsAreNotGivenBack() throws Exception {
         final Set<Object> packets = Collections.newSetFromMap(new IdentityHashMap<>());
+        final Set<Object> contexts = Collections.newSetFromMap(new IdentityHashMap<>());
         final java.util.concurrent.ExecutorService resumer = java.util.concurrent.Executors.newSingleThreadExecutor();
         httpServer.getListener(LISTENER_NAME).getTransport()
                 .setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().copy().setCorePoolSize(1).setMaxPoolSize(1));
+        // the FilterChainContext of every request, completed by the resuming thread
+        httpServer.getListener(LISTENER_NAME).registerAddOn((networkListener, builder) -> builder.add(
+                builder.indexOfType(org.glassfish.grizzly.http.server.HttpServerFilter.class), new org.glassfish.grizzly.filterchain.BaseFilter() {
+                    @Override
+                    public org.glassfish.grizzly.filterchain.NextAction handleRead(final org.glassfish.grizzly.filterchain.FilterChainContext ctx) {
+                        synchronized (contexts) {
+                            contexts.add(ctx);
+                        }
+                        return ctx.getInvokeAction();
+                    }
+                }));
         startHttpServer(new HttpHandler() {
             @Override
             public void service(final Request request, final Response response) throws Exception {
@@ -114,6 +126,7 @@ public class AjpRequestReuseTest extends AjpTestBase {
             resumer.shutdownNow();
         }
         assertEquals("AJP requests reused", REQUESTS, packets.size());
+        assertEquals("filter chain contexts reused", REQUESTS, contexts.size());
     }
 
     private static Object cacheOwner(final Object o) throws ReflectiveOperationException {
