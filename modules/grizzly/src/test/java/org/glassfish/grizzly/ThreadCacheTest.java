@@ -132,6 +132,32 @@ public class ThreadCacheTest {
         assertFalse(ThreadCache.putToOwnerCache(owner, idx, new Object()));
     }
 
+    /**
+     * The owner's queue holds several times its own cache size, so that the objects of many requests finished together
+     * are not dropped: with a cache size of 3, twelve objects given back while the owner is busy are all taken back.
+     */
+    @Test
+    public void severalCacheSizesWaitForTheOwner() throws Exception {
+        final ThreadCache.CachedTypeIndex<Object> idx = ThreadCache.obtainIndex("giveBackBurst", Object.class, 3);
+        final ExecutorService ownerThread = Executors.newSingleThreadExecutor();
+        try {
+            final ThreadCache.Owner owner = ownerThread.submit(ThreadCache::currentOwner).get(10, TimeUnit.SECONDS);
+            for (int i = 0; i < 12; i++) {
+                assertTrue("give-back " + i, ThreadCache.putToOwnerCache(owner, idx, new Object()));
+            }
+            final int taken = ownerThread.submit(() -> {
+                int n = 0;
+                while (ThreadCache.takeFromCache(idx) != null) {
+                    n++;
+                }
+                return n;
+            }).get(10, TimeUnit.SECONDS);
+            assertEquals(12, taken);
+        } finally {
+            ownerThread.shutdownNow();
+        }
+    }
+
     /** Taking a given-back object makes room for another one. */
     @Test
     public void takingMakesRoomForMoreGiveBacks() throws Exception {
@@ -155,7 +181,7 @@ public class ThreadCacheTest {
     public void concurrentGiveBacks() throws Exception {
         final int size = 64;
         final int producers = 4;
-        final int perProducer = 20_000;
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
         final ThreadCache.CachedTypeIndex<Object> idx = ThreadCache.obtainIndex("giveBackConcurrent", Object.class, size);
         final CompletableFuture<ThreadCache.Owner> ownerFuture = new CompletableFuture<>();
         final AtomicInteger accepted = new AtomicInteger();
@@ -189,7 +215,8 @@ public class ThreadCacheTest {
         final List<Thread> threads = new ArrayList<>();
         for (int p = 0; p < producers; p++) {
             final Thread t = new Thread(() -> {
-                for (int i = 0; i < perProducer; i++) {
+                // until far more than the bound went through, whatever the scheduling of the owner
+                while (accepted.get() <= 4 * ThreadCache.giveBackBound(idx) && System.nanoTime() < deadline) {
                     if (ThreadCache.putToOwnerCache(owner, idx, new Object())) {
                         accepted.incrementAndGet();
                     }
