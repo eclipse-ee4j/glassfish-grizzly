@@ -352,19 +352,16 @@ public class RequestReuseTest {
                 try (Socket socket = new Socket("127.0.0.1", listener.getPort())) {
                     socket.setSoTimeout(10_000);
                     final OutputStream out = socket.getOutputStream();
-                    final InputStream in = socket.getInputStream();
                     final Request previous = last.get();
                     out.write("POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
                     out.flush();
-                    // the response, or the connection closed on the error
-                    final StringBuilder head = new StringBuilder();
-                    int b;
-                    while (head.indexOf("\r\n\r\n") < 0 && (b = in.read()) >= 0) {
-                        head.append((char) b);
+                    final long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
+                    while (last.get() == previous && System.nanoTime() < deadline) {
+                        Thread.sleep(5);
                     }
                     assertTrue("request " + i + " served", last.get() != previous);
+                    awaitRecycled(last.get());
                 }
-                awaitRecycled(last.get());
             }
         } finally {
             server.shutdownNow();
