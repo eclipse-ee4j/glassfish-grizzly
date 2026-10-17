@@ -114,10 +114,11 @@ public class ThreadCacheTest {
         assertSame(o, ThreadCache.takeFromCache(idx));
     }
 
-    /** No more objects than the type's cache size wait for their owner. */
+    /** No more objects than the give-back bound wait for their owner, and the bound is above the thread's cache size. */
     @Test
     public void givenBackObjectsAreBounded() throws Exception {
         final ThreadCache.CachedTypeIndex<Object> idx = ThreadCache.obtainIndex("giveBackBound", Object.class, 3);
+        assertTrue("bound " + ThreadCache.giveBackBound(idx), ThreadCache.giveBackBound(idx) >= 4 * 3);
         final ExecutorService ownerThread = Executors.newSingleThreadExecutor();
         final ThreadCache.Owner owner;
         try {
@@ -125,7 +126,7 @@ public class ThreadCacheTest {
         } finally {
             ownerThread.shutdownNow();
         }
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < ThreadCache.giveBackBound(idx); i++) {
             assertTrue(ThreadCache.putToOwnerCache(owner, idx, new Object()));
         }
         assertFalse(ThreadCache.putToOwnerCache(owner, idx, new Object()));
@@ -138,8 +139,9 @@ public class ThreadCacheTest {
         final ExecutorService ownerThread = Executors.newSingleThreadExecutor();
         try {
             final ThreadCache.Owner owner = ownerThread.submit(ThreadCache::currentOwner).get(10, TimeUnit.SECONDS);
-            assertTrue(ThreadCache.putToOwnerCache(owner, idx, new Object()));
-            assertTrue(ThreadCache.putToOwnerCache(owner, idx, new Object()));
+            for (int i = 0; i < ThreadCache.giveBackBound(idx); i++) {
+                assertTrue(ThreadCache.putToOwnerCache(owner, idx, new Object()));
+            }
             assertFalse(ThreadCache.putToOwnerCache(owner, idx, new Object()));
             assertNotNull(ownerThread.submit(() -> ThreadCache.takeFromCache(idx)).get(10, TimeUnit.SECONDS));
             assertTrue(ThreadCache.putToOwnerCache(owner, idx, new Object()));
@@ -203,7 +205,7 @@ public class ThreadCacheTest {
         consumer.join(30_000);
         assertFalse(consumer.isAlive());
         // far more than the bound: what the owner takes makes room again
-        assertTrue("accepted " + accepted.get(), accepted.get() > 2 * size);
+        assertTrue("accepted " + accepted.get(), accepted.get() > 2 * ThreadCache.giveBackBound(idx));
         assertEquals("taken twice", 0, duplicates.get());
         assertEquals("accepted and taken", accepted.get(), taken.size());
     }

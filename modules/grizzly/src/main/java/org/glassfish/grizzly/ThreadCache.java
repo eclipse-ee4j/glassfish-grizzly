@@ -343,7 +343,7 @@ public final class ThreadCache {
         }
 
         boolean giveBack(final CachedTypeIndex<?> index, final Object o) {
-            return queue(index.getIndex()).offer(o, index.getSize());
+            return queue(index.getIndex()).offer(o, giveBackBound(index));
         }
 
         Object takeBack(final CachedTypeIndex<?> index) {
@@ -370,6 +370,16 @@ public final class ThreadCache {
             }
         }
     }
+
+    /**
+     * How many objects of a type may wait for their owner: more than the thread's own cache holds, because one owner
+     * (a selector thread) gets back the objects of all the requests the workers finished meanwhile.
+     */
+    static int giveBackBound(final CachedTypeIndex<?> index) {
+        return index.getSize() * GIVE_BACK_FACTOR;
+    }
+
+    private static final int GIVE_BACK_FACTOR = 4;
 
     /**
      * A bounded lock-free stack. Every push allocates a new node and writes its link before the publishing
