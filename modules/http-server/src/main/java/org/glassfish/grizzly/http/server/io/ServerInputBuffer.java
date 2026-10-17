@@ -61,6 +61,8 @@ public class ServerInputBuffer extends InputBuffer {
      */
     @Override
     public void initiateAsyncronousDataReceiving() {
+        // set first: also the error below may reach the ReadHandler on another thread
+        asyncReadStarted = true;
         if (!checkChunkedMaxPostSize()) {
             final Request localServerRequest = serverRequest;
             if (localServerRequest == null) {
@@ -76,7 +78,6 @@ public class ServerInputBuffer extends InputBuffer {
             return;
         }
 
-        asyncReadStarted = true;
         super.initiateAsyncronousDataReceiving();
     }
 
@@ -104,7 +105,9 @@ public class ServerInputBuffer extends InputBuffer {
     public void recycle() {
         serverRequest = null;
         totalReadContentInBytes = 0;
-        asyncReadStarted = false;
+        if (asyncReadStarted) {
+            asyncReadStarted = false;
+        }
         super.recycle();
     }
 

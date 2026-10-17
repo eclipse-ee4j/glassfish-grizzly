@@ -110,11 +110,21 @@ public class RequestReuseTest {
     public void suspendedRequestsAreNotGivenBack() throws Exception {
         final Set<Object> packets = Collections.newSetFromMap(new IdentityHashMap<>());
         final Set<Object> requests = Collections.newSetFromMap(new IdentityHashMap<>());
+        final Set<Object> contexts = Collections.newSetFromMap(new IdentityHashMap<>());
         final java.util.concurrent.ExecutorService resumer = java.util.concurrent.Executors.newSingleThreadExecutor();
         final HttpServer server = new HttpServer();
         final NetworkListener listener = new NetworkListener("suspend", "127.0.0.1", 0);
         server.addListener(listener);
         listener.getTransport().setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().copy().setCorePoolSize(1).setMaxPoolSize(1));
+        listener.registerAddOn((networkListener, builder) -> builder.add(builder.indexOfType(HttpServerFilter.class), new BaseFilter() {
+            @Override
+            public NextAction handleRead(final FilterChainContext ctx) {
+                synchronized (contexts) {
+                    contexts.add(ctx);
+                }
+                return ctx.getInvokeAction();
+            }
+        }));
         server.getServerConfiguration().addHttpHandler(new HttpHandler() {
             @Override
             public void service(final Request request, final Response response) throws Exception {
@@ -152,19 +162,23 @@ public class RequestReuseTest {
         }
         assertEquals("request packets reused", REQUESTS, packets.size());
         assertEquals("requests reused", REQUESTS, requests.size());
+        assertEquals("filter chain contexts reused", REQUESTS, contexts.size());
     }
 
     /**
-     * A request whose body is read asynchronously (a ReadHandler that had to wait) is not given back either, even
-     * without a suspend: the handler may still run on another thread after the request was recycled.
+     * A request whose body is read asynchronously (a ReadHandler that has to wait) is not given back either, even
+     * without a suspend: the handler may still run on another thread after the request was recycled. Each request comes
+     * on a new connection with only its headers; one selector thread creates all of them.
      */
     @Test
     public void asyncReadRequestsAreNotGivenBack() throws Exception {
         final int requests = 20;
         final Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        final java.util.concurrent.atomic.AtomicInteger syncReads = new java.util.concurrent.atomic.AtomicInteger();
         final HttpServer server = new HttpServer();
         final NetworkListener listener = new NetworkListener("async-read", "127.0.0.1", 0);
         server.addListener(listener);
+        listener.getTransport().setSelectorRunnersCount(1);
         listener.getTransport().setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().copy().setCorePoolSize(1).setMaxPoolSize(1));
         server.getServerConfiguration().addHttpHandler(new HttpHandler() {
             @Override
@@ -172,7 +186,7 @@ public class RequestReuseTest {
                 synchronized (seen) {
                     seen.add(request);
                 }
-                // the rest of the body comes later: the handler has to wait for it
+                // the body never comes: the handler has to wait for it
                 request.getNIOInputStream().notifyAvailable(new org.glassfish.grizzly.ReadHandler() {
                     @Override
                     public void onDataAvailable() {
@@ -185,32 +199,92 @@ public class RequestReuseTest {
                     @Override
                     public void onAllDataRead() {
                     }
-                });
+                }, 10);
+                if (!request.inputBuffer.isAsyncReadStarted()) {
+                    syncReads.incrementAndGet();
+                }
                 response.setContentLength(0);
             }
         }, "/");
         server.start();
-        try (Socket socket = new Socket("127.0.0.1", listener.getPort())) {
-            socket.setSoTimeout(10_000);
-            final OutputStream out = socket.getOutputStream();
-            final InputStream in = socket.getInputStream();
+        try {
             for (int i = 0; i < requests; i++) {
-                out.write("POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10\r\n\r\n01234".getBytes(StandardCharsets.US_ASCII));
-                out.flush();
-                final StringBuilder head = new StringBuilder();
-                while (head.indexOf("\r\n\r\n") < 0) {
-                    final int b = in.read();
-                    assertTrue("end of stream after:\n" + head, b >= 0);
-                    head.append((char) b);
+                try (Socket socket = new Socket("127.0.0.1", listener.getPort())) {
+                    socket.setSoTimeout(10_000);
+                    final OutputStream out = socket.getOutputStream();
+                    final InputStream in = socket.getInputStream();
+                    out.write("POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+                    out.flush();
+                    final StringBuilder head = new StringBuilder();
+                    while (head.indexOf("\r\n\r\n") < 0) {
+                        final int b = in.read();
+                        assertTrue("end of stream after:\n" + head, b >= 0);
+                        head.append((char) b);
+                    }
+                    assertTrue(head.toString(), head.toString().startsWith("HTTP/1.1 200"));
                 }
-                assertTrue(head.toString(), head.toString().startsWith("HTTP/1.1 200"));
-                out.write("56789".getBytes(StandardCharsets.US_ASCII));
-                out.flush();
             }
         } finally {
             server.shutdownNow();
         }
+        assertEquals("handlers invoked without waiting", 0, syncReads.get());
         assertEquals("requests reused", requests, seen.size());
+    }
+
+    /**
+     * A request whose suspended response timed out (cancelled) and is resumed later from another thread is not recycled,
+     * and its FilterChainContext, completed by that thread, is not given back either.
+     */
+    @Test
+    public void cancelledRequestsContextsAreNotGivenBack() throws Exception {
+        final int requests = 10;
+        final Set<Object> contexts = Collections.newSetFromMap(new IdentityHashMap<>());
+        final java.util.concurrent.ScheduledExecutorService resumer = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
+        final java.util.concurrent.Semaphore resumed = new java.util.concurrent.Semaphore(0);
+        final HttpServer server = new HttpServer();
+        final NetworkListener listener = new NetworkListener("cancelled", "127.0.0.1", 0);
+        server.addListener(listener);
+        listener.getTransport().setSelectorRunnersCount(1);
+        listener.getTransport().setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().copy().setCorePoolSize(1).setMaxPoolSize(1));
+        listener.registerAddOn((networkListener, builder) -> builder.add(builder.indexOfType(HttpServerFilter.class), new BaseFilter() {
+            @Override
+            public NextAction handleRead(final FilterChainContext ctx) {
+                synchronized (contexts) {
+                    contexts.add(ctx);
+                }
+                return ctx.getInvokeAction();
+            }
+        }));
+        server.getServerConfiguration().addHttpHandler(new HttpHandler() {
+            @Override
+            public void service(final Request request, final Response response) throws Exception {
+                response.suspend(1, java.util.concurrent.TimeUnit.MILLISECONDS);
+                resumer.schedule(() -> {
+                    try {
+                        response.resume();
+                    } catch (final RuntimeException ignored) {
+                        // a cancelled response may refuse the resume
+                    } finally {
+                        resumed.release();
+                    }
+                }, 200, java.util.concurrent.TimeUnit.MILLISECONDS);
+            }
+        }, "/");
+        server.start();
+        try {
+            for (int i = 0; i < requests; i++) {
+                try (Socket socket = new Socket("127.0.0.1", listener.getPort())) {
+                    final OutputStream out = socket.getOutputStream();
+                    out.write("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+                    out.flush();
+                    assertTrue("resumed " + i, resumed.tryAcquire(10, java.util.concurrent.TimeUnit.SECONDS));
+                }
+            }
+        } finally {
+            server.shutdownNow();
+            resumer.shutdownNow();
+        }
+        assertEquals("contexts reused", requests, contexts.size());
     }
 
     /** Waits up to 10 s until none of the objects references an owner any more. */
