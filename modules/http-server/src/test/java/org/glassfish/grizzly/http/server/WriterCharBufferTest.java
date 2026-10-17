@@ -169,7 +169,7 @@ public class WriterCharBufferTest {
 
     /**
      * A recycled OutputBuffer (reused when service() runs on the selector thread) drops a capacity above the maximum
-     * kept char array, as it dropped the array: the next response is flushed at the default buffer size again.
+     * kept char array, as it dropped the array: the next response gets an array of the default buffer size again.
      */
     @Test
     public void aLargeCapacityIsNotKeptAcrossRecycle() throws Exception {
@@ -177,6 +177,7 @@ public class WriterCharBufferTest {
         final NetworkListener listener = new NetworkListener("writer", "127.0.0.1", 0);
         server.addListener(listener);
         final java.util.Set<Object> responses = java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+        final AtomicInteger secondCapacity = new AtomicInteger(-1);
         server.getServerConfiguration().addHttpHandler(new HttpHandler() {
             @Override
             public RequestExecutorProvider getRequestExecutorProvider() {
@@ -196,6 +197,7 @@ public class WriterCharBufferTest {
                     }
                 } else {
                     writer.write("a".repeat(10_000));
+                    secondCapacity.set(charsArrayLength(response.getOutputBuffer()));
                 }
             }
         }, "/");
@@ -210,8 +212,9 @@ public class WriterCharBufferTest {
             out.write("GET /second HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
             out.flush();
             final String second = readHttp11(in);
+            assertTrue(second, second.startsWith("HTTP/1.1 200"));
             assertEquals("OutputBuffer reused", 1, responses.size());
-            assertTrue("flushed at 8192 chars, so chunked:\n" + head(second), head(second).contains("\r\ntransfer-encoding: chunked\r\n"));
+            assertEquals("char array of the second response", 8192, secondCapacity.get());
         } finally {
             server.shutdownNow();
         }
