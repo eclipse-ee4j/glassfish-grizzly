@@ -1230,13 +1230,16 @@ public class HttpServerFilter extends HttpCodecFilter {
         private static final ThreadCache.CachedTypeIndex<ServerHttpRequestImpl> CACHE_IDX = ThreadCache.obtainIndex(ServerHttpRequestImpl.class, 16);
 
         public static ServerHttpRequestImpl create() {
-            final ServerHttpRequestImpl httpRequestImpl = ThreadCache.takeFromCache(CACHE_IDX);
-            if (httpRequestImpl != null) {
-                return httpRequestImpl;
+            ServerHttpRequestImpl httpRequestImpl = ThreadCache.takeFromCache(CACHE_IDX);
+            if (httpRequestImpl == null) {
+                httpRequestImpl = new ServerHttpRequestImpl();
             }
-
-            return new ServerHttpRequestImpl();
+            // service() and the recycle usually run on a worker thread, not on this one: give it back to this thread
+            httpRequestImpl.cacheOwner = ThreadCache.currentOwner();
+            return httpRequestImpl;
         }
+
+        private ThreadCache.Owner cacheOwner;
 
         /**
          * Char encoding parsed flag.
@@ -1364,7 +1367,10 @@ public class HttpServerFilter extends HttpCodecFilter {
                 return;
             }
             reset();
-            ThreadCache.putToCache(CACHE_IDX, this);
+            final ThreadCache.Owner owner = cacheOwner;
+            // a retained packet must not keep its owner's returned objects alive
+            cacheOwner = null;
+            ThreadCache.putToOwnerCache(owner, CACHE_IDX, this);
         }
     }
 }

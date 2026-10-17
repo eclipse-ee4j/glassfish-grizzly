@@ -358,8 +358,10 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
      * {@link Request} and {@link Response} subclasses.
      * <p>
      * The filter initializes the returned instance and recycles it once the request is complete.
-     * {@link Request#recycle()} puts every instance into the shared pool used by {@link Request#create()}; a subclass
-     * with a pool of its own has to override {@link Request#recycle()} accordingly.
+     * {@link Request#recycle()} puts every instance into the pool used by {@link Request#create()}: an instance taken
+     * from {@link Request#create()} goes back to the pool of the thread that took it, even if another thread recycles it;
+     * an instance created with {@code new} goes to the pool of the thread that recycles it. A subclass with a pool of its
+     * own has to override {@link Request#recycle()} accordingly.
      *
      * @return a new or pooled, uninitialized {@link Request}
      */
