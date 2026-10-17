@@ -28,6 +28,9 @@ import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
 
+import org.glassfish.grizzly.filterchain.BaseFilter;
+import org.glassfish.grizzly.filterchain.FilterChainContext;
+import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.threadpool.ThreadPoolConfig;
 import org.junit.Test;
 
@@ -45,10 +48,21 @@ public class RequestReuseTest {
         final Set<Object> packets = Collections.newSetFromMap(new IdentityHashMap<>());
         final Set<Object> requests = Collections.newSetFromMap(new IdentityHashMap<>());
         final Set<String> serviceThreads = Collections.synchronizedSet(new java.util.TreeSet<>());
+        final Set<Object> contexts = Collections.newSetFromMap(new IdentityHashMap<>());
         final HttpServer server = new HttpServer();
         final NetworkListener listener = new NetworkListener("reuse", "127.0.0.1", 0);
         server.addListener(listener);
         listener.getTransport().setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().copy().setCorePoolSize(1).setMaxPoolSize(1));
+        // the FilterChainContext of every read, taken on the selector thread and completed on the worker
+        listener.registerAddOn((networkListener, builder) -> builder.add(builder.indexOfType(HttpServerFilter.class), new BaseFilter() {
+            @Override
+            public NextAction handleRead(final FilterChainContext ctx) {
+                synchronized (contexts) {
+                    contexts.add(ctx);
+                }
+                return ctx.getInvokeAction();
+            }
+        }));
         server.getServerConfiguration().addHttpHandler(new HttpHandler() {
             @Override
             public void service(final Request request, final Response response) throws Exception {
@@ -78,6 +92,7 @@ public class RequestReuseTest {
         assertEquals("service() on one worker thread: " + serviceThreads, 1, serviceThreads.size());
         assertTrue("distinct request packets for " + REQUESTS + " requests: " + packets.size(), packets.size() <= 3);
         assertTrue("distinct requests for " + REQUESTS + " requests: " + requests.size(), requests.size() <= 3);
+        assertTrue("distinct filter chain contexts for " + REQUESTS + " requests: " + contexts.size(), contexts.size() <= 4);
         // every one of them is recycled now: none keeps the selector thread's returned objects alive
         for (final Object o : packets) {
             assertNull("owner kept by a recycled " + o.getClass().getSimpleName(), cacheOwner(o));
