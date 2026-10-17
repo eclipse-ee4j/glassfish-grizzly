@@ -388,7 +388,7 @@ public class OutputBuffer {
 
         updateNonBlockingStatus();
 
-        checkCharBuffer();
+        checkCharBuffer(1);
 
         if (charsArrayLength == charsArray.length) {
             flushCharsToBuf(true);
@@ -411,7 +411,7 @@ public class OutputBuffer {
             flushBinaryBuffers(false);
         }
 
-        checkCharBuffer();
+        checkCharBuffer(len);
 
         final int remaining = charsArray.length - charsArrayLength;
 
@@ -454,7 +454,7 @@ public class OutputBuffer {
             flushBinaryBuffers(false);
         }
 
-        checkCharBuffer();
+        checkCharBuffer(len);
 
         if (charsArray.length - charsArrayLength >= len) {
             str.getChars(off, off + len, charsArray, charsArrayLength);
@@ -1005,11 +1005,25 @@ public class OutputBuffer {
         ctx.write(null, content, null, messageCloner, IS_BLOCKING);
     }
 
-    private void checkCharBuffer() {
-        if (charsArray == null) {
-            charsArray = new char[bufferSize];
-            charsBuffer = CharBuffer.wrap(charsArray);
+    /**
+     * Makes room for {@code needed} more chars, growing the array up to the buffer size. The array starts with what the
+     * first write needs instead of the whole buffer size: a response of a few hundred chars doesn't allocate and clear
+     * {@code bufferSize} chars. Once the array has the buffer size, a write that doesn't fit is flushed as before.
+     */
+    private void checkCharBuffer(final int needed) {
+        final int capacity = charsArray == null ? 0 : charsArray.length;
+        if (capacity - charsArrayLength >= needed || capacity >= bufferSize) {
+            return;
         }
+
+        final int wanted = needed > bufferSize - charsArrayLength ? bufferSize : charsArrayLength + needed;
+        final int newCapacity = Math.min(bufferSize, Math.max(wanted, Math.max(capacity << 1, MIN_BUFFER_SIZE)));
+        final char[] newCharsArray = new char[newCapacity];
+        if (charsArrayLength > 0) {
+            System.arraycopy(charsArray, 0, newCharsArray, 0, charsArrayLength);
+        }
+        charsArray = newCharsArray;
+        charsBuffer = CharBuffer.wrap(newCharsArray);
     }
 
     private boolean writingChars() {
