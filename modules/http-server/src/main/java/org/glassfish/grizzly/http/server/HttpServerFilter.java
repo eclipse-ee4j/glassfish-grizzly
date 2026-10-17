@@ -429,6 +429,9 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
         // been broken. We don't want to reuse Request and Response in this state,
         // cause there still might be threads referencing them.
         if (response.suspendState != Response.SuspendState.CANCELLED) {
+            if (response.suspendState != Response.SuspendState.NONE) {
+                request.keepCachesLocal();
+            }
             response.recycle();
             request.recycle();
         }

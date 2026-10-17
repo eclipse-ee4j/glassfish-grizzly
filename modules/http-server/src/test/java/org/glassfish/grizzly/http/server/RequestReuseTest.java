@@ -100,6 +100,60 @@ public class RequestReuseTest {
         awaitNoOwner(contexts);
     }
 
+    /**
+     * A request whose response was suspended is not given back to the thread that created it: after the resume, the
+     * thread that delivered its last data may still touch it, and the creating thread would hand it to another connection
+     * right away. Here every response is suspended and resumed from another thread, so no request object is reused by
+     * the selector.
+     */
+    @Test
+    public void suspendedRequestsAreNotGivenBack() throws Exception {
+        final Set<Object> packets = Collections.newSetFromMap(new IdentityHashMap<>());
+        final Set<Object> requests = Collections.newSetFromMap(new IdentityHashMap<>());
+        final java.util.concurrent.ExecutorService resumer = java.util.concurrent.Executors.newSingleThreadExecutor();
+        final HttpServer server = new HttpServer();
+        final NetworkListener listener = new NetworkListener("suspend", "127.0.0.1", 0);
+        server.addListener(listener);
+        listener.getTransport().setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().copy().setCorePoolSize(1).setMaxPoolSize(1));
+        server.getServerConfiguration().addHttpHandler(new HttpHandler() {
+            @Override
+            public void service(final Request request, final Response response) throws Exception {
+                synchronized (packets) {
+                    packets.add(request.getRequest());
+                    requests.add(request);
+                }
+                response.suspend();
+                resumer.execute(() -> {
+                    try {
+                        response.setContentLength(5);
+                        response.getOutputStream().write("hello".getBytes(StandardCharsets.US_ASCII));
+                    } catch (final java.io.IOException e) {
+                        throw new IllegalStateException(e);
+                    } finally {
+                        response.resume();
+                    }
+                });
+            }
+        }, "/");
+        server.start();
+        try (Socket socket = new Socket("127.0.0.1", listener.getPort())) {
+            socket.setSoTimeout(10_000);
+            final OutputStream out = socket.getOutputStream();
+            final InputStream in = socket.getInputStream();
+            for (int i = 0; i < REQUESTS; i++) {
+                out.write("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+                out.flush();
+                final String head = readResponse(in);
+                assertTrue(head, head.startsWith("HTTP/1.1 200"));
+            }
+        } finally {
+            server.shutdownNow();
+            resumer.shutdownNow();
+        }
+        assertEquals("request packets reused", REQUESTS, packets.size());
+        assertEquals("requests reused", REQUESTS, requests.size());
+    }
+
     /** Waits up to 10 s until none of the objects references an owner any more. */
     static void awaitNoOwner(final Set<Object> objects) throws Exception {
         final long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);

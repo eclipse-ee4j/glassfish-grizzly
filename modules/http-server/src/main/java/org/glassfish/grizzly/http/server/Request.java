@@ -109,6 +109,19 @@ public class Request {
 
     private ThreadCache.Owner cacheOwner;
 
+    // the response was suspended: see #keepCachesLocal()
+    private boolean keepCachesLocal;
+
+    /**
+     * The response of this request was suspended. After the resume, the thread that delivered the last data (e.g. an
+     * async read callback) may still touch this request and its packet, so they must not go back to the thread that
+     * created them, which could hand them to another connection right away: this request goes to the cache of the
+     * recycling thread, as before, and the packet is not pooled.
+     */
+    void keepCachesLocal() {
+        keepCachesLocal = true;
+    }
+
     /**
      * Request attribute will be associated with a boolean value indicating whether or not it's possible to transfer a
      * {@link java.io.File} using sendfile.
@@ -573,7 +586,9 @@ public class Request {
         localesParsed = false;
         secure = false;
 
-        request.recycle();
+        if (!keepCachesLocal) {
+            request.recycle();
+        }
         request = null;
         ctx = null;
         httpServerFilter = null;
@@ -602,7 +617,8 @@ public class Request {
             cachedMappingData.recycle();
         }
 
-        final ThreadCache.Owner owner = cacheOwner;
+        final ThreadCache.Owner owner = keepCachesLocal ? null : cacheOwner;
+        keepCachesLocal = false;
         // a retained request must not keep its owner's returned objects alive
         cacheOwner = null;
         ThreadCache.putToOwnerCache(owner, CACHE_IDX, this);
