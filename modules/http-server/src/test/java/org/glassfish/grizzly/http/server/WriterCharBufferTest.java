@@ -40,10 +40,11 @@ public class WriterCharBufferTest {
     @Test
     public void aSmallResponseGetsASmallCharArray() throws Exception {
         final AtomicInteger capacity = new AtomicInteger(-1);
-        final String body = run((response, writer) -> {
+        final String body = body(run(response -> {
+            final Writer writer = response.getWriter();
             writer.write("hello");
             capacity.set(charsArrayLength(response.getOutputBuffer()));
-        });
+        }));
         assertEquals("hello", body);
         assertTrue("char array of " + capacity.get() + " chars for a 5-char response", capacity.get() > 0 && capacity.get() <= 512);
     }
@@ -53,7 +54,8 @@ public class WriterCharBufferTest {
     public void growingArrayKeepsTheOutput() throws Exception {
         final StringBuilder expected = new StringBuilder();
         final AtomicInteger capacity = new AtomicInteger(-1);
-        final String body = run((response, writer) -> {
+        final String body = body(run(response -> {
+            final Writer writer = response.getWriter();
             int n = 0;
             for (int round = 0; round < 40; round++) {
                 for (int size : new int[] { 1, 7, 300, 513, 1500, 4096, 9000 }) {
@@ -74,22 +76,104 @@ public class WriterCharBufferTest {
                             writer.write(s.charAt(i));
                         }
                     }
-                    synchronized (expected) {
-                        expected.append(s);
-                    }
+                    expected.append(s);
                 }
                 if (round == 0) {
                     capacity.set(charsArrayLength(response.getOutputBuffer()));
                 }
             }
-        });
+        }));
         assertEquals(expected.length(), body.length());
         assertEquals(expected.toString(), body);
         assertEquals("capacity once the writes went past the buffer size", 8192, capacity.get());
     }
 
+    /**
+     * The chars are flushed to bytes where they used to be, also when the buffer size changes after the first char:
+     * 2000 chars stay buffered under the 8192 chars the array had, so the response is not committed by them.
+     */
+    @Test
+    public void setBufferSizeAfterTheFirstCharKeepsTheFlushPoint() throws Exception {
+        final StringBuilder expected = new StringBuilder("x");
+        for (int i = 0; i < 2000; i++) {
+            expected.append((char) ('a' + i % 26));
+        }
+        final String response = run(r -> {
+            final Writer writer = r.getWriter();
+            writer.write("x");
+            r.setBufferSize(600);
+            writer.write(expected.substring(1));
+            r.setHeader("X-After", "yes");
+        });
+        assertTrue(response, head(response).contains("\r\nx-after: yes\r\n"));
+        assertTrue(response, head(response).contains("\r\ncontent-length: 2001\r\n"));
+        assertEquals(expected.toString(), body(response));
+    }
+
+    /** A negative length is refused as it was, with an IndexOutOfBoundsException, also on the first write. */
+    @Test
+    public void aNegativeLengthIsRefused() throws Exception {
+        final String body = body(run(r -> {
+            final Writer writer = r.getWriter();
+            for (final Runnable write : new Runnable[] { () -> uncheckedWrite(writer, "abc", -1), () -> uncheckedWrite(writer, "abc".toCharArray(), -1) }) {
+                try {
+                    write.run();
+                    writer.write("accepted;");
+                } catch (IndexOutOfBoundsException e) {
+                    writer.write("refused;");
+                }
+            }
+        }));
+        assertEquals("refused;refused;", body);
+    }
+
+    /** Surrogate pairs written right after the first array's end come out whole (no flush splits them there). */
+    @Test
+    public void surrogatePairsAcrossTheFirstArray() throws Exception {
+        final StringBuilder expected = new StringBuilder();
+        final String response = run(r -> {
+            r.setCharacterEncoding("UTF-8");
+            final Writer writer = r.getWriter();
+            final String ascii = "a".repeat(511);
+            final String pairs = "\uD83D\uDE00".repeat(300);
+            writer.write(ascii);
+            writer.write(pairs);
+            writer.write(ascii.toCharArray());
+            for (int i = 0; i < pairs.length(); i++) {
+                writer.write(pairs.charAt(i));
+            }
+            expected.append(ascii).append(pairs).append(ascii).append(pairs);
+        });
+        final String body = new String(body(response).getBytes(StandardCharsets.ISO_8859_1), StandardCharsets.UTF_8);
+        assertEquals(expected.toString(), body);
+    }
+
+    private static void uncheckedWrite(final Writer writer, final String s, final int len) {
+        try {
+            writer.write(s, 0, len);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static void uncheckedWrite(final Writer writer, final char[] c, final int len) {
+        try {
+            writer.write(c, 0, len);
+        } catch (java.io.IOException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static String body(final String response) {
+        return response.substring(response.indexOf("\r\n\r\n") + 4);
+    }
+
+    private static String head(final String response) {
+        return response.substring(0, response.indexOf("\r\n\r\n") + 2).toLowerCase();
+    }
+
     private interface Body {
-        void write(Response response, Writer writer) throws Exception;
+        void write(Response response) throws Exception;
     }
 
     private static String run(final Body body) throws Exception {
@@ -99,7 +183,7 @@ public class WriterCharBufferTest {
         server.getServerConfiguration().addHttpHandler(new HttpHandler() {
             @Override
             public void service(final Request request, final Response response) throws Exception {
-                body.write(response, response.getWriter());
+                body.write(response);
             }
         }, "/");
         server.start();
@@ -113,7 +197,7 @@ public class WriterCharBufferTest {
             in.transferTo(response);
             final String text = response.toString(StandardCharsets.ISO_8859_1);
             assertTrue(text, text.startsWith("HTTP/1.1 200") || text.startsWith("HTTP/1.0 200"));
-            return text.substring(text.indexOf("\r\n\r\n") + 4);
+            return text;
         } finally {
             server.shutdownNow();
         }

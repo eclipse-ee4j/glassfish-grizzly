@@ -120,6 +120,12 @@ public class OutputBuffer {
     private char[] charsArray;
     private int charsArrayLength;
     private CharBuffer charsBuffer;
+    /**
+     * The length the char array would have if it were allocated whole, as it used to be: the buffer size when the first
+     * char is written, raised by {@link #setBufferSize(int)}, kept across {@link #recycle()} with the array; 0 before.
+     * The chars are flushed to bytes when this many are buffered, wherever the array itself is.
+     */
+    private int charsCapacity;
 
     private MemoryManager memoryManager;
     private Connection connection;
@@ -226,11 +232,9 @@ public class OutputBuffer {
             this.bufferSize = bufferSizeLocal;
         }
 
-        if (charsArray != null && charsArray.length < bufferSizeLocal) {
-            final char[] newCharsArray = new char[bufferSizeLocal];
-            System.arraycopy(charsArray, 0, newCharsArray, 0, charsArrayLength);
-            charsBuffer = CharBuffer.wrap(newCharsArray);
-            charsArray = newCharsArray;
+        if (charsCapacity != 0 && charsCapacity < bufferSizeLocal) {
+            // the array grows to it when needed
+            charsCapacity = bufferSizeLocal;
         }
     }
 
@@ -307,11 +311,12 @@ public class OutputBuffer {
         if (charsArray != null) {
             charsArrayLength = 0;
 
-            if (charsArray.length < MAX_CHAR_BUFFER_SIZE) {
+            if (charsCapacity < MAX_CHAR_BUFFER_SIZE) {
                 charsBuffer.clear();
             } else {
                 charsBuffer = null;
                 charsArray = null;
+                charsCapacity = 0;
             }
         }
 //        charBuf.position(0);
@@ -1006,19 +1011,25 @@ public class OutputBuffer {
     }
 
     /**
-     * Makes room for {@code needed} more chars, growing the array up to the buffer size. The array starts with what the
-     * first write needs instead of the whole buffer size: a response of a few hundred chars doesn't allocate and clear
-     * {@code bufferSize} chars. Once the array has the buffer size, a write that doesn't fit is flushed as before.
+     * Makes room for {@code needed} more chars, up to {@link #charsCapacity}. The array starts with what the first write
+     * needs (at least {@code MIN_BUFFER_SIZE} chars), so that a short response doesn't allocate and clear a whole buffer,
+     * and the next time it grows it takes the whole capacity. When {@code needed} doesn't fit in the whole capacity, the
+     * callers flush as before.
      */
     private void checkCharBuffer(final int needed) {
-        final int capacity = charsArray == null ? 0 : charsArray.length;
-        if (capacity - charsArrayLength >= needed || capacity >= bufferSize) {
+        if (needed < 0) {
+            throw new IndexOutOfBoundsException("length: " + needed);
+        }
+        if (charsCapacity == 0) {
+            charsCapacity = bufferSize;
+        }
+        final int length = charsArray == null ? 0 : charsArray.length;
+        if (length - charsArrayLength >= needed || length >= charsCapacity) {
             return;
         }
 
-        final int wanted = needed > bufferSize - charsArrayLength ? bufferSize : charsArrayLength + needed;
-        final int newCapacity = Math.min(bufferSize, Math.max(wanted, Math.max(capacity << 1, MIN_BUFFER_SIZE)));
-        final char[] newCharsArray = new char[newCapacity];
+        final int newLength = charsArray == null ? Math.min(charsCapacity, Math.max(needed, MIN_BUFFER_SIZE)) : charsCapacity;
+        final char[] newCharsArray = new char[newLength];
         if (charsArrayLength > 0) {
             System.arraycopy(charsArray, 0, newCharsArray, 0, charsArrayLength);
         }
