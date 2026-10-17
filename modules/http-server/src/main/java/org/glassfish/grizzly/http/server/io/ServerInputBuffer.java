@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -37,6 +37,17 @@ import org.glassfish.grizzly.http.server.Request;
 public class ServerInputBuffer extends InputBuffer {
     private volatile long totalReadContentInBytes;
     private volatile Request serverRequest;
+    // see #isAsyncReadStarted()
+    private volatile boolean asyncReadStarted;
+
+    /**
+     * @return whether the body of the current request has been waited for asynchronously (a {@link
+     * org.glassfish.grizzly.ReadHandler} that wasn't satisfied at once)
+     * @since 5.0.4
+     */
+    public boolean isAsyncReadStarted() {
+        return asyncReadStarted;
+    }
 
     public void initialize(final Request serverRequest, final FilterChainContext ctx) {
         this.serverRequest = serverRequest;
@@ -65,6 +76,7 @@ public class ServerInputBuffer extends InputBuffer {
             return;
         }
 
+        asyncReadStarted = true;
         super.initiateAsyncronousDataReceiving();
     }
 
@@ -92,6 +104,7 @@ public class ServerInputBuffer extends InputBuffer {
     public void recycle() {
         serverRequest = null;
         totalReadContentInBytes = 0;
+        asyncReadStarted = false;
         super.recycle();
     }
 

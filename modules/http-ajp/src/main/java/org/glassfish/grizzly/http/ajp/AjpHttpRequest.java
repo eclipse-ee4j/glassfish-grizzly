@@ -38,7 +38,7 @@ import org.glassfish.grizzly.utils.BufferInputStream;
  *
  * @author Alexey Stashok
  */
-public final class AjpHttpRequest extends HttpRequestPacket {
+public final class AjpHttpRequest extends HttpRequestPacket implements ThreadCache.OwnerAware {
     private static final Logger LOGGER = Grizzly.logger(AjpHttpRequest.class);
 
     private static final ThreadCache.CachedTypeIndex<AjpHttpRequest> CACHE_IDX = ThreadCache.obtainIndex(AjpHttpRequest.class, 2);
@@ -61,6 +61,11 @@ public final class AjpHttpRequest extends HttpRequestPacket {
 
     // the cache of the thread that created this request, see #create()
     private ThreadCache.Owner cacheOwner;
+
+    @Override
+    public void keepInRecyclingThreadCache() {
+        cacheOwner = null;
+    }
 
     private String secret;
 

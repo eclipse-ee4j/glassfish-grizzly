@@ -1225,7 +1225,7 @@ public class HttpServerFilter extends HttpCodecFilter {
 
     } // END KeepAliveResolver
 
-    private static final class ServerHttpRequestImpl extends HttpRequestPacket implements HttpPacketParsing {
+    private static final class ServerHttpRequestImpl extends HttpRequestPacket implements HttpPacketParsing, ThreadCache.OwnerAware {
 
         private static final ThreadCache.CachedTypeIndex<ServerHttpRequestImpl> CACHE_IDX = ThreadCache.obtainIndex(ServerHttpRequestImpl.class, 16);
 
@@ -1240,6 +1240,11 @@ public class HttpServerFilter extends HttpCodecFilter {
         }
 
         private ThreadCache.Owner cacheOwner;
+
+        @Override
+        public void keepInRecyclingThreadCache() {
+            cacheOwner = null;
+        }
 
         /**
          * Char encoding parsed flag.

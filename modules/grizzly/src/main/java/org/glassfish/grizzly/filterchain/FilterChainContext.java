@@ -52,7 +52,7 @@ import org.glassfish.grizzly.utils.Holder;
  * @author Alexey Stashok
  */
 @SuppressWarnings("deprecation")
-public class FilterChainContext implements AttributeStorage {
+public class FilterChainContext implements AttributeStorage, ThreadCache.OwnerAware {
     private static final Logger logger = Grizzly.logger(FilterChainContext.class);
 
     public enum State {
@@ -926,6 +926,11 @@ public class FilterChainContext implements AttributeStorage {
         final ThreadCache.Owner owner = cacheOwner;
         cacheOwner = null;
         ThreadCache.putToOwnerCache(owner, CACHE_IDX, this);
+    }
+
+    @Override
+    public void keepInRecyclingThreadCache() {
+        cacheOwner = null;
     }
 
     public void completeAndRelease() {

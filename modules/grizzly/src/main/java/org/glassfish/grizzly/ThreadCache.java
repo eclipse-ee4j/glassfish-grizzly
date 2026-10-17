@@ -337,6 +337,20 @@ public final class ThreadCache {
      *
      * @since 5.0.4
      */
+    /**
+     * An object that is given back to the thread that created it (see {@link #putToOwnerCache(Owner, CachedTypeIndex,
+     * Object)}) and can be told not to: when the thread that recycles it may not be the last one to touch it, it goes to
+     * the recycling thread's own cache instead, like any other cached object.
+     *
+     * @since 5.0.4
+     */
+    public interface OwnerAware {
+        /**
+         * Recycle this object into the cache of the thread that recycles it, not back to the thread that created it.
+         */
+        void keepInRecyclingThreadCache();
+    }
+
     public static final class Owner {
         private volatile ReturnQueue[] queues = new ReturnQueue[0];
 

@@ -154,6 +154,65 @@ public class RequestReuseTest {
         assertEquals("requests reused", REQUESTS, requests.size());
     }
 
+    /**
+     * A request whose body is read asynchronously (a ReadHandler that had to wait) is not given back either, even
+     * without a suspend: the handler may still run on another thread after the request was recycled.
+     */
+    @Test
+    public void asyncReadRequestsAreNotGivenBack() throws Exception {
+        final int requests = 20;
+        final Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        final HttpServer server = new HttpServer();
+        final NetworkListener listener = new NetworkListener("async-read", "127.0.0.1", 0);
+        server.addListener(listener);
+        listener.getTransport().setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().copy().setCorePoolSize(1).setMaxPoolSize(1));
+        server.getServerConfiguration().addHttpHandler(new HttpHandler() {
+            @Override
+            public void service(final Request request, final Response response) throws Exception {
+                synchronized (seen) {
+                    seen.add(request);
+                }
+                // the rest of the body comes later: the handler has to wait for it
+                request.getNIOInputStream().notifyAvailable(new org.glassfish.grizzly.ReadHandler() {
+                    @Override
+                    public void onDataAvailable() {
+                    }
+
+                    @Override
+                    public void onError(final Throwable t) {
+                    }
+
+                    @Override
+                    public void onAllDataRead() {
+                    }
+                });
+                response.setContentLength(0);
+            }
+        }, "/");
+        server.start();
+        try (Socket socket = new Socket("127.0.0.1", listener.getPort())) {
+            socket.setSoTimeout(10_000);
+            final OutputStream out = socket.getOutputStream();
+            final InputStream in = socket.getInputStream();
+            for (int i = 0; i < requests; i++) {
+                out.write("POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 10\r\n\r\n01234".getBytes(StandardCharsets.US_ASCII));
+                out.flush();
+                final StringBuilder head = new StringBuilder();
+                while (head.indexOf("\r\n\r\n") < 0) {
+                    final int b = in.read();
+                    assertTrue("end of stream after:\n" + head, b >= 0);
+                    head.append((char) b);
+                }
+                assertTrue(head.toString(), head.toString().startsWith("HTTP/1.1 200"));
+                out.write("56789".getBytes(StandardCharsets.US_ASCII));
+                out.flush();
+            }
+        } finally {
+            server.shutdownNow();
+        }
+        assertEquals("requests reused", requests, seen.size());
+    }
+
     /** Waits up to 10 s until none of the objects references an owner any more. */
     static void awaitNoOwner(final Set<Object> objects) throws Exception {
         final long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);

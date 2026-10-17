@@ -109,17 +109,20 @@ public class Request {
 
     private ThreadCache.Owner cacheOwner;
 
-    // the response was suspended: see #keepCachesLocal()
-    private boolean keepCachesLocal;
-
     /**
-     * The response of this request was suspended. After the resume, the thread that delivered the last data (e.g. an
-     * async read callback) may still touch this request and its packet, so they must not go back to the thread that
-     * created them, which could hand them to another connection right away: this request goes to the cache of the
-     * recycling thread, as before, and the packet is not pooled.
+     * The request did not complete synchronously (its response was suspended, or its body was read asynchronously):
+     * another thread may still touch this request, its packet or its context after the recycle (e.g. an async read
+     * callback after a resume), so none of them may go back to the thread that created it, which could hand it to
+     * another connection right away. They go to the cache of the recycling thread, as before #2386.
      */
     void keepCachesLocal() {
-        keepCachesLocal = true;
+        cacheOwner = null;
+        if (request instanceof ThreadCache.OwnerAware) {
+            ((ThreadCache.OwnerAware) request).keepInRecyclingThreadCache();
+        }
+        if (ctx != null) {
+            ctx.keepInRecyclingThreadCache();
+        }
     }
 
     /**
@@ -586,9 +589,7 @@ public class Request {
         localesParsed = false;
         secure = false;
 
-        if (!keepCachesLocal) {
-            request.recycle();
-        }
+        request.recycle();
         request = null;
         ctx = null;
         httpServerFilter = null;
@@ -617,8 +618,7 @@ public class Request {
             cachedMappingData.recycle();
         }
 
-        final ThreadCache.Owner owner = keepCachesLocal ? null : cacheOwner;
-        keepCachesLocal = false;
+        final ThreadCache.Owner owner = cacheOwner;
         // a retained request must not keep its owner's returned objects alive
         cacheOwner = null;
         ThreadCache.putToOwnerCache(owner, CACHE_IDX, this);
