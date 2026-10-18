@@ -255,6 +255,7 @@ public class RequestReuseTest {
         final java.util.concurrent.Semaphore resumed = new java.util.concurrent.Semaphore(0);
         final java.util.concurrent.atomic.AtomicInteger cancelled = new java.util.concurrent.atomic.AtomicInteger();
         final java.util.concurrent.atomic.AtomicInteger keptByResumer = new java.util.concurrent.atomic.AtomicInteger();
+        // the same index as FilterChainContext's own (indexes are per class name; the size must match its 8)
         final org.glassfish.grizzly.ThreadCache.CachedTypeIndex<FilterChainContext> contextCache = org.glassfish.grizzly.ThreadCache
                 .obtainIndex(FilterChainContext.class, 8);
         final HttpServer server = new HttpServer();
@@ -283,8 +284,6 @@ public class RequestReuseTest {
                             try {
                                 // finds the response cancelled, and still completes the filter chain
                                 response.resume();
-                            } catch (final RuntimeException ignored) {
-                                // nothing to resume
                             } finally {
                                 // the context completed here stays in this thread's cache, not given back to the selector
                                 if (org.glassfish.grizzly.ThreadCache.takeFromCache(contextCache) == readContext) {
@@ -319,13 +318,14 @@ public class RequestReuseTest {
 
     /**
      * A chunked request beyond the max post size whose handler waits for the body is not given back either: the error
-     * reaches the ReadHandler, possibly on another thread.
+     * reaches the ReadHandler on the request executor, which with a custom RequestExecutorProvider is another thread.
      */
     @Test
     public void requestsBeyondTheMaxPostSizeAreNotGivenBack() throws Exception {
         final int requests = 10;
         final Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
         final java.util.concurrent.atomic.AtomicReference<Request> last = new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.Semaphore served = new java.util.concurrent.Semaphore(0);
         final HttpServer server = new HttpServer();
         final NetworkListener listener = new NetworkListener("max-post", "127.0.0.1", 0);
         server.addListener(listener);
@@ -353,6 +353,7 @@ public class RequestReuseTest {
                     }
                 }, 10);
                 response.setContentLength(0);
+                served.release();
             }
         }, "/");
         server.start();
@@ -361,14 +362,10 @@ public class RequestReuseTest {
                 try (Socket socket = new Socket("127.0.0.1", listener.getPort())) {
                     socket.setSoTimeout(10_000);
                     final OutputStream out = socket.getOutputStream();
-                    final Request previous = last.get();
+                    // a first chunk, so that the request reaches the handler; any size is beyond a max post size of 0
                     out.write("POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n".getBytes(StandardCharsets.US_ASCII));
                     out.flush();
-                    final long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(10);
-                    while (last.get() == previous && System.nanoTime() < deadline) {
-                        Thread.sleep(5);
-                    }
-                    assertTrue("request " + i + " served", last.get() != previous);
+                    assertTrue("request " + i + " served", served.tryAcquire(10, java.util.concurrent.TimeUnit.SECONDS));
                     awaitRecycled(last.get());
                 }
             }

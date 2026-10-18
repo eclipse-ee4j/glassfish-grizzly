@@ -61,7 +61,8 @@ public class ServerInputBuffer extends InputBuffer {
      */
     @Override
     public void initiateAsyncronousDataReceiving() {
-        // set first: also the error below may reach the ReadHandler on another thread
+        // set first: the error below reaches the ReadHandler on the request executor, which with a custom
+        // RequestExecutorProvider may be another thread
         asyncReadStarted = true;
         if (!checkChunkedMaxPostSize()) {
             final Request localServerRequest = serverRequest;

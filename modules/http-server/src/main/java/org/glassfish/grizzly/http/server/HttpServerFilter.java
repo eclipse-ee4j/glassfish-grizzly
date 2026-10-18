@@ -425,13 +425,13 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
         final HttpRequestPacket httpRequest = request.getRequest();
         final boolean isBroken = httpRequest.isContentBroken();
 
-        // Suspend state is cancelled - it means normal processing might have
-        // been broken. We don't want to reuse Request and Response in this state,
-        // cause there still might be threads referencing them.
         // only a request that completed synchronously goes back to the thread that created it (see Request#create())
         if (response.suspendState != Response.SuspendState.NONE || request.inputBuffer.isAsyncReadStarted()) {
             request.keepCachesLocal();
         }
+        // Suspend state is cancelled - it means normal processing might have
+        // been broken. We don't want to reuse Request and Response in this state,
+        // cause there still might be threads referencing them.
         if (response.suspendState != Response.SuspendState.CANCELLED) {
             response.recycle();
             request.recycle();

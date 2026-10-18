@@ -116,7 +116,8 @@ public class Request {
      * another connection right away. They go to the cache of the recycling thread, as before #2386. An application that
      * reads or writes from its own thread without suspending the response, racing its completion, is not covered (that
      * was never allowed), nor is a WriteHandler registered with notifyCanWrite without a suspend whose callback runs
-     * after the request completed.
+     * after the request completed. A packet whose body is still expected is not recycled here at all: the codec recycles
+     * it later, as before.
      */
     void keepCachesLocal() {
         cacheOwner = null;

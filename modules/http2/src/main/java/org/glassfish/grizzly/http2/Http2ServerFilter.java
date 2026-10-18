@@ -534,8 +534,9 @@ public class Http2ServerFilter extends Http2BaseFilter {
             Http2State.remove(connection);
             return false;
         }
-        // the HTTP/1.1 request becomes the request of stream 1, which may still use it after the request is recycled:
-        // it must not go back to the thread that created it, which could hand it to another connection at once
+        // the HTTP/1.1 request becomes the request of stream 1, which may still use it after Request#recycle() reset it:
+        // keep it in the recycling thread's cache, as before #2386, instead of handing it back to the thread that created
+        // it, which could give it to another connection at once
         if (httpRequest instanceof ThreadCache.OwnerAware) {
             ((ThreadCache.OwnerAware) httpRequest).keepInRecyclingThreadCache();
         }
