@@ -31,6 +31,10 @@ public class ServerInputBufferRecycleTest {
         final Field flag = ServerInputBuffer.class.getDeclaredField("asyncReadStarted");
         flag.setAccessible(true);
         flag.setBoolean(buffer, true);
+        // what initialize() would have set
+        final Field content = org.glassfish.grizzly.http.io.InputBuffer.class.getDeclaredField("inputContentBuffer");
+        content.setAccessible(true);
+        content.set(buffer, org.glassfish.grizzly.memory.Buffers.EMPTY_BUFFER);
         buffer.recycle();
         assertFalse(buffer.isAsyncReadStarted());
     }
