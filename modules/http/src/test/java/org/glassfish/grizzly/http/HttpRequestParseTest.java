@@ -503,9 +503,10 @@ public class HttpRequestParseTest {
         assertNotNull("direct", HttpCodecFilter.wordView(new ByteBufferWrapper(direct)));
         assertNull("read-only direct", HttpCodecFilter.wordView(new ByteBufferWrapper(direct.asReadOnlyBuffer())));
         assertNull("heap", HttpCodecFilter.wordView(new ByteBufferWrapper(ByteBuffer.allocate(32))));
+        // not a ByteBufferWrapper: the next two cases are left out by that check alone
         assertNull("composite", HttpCodecFilter.wordView(Buffers.appendBuffers(mm, new ByteBufferWrapper(ByteBuffer.allocateDirect(8)),
                 new ByteBufferWrapper(ByteBuffer.allocateDirect(8)))));
-        assertNull("array-backed", HttpCodecFilter.wordView(Buffers.wrap(mm, new byte[32])));
+        assertNull("HeapBuffer (reaches the Buffer path for chunked trailers)", HttpCodecFilter.wordView(Buffers.wrap(mm, new byte[32])));
     }
 
     private static void appendRandom(final StringBuilder sb, final Random random, final String alphabet, final int maxLength) {

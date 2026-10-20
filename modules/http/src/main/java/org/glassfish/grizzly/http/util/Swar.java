@@ -24,8 +24,8 @@ import java.nio.ByteOrder;
 /**
  * SIMD-within-a-register helpers for scanning ASCII protocol bytes eight at a time.
  * <p>
- * Words are read little-endian through a byte-array view {@link VarHandle} (unaligned access is allowed for plain
- * get), so the lowest-index byte is the least significant lane and the first matching byte is found with
+ * Words are read and written little-endian through a byte-array view {@link VarHandle} (unaligned access is allowed for
+ * plain get and set), so the lowest-index byte is the least significant lane and the first matching byte is found with
  * {@link Long#numberOfTrailingZeros(long)}. Every lane computation keeps the lane below 0x100, so no carry or
  * borrow crosses lanes and all masks are exact per byte.
  * <p>

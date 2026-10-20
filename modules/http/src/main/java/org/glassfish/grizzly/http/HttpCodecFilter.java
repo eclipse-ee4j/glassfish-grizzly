@@ -1255,17 +1255,22 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
     }
 
     /**
-     * A {@link ByteBuffer} with the same absolute indexes as {@code input}, for reading it a word at a time, or
-     * {@code null} if there is none. Only a direct, writable, non-composite buffer has one:
+     * A {@link ByteBuffer} with the same absolute indexes as {@code input}, for reading and writing it a word at a time,
+     * or {@code null} if there is none. Only the {@link ByteBuffer} of a {@link ByteBufferWrapper} that is direct and
+     * writable has one; every other buffer keeps the byte-by-byte loop, as before the word scan existed:
      * <ul>
-     * <li>a heap buffer is parsed through its array, or byte by byte if it is read-only;</li>
-     * <li>a read-only buffer is not written to (the word scan lower-cases header names in place), so it is parsed byte
-     * by byte;</li>
-     * <li>the components of a composite buffer would have to be read one by one.</li>
+     * <li>a heap buffer is parsed through its array, except for chunked trailers, which always take this path;</li>
+     * <li>a read-only buffer fails on the first upper-case header name byte in either loop, so the word scan has nothing
+     * to add;</li>
+     * <li>the components of a composite buffer (not a {@link ByteBufferWrapper}) would have to be read one by one.</li>
      * </ul>
      */
     static ByteBuffer wordView(final Buffer input) {
-        return input instanceof ByteBufferWrapper && input.isDirect() && !input.isComposite() && !input.isReadOnly() ? input.toByteBuffer() : null;
+        if (!(input instanceof ByteBufferWrapper)) {
+            return null;
+        }
+        final ByteBuffer view = input.toByteBuffer();
+        return view.isDirect() && !view.isReadOnly() ? view : null;
     }
 
     private static void finalizeKnownHeaderNames(final HttpHeader httpHeader, final HeaderParsingState parsingState, final Buffer input, final int start,
