@@ -75,6 +75,8 @@ import static java.util.Arrays.asList;
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_NAME_VALIDATION_RFC_9110;
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_VALUE_VALIDATION_RFC_9110;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -491,6 +493,19 @@ public class HttpRequestParseTest {
         final String parsed = parseAndDescribe(input, false);
         assertEquals(parseAndDescribe(Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, bytes), false), parsed);
         assertTrue("single-byte reads for " + bytes.length + " bytes: " + gets[0], gets[0] < bytes.length / 2);
+    }
+
+    /** The word scan is for direct, writable, non-composite buffers: it writes (lower-cases) and it was measured on those. */
+    @Test
+    public void testWordViewOnlyForWritableDirectBuffers() {
+        final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
+        final ByteBuffer direct = ByteBuffer.allocateDirect(32);
+        assertNotNull("direct", HttpCodecFilter.wordView(new ByteBufferWrapper(direct)));
+        assertNull("read-only direct", HttpCodecFilter.wordView(new ByteBufferWrapper(direct.asReadOnlyBuffer())));
+        assertNull("heap", HttpCodecFilter.wordView(new ByteBufferWrapper(ByteBuffer.allocate(32))));
+        assertNull("composite", HttpCodecFilter.wordView(Buffers.appendBuffers(mm, new ByteBufferWrapper(ByteBuffer.allocateDirect(8)),
+                new ByteBufferWrapper(ByteBuffer.allocateDirect(8)))));
+        assertNull("array-backed", HttpCodecFilter.wordView(Buffers.wrap(mm, new byte[32])));
     }
 
     private static void appendRandom(final StringBuilder sb, final Random random, final String alphabet, final int maxLength) {

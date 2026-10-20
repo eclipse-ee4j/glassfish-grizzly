@@ -1256,10 +1256,16 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
     /**
      * A {@link ByteBuffer} with the same absolute indexes as {@code input}, for reading it a word at a time, or
-     * {@code null} if there is none (composite buffers: their components would have to be read one by one).
+     * {@code null} if there is none. Only a direct, writable, non-composite buffer has one:
+     * <ul>
+     * <li>a heap buffer is parsed through its array, or byte by byte if it is read-only;</li>
+     * <li>a read-only buffer is not written to (the word scan lower-cases header names in place), so it is parsed byte
+     * by byte;</li>
+     * <li>the components of a composite buffer would have to be read one by one.</li>
+     * </ul>
      */
     static ByteBuffer wordView(final Buffer input) {
-        return input instanceof ByteBufferWrapper && !input.isComposite() ? input.toByteBuffer() : null;
+        return input instanceof ByteBufferWrapper && input.isDirect() && !input.isComposite() && !input.isReadOnly() ? input.toByteBuffer() : null;
     }
 
     private static void finalizeKnownHeaderNames(final HttpHeader httpHeader, final HeaderParsingState parsingState, final Buffer input, final int start,

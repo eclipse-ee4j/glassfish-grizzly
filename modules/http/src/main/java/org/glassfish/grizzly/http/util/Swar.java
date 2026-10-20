@@ -67,6 +67,20 @@ public final class Swar {
     }
 
     /**
+     * Writes {@code value} as eight bytes starting at {@code index} of {@code array}, little-endian.
+     */
+    public static void setLong(final byte[] array, final int index, final long value) {
+        LONGS.set(array, index, value);
+    }
+
+    /**
+     * Writes {@code value} as eight bytes starting at the absolute {@code index} of {@code buffer}, little-endian.
+     */
+    public static void setLong(final ByteBuffer buffer, final int index, final long value) {
+        BUFFER_LONGS.set(buffer, index, value);
+    }
+
+    /**
      * Sets the 0x80 bit of each lane holding an ASCII upper-case letter ('A'..'Z').
      */
     static long upperCaseMask(final long word) {
@@ -107,7 +121,7 @@ public final class Swar {
             final long lower = toLowerCase(word);
             final int n = Long.numberOfTrailingZeros(notAlphaNumDashMask(word, lower)) >>> 3; // 8 if every lane matched
             if (toLowerCase && changesFirstLanes(word, lower, n)) {
-                LONGS.set(array, from, lowerFirstLanes(word, lower, n));
+                setLong(array, from, lowerFirstLanes(word, lower, n));
             }
             from += n;
             if (n != Long.BYTES) {
@@ -212,7 +226,7 @@ public final class Swar {
             final long lower = toLowerCase(word);
             final int n = Long.numberOfTrailingZeros(notAlphaNumDashMask(word, lower)) >>> 3; // 8 if every lane matched
             if (toLowerCase && changesFirstLanes(word, lower, n)) {
-                BUFFER_LONGS.set(buffer, from, lowerFirstLanes(word, lower, n));
+                setLong(buffer, from, lowerFirstLanes(word, lower, n));
             }
             from += n;
             if (n != Long.BYTES) {
