@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -17,6 +18,7 @@
 package org.glassfish.grizzly;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -43,8 +45,123 @@ public final class ProcessorExecutor {
                     new Object[] { context.getConnection(), context.getIoEvent(), context.getProcessor() });
         }
 
+        if (context.getIoEvent() != IOEvent.READ) {
+            execute0(context, null);
+            return;
+        }
+
+        // Tasks registered with runAtEndOfReadRun() (e.g. flushing writes corked while processing the input) run when the
+        // outermost READ processing run of this thread ends, including a suspension, and before the run completes, so
+        // before READ interest is enabled again: the counterpart of Netty's flush on channelReadComplete. Nested READ
+        // runs (e.g. the HTTP/2 streams of the connection being read) don't end it.
+        final ReadRun run = READ_RUN.get();
+        run.depth++;
+        execute0(context, run);
+    }
+
+    private static final ThreadLocal<ReadRun> READ_RUN = ThreadLocal.withInitial(ReadRun::new);
+
+    /**
+     * Registers a task to run when the READ processing run of the current thread ends, before READ interest is enabled
+     * again, or earlier when the READ processing is suspended. A task registered more than once runs once.
+     * <p>
+     * Internal API, used by the transport to coalesce writes.
+     *
+     * @param task the task
+     * @return {@code false} if nothing is registered: the current thread is not processing a READ, or is processing a
+     * nested one (e.g. a READ resumed while processing another READ), whose end enables READ interest again while the
+     * outer run continues
+     * @since 5.0.4
+     */
+    public static boolean runAtEndOfReadRun(final Runnable task) {
+        final ReadRun run = READ_RUN.get();
+        if (run.depth != 1) {
+            return false;
+        }
+        run.add(task);
+        return true;
+    }
+
+    /**
+     * Runs the tasks registered with {@link #runAtEndOfReadRun(Runnable)} now: a suspended READ may be resumed (and
+     * complete) on another thread before this run ends.
+     */
+    static void onReadSuspended() {
+        final ReadRun run = READ_RUN.get();
+        if (run.depth != 0) {
+            run.runTasks();
+        }
+    }
+
+    private static final class ReadRun {
+        private static final int INITIAL_CAPACITY = 4;
+
+        int depth;
+        private Runnable[] tasks = new Runnable[INITIAL_CAPACITY];
+        private int count;
+
+        void add(final Runnable task) {
+            for (int i = 0; i < count; i++) {
+                if (tasks[i] == task) {
+                    return;
+                }
+            }
+            if (count == tasks.length) {
+                tasks = Arrays.copyOf(tasks, count * 2);
+            }
+            tasks[count++] = task;
+        }
+
+        void end() {
+            if (depth != 1) {
+                depth--;
+                return;
+            }
+            // the run lasts until its tasks have run: READ processing started by a task is nested
+            try {
+                runTasks();
+            } finally {
+                depth = 0;
+            }
+        }
+
+        void runTasks() {
+            Error error = null;
+            try {
+                // a task may register further tasks: count is re-read
+                for (int i = 0; i < count; i++) {
+                    final Runnable task = tasks[i];
+                    if (task == null) {
+                        continue; // already run by a nested call (a task suspending a READ)
+                    }
+                    tasks[i] = null;
+                    try {
+                        task.run();
+                    } catch (RuntimeException e) {
+                        LOGGER.log(Level.WARNING, "Task at the end of a READ processing run failed", e);
+                    } catch (Error e) {
+                        // run the other tasks first
+                        if (error == null) {
+                            error = e;
+                        }
+                    }
+                }
+            } finally {
+                Arrays.fill(tasks, 0, count, null);
+                count = 0;
+            }
+            if (error != null) {
+                throw error;
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void execute0(Context context, final ReadRun run) {
         boolean isRerun;
         ProcessorResult result;
+        boolean runEnded = run == null;
+        Error endError = null;
 
         try {
             do {
@@ -57,9 +174,28 @@ public final class ProcessorExecutor {
                 }
             } while (isRerun);
 
+            runEnded = true;
+            if (run != null) {
+                try {
+                    run.end();
+                } catch (Error e) {
+                    // complete the context first, so READ interest is enabled again
+                    endError = e;
+                }
+            }
+
             complete0(context, result);
 
         } catch (Throwable t) {
+            if (!runEnded) {
+                runEnded = true;
+                try {
+                    run.end();
+                } catch (Throwable endFailure) {
+                    t.addSuppressed(endFailure);
+                }
+            }
+
             if (LOGGER.isLoggable(Level.WARNING)) {
                 LOGGER.log(Level.WARNING, LogMessages.WARNING_GRIZZLY_PROCESSOR_ERROR(context.getConnection(), context.getIoEvent(), context.getProcessor()),
                         t);
@@ -69,6 +205,10 @@ public final class ProcessorExecutor {
                 error(context, t);
             } catch (Exception ignored) {
             }
+        }
+
+        if (endError != null) {
+            throw endError;
         }
     }
 

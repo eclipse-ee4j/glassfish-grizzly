@@ -663,6 +663,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
             ctx.setMessage(emptyContent);
             if (input.remaining() > 0) {
+                onPipelinedInput(ctx);
                 return ctx.getInvokeAction(input);
             }
             return ctx.getInvokeAction();
@@ -1521,6 +1522,16 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         }
 
         return ctx.getInvokeAction();
+    }
+
+    /**
+     * The method is called when a complete message without content has been parsed and the input already holds (the
+     * beginning of) the next pipelined message.
+     *
+     * @param ctx the {@link FilterChainContext} processing the input
+     * @since 5.0.4
+     */
+    protected void onPipelinedInput(final FilterChainContext ctx) {
     }
 
     /**
