@@ -21,6 +21,7 @@ import java.io.CharConversionException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Map;
@@ -369,6 +370,37 @@ public class HttpRequestParseTest {
         assertDecodeRejected("/a\\..\\b");
         // mixed: one literal is enough to reject, even if another is encoded
         assertDecodeRejected("/a\\b%5Cc");
+    }
+
+    @Test
+    public void testParsingRespectsBoundariesWithArrayOffset() throws Exception {
+        final String request = "POST /p?q=A?B HTTP/1.1\r\n"
+                + "X-ABCDEFGHIJKLMNOP:VALUE-ABCDEFGH  \r\n"
+                + "HOST: LOCALHOST\tX\r\n"
+                + "CONTENT-LENGTH: 16\r\n\r\n"
+                + "BODYBODYBODYBODY";
+        final byte[] raw = ("#####" + request + "#####").getBytes(StandardCharsets.ISO_8859_1);
+        final Buffer input = Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, raw, 5, request.length());
+
+        final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null) {
+            @Override
+            protected void onHttpHeaderError(final HttpHeader httpHeader, final FilterChainContext ctx, final Throwable t) throws IOException {
+                throw new IllegalStateException(t);
+            }
+        };
+        final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
+        ctx.setMessage(input);
+        filter.handleRead(ctx);
+
+        final HttpRequestPacket parsed = (HttpRequestPacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
+        assertEquals("/p", parsed.getRequestURI());
+        assertEquals("q=A?B", parsed.getQueryString());
+        assertEquals("VALUE-ABCDEFGH", parsed.getHeader("x-abcdefghijklmnop"));
+        assertEquals("LOCALHOST\tX", parsed.getHeader("host"));
+        assertEquals(16, parsed.getContentLength());
+        // names are lower-cased in place; values, the body and the bytes around the buffer are untouched
+        assertEquals("#####POST /p?q=A?B HTTP/1.1\r\nx-abcdefghijklmnop:VALUE-ABCDEFGH  \r\nhost: LOCALHOST\tX\r\n"
+                + "content-length: 16\r\n\r\nBODYBODYBODYBODY#####", new String(raw, StandardCharsets.ISO_8859_1));
     }
 
     @SuppressWarnings({ "unchecked" })

@@ -46,6 +46,7 @@ import org.glassfish.grizzly.http.util.DataChunk;
 import org.glassfish.grizzly.http.util.Header;
 import org.glassfish.grizzly.http.util.HttpStatus;
 import org.glassfish.grizzly.http.util.MimeHeaders;
+import org.glassfish.grizzly.http.util.Swar;
 import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.memory.CompositeBuffer;
 import org.glassfish.grizzly.memory.CompositeBuffer.DisposeOrder;
@@ -809,7 +810,8 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
         final int limit = Math.min(end, arrayOffs + parsingState.packetLimit);
         final int start = arrayOffs + parsingState.start;
-        int offset = arrayOffs + parsingState.offset;
+        // letters, digits and '-' are valid token bytes needing nothing but lower-casing: skip them in bulk
+        int offset = Swar.skipAlphaNumDash(input, arrayOffs + parsingState.offset, limit, !preserveHeaderCase);
 
         while (offset < limit) {
             byte b = input[offset];
@@ -856,6 +858,22 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         int offset = arrayOffs + parsingState.offset;
 
         final boolean hasShift = offset != arrayOffs + parsingState.checkpoint;
+
+        if (!hasShift) {
+            // visible ASCII and SP only advance the checkpoints
+            final int stop = Swar.indexOfNonVisible(input, offset, limit);
+            if (stop > offset) {
+                int valueEnd = stop;
+                while (valueEnd > offset && input[valueEnd - 1] == Constants.SP) {
+                    valueEnd--;
+                }
+                if (valueEnd > offset) {
+                    parsingState.checkpoint2 = valueEnd - arrayOffs;
+                }
+                parsingState.checkpoint = stop - arrayOffs;
+                offset = stop;
+            }
+        }
 
         while (offset < limit) {
             final byte b = input[offset];
