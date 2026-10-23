@@ -43,8 +43,10 @@ import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.filterchain.TransportFilter;
 import org.glassfish.grizzly.http.HttpRequestPacket.Builder;
+import org.glassfish.grizzly.http.util.Constants;
 import org.glassfish.grizzly.http.util.Header;
 import org.glassfish.grizzly.http.util.HttpStatus;
+import org.glassfish.grizzly.http.util.MimeHeaders;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.impl.SafeFutureImpl;
 import org.glassfish.grizzly.memory.Buffers;
@@ -646,7 +648,9 @@ public class HttpSemanticsTest extends TestCase {
         doTest(createHttpRequest(), result, serverResponseFilter);
     }
 
+    @SuppressWarnings("deprecation")
     public void testHttpHeadersLimit() throws Throwable {
+        final int maxNumHeaders = -1;
         final Builder builder = HttpRequestPacket.builder().method("GET").uri("/path").chunked(false).header("Host", "localhost:" + PORT).protocol("HTTP/1.1")
                 .maxNumHeaders(-1);
 
@@ -665,19 +669,23 @@ public class HttpSemanticsTest extends TestCase {
 
         ExpectedResult result = new ExpectedResult();
         result.setProtocol("HTTP/1.1");
-        result.setStatusCode(400);
+        result.setStatusCode(HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE.getStatusCode());
         result.addHeader("!Transfer-Encoding", null);
         result.addHeader("Content-Length", "0");
-        result.setStatusMessage("Bad request");
-        doTest(request, result);
+        result.setStatusMessage(HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE.getReasonPhrase());
+        doTest(new ClientFilter(request, result),
+               new HttpServerFilter(false, MAX_HEADERS_SIZE, Constants.DEFAULT_RESPONSE_TYPE, new KeepAlive(), null,
+                                    maxNumHeaders, MimeHeaders.MAX_NUM_HEADERS_DEFAULT), new SimpleResponseFilter());
     }
 
     /**
-     * The bad request has to be answered even when the request line carried a protocol token this implementation does
+     * The "Request Header Fields Too Large" request has to be answered even when the request line carried a protocol token this implementation does
      * not recognize. Such a request never reaches prepareRequest(), which is where an unrecognized token is otherwise
      * turned into a 505, so the token is still in the packet when the error response gets encoded.
      */
+    @SuppressWarnings("deprecation")
     public void testHttpHeadersLimitWithUnrecognizedProtocol() throws Throwable {
+        final int maxNumHeaders = -1;
         // chunked(false) is left out on purpose - the builder resolves the protocol to apply it, which an
         // unrecognized token cannot survive on the client side either
         final Builder builder = HttpRequestPacket.builder().method("GET").uri("/path").header("Host", "localhost:" + PORT).protocol("HTTP/1.2")
@@ -698,9 +706,32 @@ public class HttpSemanticsTest extends TestCase {
 
         ExpectedResult result = new ExpectedResult();
         result.setProtocol("HTTP/1.1");
-        result.setStatusCode(400);
-        result.setStatusMessage("Bad request");
-        doTest(request, result);
+        result.setStatusCode(HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE.getStatusCode());
+        result.setStatusMessage(HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE.getReasonPhrase());
+        doTest(new ClientFilter(request, result),
+               new HttpServerFilter(false, MAX_HEADERS_SIZE, Constants.DEFAULT_RESPONSE_TYPE, new KeepAlive(), null,
+                                    maxNumHeaders, MimeHeaders.MAX_NUM_HEADERS_DEFAULT), new SimpleResponseFilter());
+    }
+
+    @SuppressWarnings("deprecation")
+    public void testHttpHeadersNumLimit() throws Throwable {
+        final int maxNumHeaders = 10;
+        final Builder builder =
+                HttpRequestPacket.builder().method("GET").uri("/path").header("Host", "localhost:" + PORT)
+                                 .protocol("HTTP/1.1").maxNumHeaders(-1);
+        for (int i = 0; i < maxNumHeaders; i++) {
+            final String name = "Header-" + i;
+            final String value = "Value-" + i;
+            builder.header(name, value);
+        }
+        final HttpRequestPacket request = builder.build();
+        final ExpectedResult result = new ExpectedResult();
+        result.setProtocol("HTTP/1.1");
+        result.setStatusCode(HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE.getStatusCode());
+        result.setStatusMessage(HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE.getReasonPhrase());
+        doTest(new ClientFilter(request, result),
+               new HttpServerFilter(false, MAX_HEADERS_SIZE, Constants.DEFAULT_RESPONSE_TYPE, new KeepAlive(), null,
+                                    maxNumHeaders, MimeHeaders.MAX_NUM_HEADERS_DEFAULT), new SimpleResponseFilter());
     }
 
     /**
@@ -750,20 +781,19 @@ public class HttpSemanticsTest extends TestCase {
 
     private void doTest(Object request, ExpectedResult expectedResults, Filter serverFilter, boolean chunkingEnabled) throws Throwable {
         final ClientFilter clientFilter = new ClientFilter(request, expectedResults);
-
-        doTest(clientFilter, serverFilter, chunkingEnabled);
+        doTest(clientFilter, chunkingEnabled ? httpServerFilterChunking : httpServerFilter, serverFilter);
     }
 
     private void doTest(final ClientFilter clientFilter, Filter serverFilter) throws Throwable {
-        doTest(clientFilter, serverFilter, false);
+        doTest(clientFilter, httpServerFilter, serverFilter);
     }
 
-    private void doTest(final ClientFilter clientFilter, Filter serverFilter, boolean chunkingEnabled) throws Throwable {
+    private void doTest(final ClientFilter clientFilter, Filter httpServerFilter, Filter testServerFilter) throws Throwable {
         FilterChainBuilder filterChainBuilder = FilterChainBuilder.stateless();
         filterChainBuilder.add(new TransportFilter());
         filterChainBuilder.add(new ChunkingFilter(1024));
-        filterChainBuilder.add(chunkingEnabled ? httpServerFilterChunking : httpServerFilter);
-        filterChainBuilder.add(serverFilter);
+        filterChainBuilder.add(httpServerFilter);
+        filterChainBuilder.add(testServerFilter);
         FilterChain filterChain = filterChainBuilder.build();
 
         TCPNIOTransport transport = TCPNIOTransportBuilder.newInstance().build();
@@ -814,8 +844,8 @@ public class HttpSemanticsTest extends TestCase {
 
         private final Object request;
         private final ExpectedResult expectedResult;
-        private boolean validated;
-        private HttpContent currentContent;
+        private volatile boolean validated;
+        private volatile HttpContent currentContent;
         final StringBuilder accumulatedContent = new StringBuilder();
         final FutureImpl<Boolean> testResult = SafeFutureImpl.create();
 
@@ -864,19 +894,19 @@ public class HttpSemanticsTest extends TestCase {
             final HttpContent httpContent = ctx.getMessage();
 
             logger.log(Level.FINE, "Got HTTP response chunk");
+            currentContent = httpContent;
             if (httpContent.isLast()) {
                 accumulatedContent.append(httpContent.getContent().toStringContent(Charsets.UTF8_CHARSET));
                 validate(httpContent, accumulatedContent.toString());
             } else {
                 accumulatedContent.append(httpContent.getContent().toStringContent(Charsets.UTF8_CHARSET));
-                currentContent = httpContent;
             }
 
             return ctx.getStopAction();
         }
 
         private void validate(HttpContent httpContent, String content) {
-            if (validated) {
+            if (validated || currentContent == null) {
                 return;
             }
             validated = true;
