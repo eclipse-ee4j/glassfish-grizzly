@@ -19,6 +19,8 @@ package org.glassfish.grizzly.http.util;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Random;
@@ -105,6 +107,57 @@ public class SwarTest {
                 }
             }
         }
+    }
+
+    /**
+     * The ByteBuffer variants read the same little-endian words through absolute indexes: on direct buffers of either
+     * byte order, at an offset, they must return what the byte[] variants return and lower-case the same bytes.
+     */
+    @Test
+    public void byteBufferVariantsMatchArrayVariants() {
+        final Random rnd = new Random(2367);
+        final byte[] alphabet = "aAzZ09-_:? \t\r\n/\u007f\u00e9xX".getBytes(StandardCharsets.ISO_8859_1);
+        for (int iter = 0; iter < 20000; iter++) {
+            final int len = rnd.nextInt(40);
+            final byte[] bytes = new byte[len];
+            for (int i = 0; i < len; i++) {
+                bytes[i] = rnd.nextInt(4) == 0 ? (byte) rnd.nextInt(256) : alphabet[rnd.nextInt(alphabet.length)];
+            }
+            final int from = len == 0 ? 0 : rnd.nextInt(len);
+            for (int kind = 0; kind < 6; kind++) {
+                final ByteOrder order = kind % 2 == 0 ? ByteOrder.BIG_ENDIAN : ByteOrder.LITTLE_ENDIAN;
+                final boolean direct = kind < 4;
+                final boolean readOnly = kind >= 4;
+                // 3 bytes before and 5 non-matching bytes after the range (beyond the limit)
+                final ByteBuffer buffer = newBuffer(bytes, direct, order, readOnly);
+                final String msg = Arrays.toString(bytes) + " from " + from + " " + order + (direct ? " direct" : " heap")
+                        + (readOnly ? " read-only" : "");
+
+                assertEquals(msg, Swar.indexOfNonVisible(bytes, from, len) + 3, Swar.indexOfNonVisible(buffer, from + 3, len + 3));
+                assertEquals(msg, Swar.indexOfUriDelimiter(bytes, from, len) + 3, Swar.indexOfUriDelimiter(buffer, from + 3, len + 3));
+                for (final boolean lower : readOnly ? new boolean[] { false } : new boolean[] { false, true }) {
+                    final byte[] array = bytes.clone();
+                    final ByteBuffer copy = newBuffer(bytes, direct, order, false);
+                    assertEquals(msg + " lower " + lower, Swar.skipAlphaNumDash(array, from, len, lower) + 3,
+                            Swar.skipAlphaNumDash(copy, from + 3, len + 3, lower));
+                    for (int i = 0; i < len; i++) {
+                        assertEquals(msg + " lower " + lower + " at " + i, array[i], copy.get(i + 3));
+                    }
+                }
+            }
+        }
+    }
+
+    private static ByteBuffer newBuffer(final byte[] bytes, final boolean direct, final ByteOrder order, final boolean readOnly) {
+        final int capacity = bytes.length + 8;
+        final ByteBuffer buffer = (direct ? ByteBuffer.allocateDirect(capacity) : ByteBuffer.allocate(capacity)).order(order);
+        buffer.position(3);
+        buffer.put(bytes);
+        while (buffer.hasRemaining()) {
+            buffer.put((byte) '\n'); // non-visible, a delimiter and not a token byte: must not be reached
+        }
+        buffer.limit(bytes.length + 3);
+        return readOnly ? buffer.asReadOnlyBuffer().order(order) : buffer;
     }
 
     @Test

@@ -18,13 +18,14 @@ package org.glassfish.grizzly.http.util;
 
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
+import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 
 /**
  * SIMD-within-a-register helpers for scanning ASCII protocol bytes eight at a time.
  * <p>
- * Words are read little-endian through a byte-array view {@link VarHandle} (unaligned access is allowed for plain
- * get), so the lowest-index byte is the least significant lane and the first matching byte is found with
+ * Words are read and written little-endian through a byte-array view {@link VarHandle} (unaligned access is allowed for
+ * plain get and set), so the lowest-index byte is the least significant lane and the first matching byte is found with
  * {@link Long#numberOfTrailingZeros(long)}. Every lane computation keeps the lane below 0x100, so no carry or
  * borrow crosses lanes and all masks are exact per byte.
  * <p>
@@ -42,6 +43,8 @@ import java.nio.ByteOrder;
 public final class Swar {
 
     private static final VarHandle LONGS = MethodHandles.byteArrayViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
+    /** The same little-endian view over a {@link ByteBuffer} (absolute indexes, whatever the buffer's own order). */
+    private static final VarHandle BUFFER_LONGS = MethodHandles.byteBufferViewVarHandle(long[].class, ByteOrder.LITTLE_ENDIAN);
 
     private static final long HI = 0x8080808080808080L;
     private static final long LO7 = 0x7F7F7F7F7F7F7F7FL;
@@ -54,6 +57,27 @@ public final class Swar {
      */
     public static long getLong(final byte[] array, final int index) {
         return (long) LONGS.get(array, index);
+    }
+
+    /**
+     * Reads eight bytes starting at the absolute {@code index} of {@code buffer} as a little-endian long.
+     */
+    public static long getLong(final ByteBuffer buffer, final int index) {
+        return (long) BUFFER_LONGS.get(buffer, index);
+    }
+
+    /**
+     * Writes {@code value} as eight bytes starting at {@code index} of {@code array}, little-endian.
+     */
+    public static void setLong(final byte[] array, final int index, final long value) {
+        LONGS.set(array, index, value);
+    }
+
+    /**
+     * Writes {@code value} as eight bytes starting at the absolute {@code index} of {@code buffer}, little-endian.
+     */
+    public static void setLong(final ByteBuffer buffer, final int index, final long value) {
+        BUFFER_LONGS.set(buffer, index, value);
     }
 
     /**
@@ -95,15 +119,9 @@ public final class Swar {
         while (to - from >= Long.BYTES) {
             final long word = getLong(array, from);
             final long lower = toLowerCase(word);
-            final long t = lower & LO7;
-            final long letter = (t + 0x1F1F1F1F1F1F1F1FL) & ~(t + 0x0505050505050505L);  // 'a' <= t <= 'z'
-            final long digit = (t + 0x5050505050505050L) & ~(t + 0x4646464646464646L);   // '0' <= t <= '9'
-            final long dash = ~((t ^ 0x2D2D2D2D2D2D2D2DL) + LO7);                        // t == '-'
-            final long other = ~((letter | digit | dash) & ~word) & HI;
-            final int n = Long.numberOfTrailingZeros(other) >>> 3; // 8 if every lane matched
-            if (toLowerCase && n != 0 && lower != word) {
-                final long keep = n == Long.BYTES ? -1L : (1L << (n << 3)) - 1;
-                LONGS.set(array, from, lower & keep | word & ~keep);
+            final int n = Long.numberOfTrailingZeros(notAlphaNumDashMask(word, lower)) >>> 3; // 8 if every lane matched
+            if (toLowerCase && changesFirstLanes(word, lower, n)) {
+                setLong(array, from, lowerFirstLanes(word, lower, n));
             }
             from += n;
             if (n != Long.BYTES) {
@@ -114,17 +132,55 @@ public final class Swar {
     }
 
     /**
+     * Sets the 0x80 bit of each lane that is not an ASCII letter, digit or {@code '-'}; {@code lower} is
+     * {@code toLowerCase(word)}.
+     */
+    private static long notAlphaNumDashMask(final long word, final long lower) {
+        final long t = lower & LO7;
+        final long letter = (t + 0x1F1F1F1F1F1F1F1FL) & ~(t + 0x0505050505050505L);  // 'a' <= t <= 'z'
+        final long digit = (t + 0x5050505050505050L) & ~(t + 0x4646464646464646L);   // '0' <= t <= '9'
+        final long dash = ~((t ^ 0x2D2D2D2D2D2D2D2DL) + LO7);                        // t == '-'
+        return ~((letter | digit | dash) & ~word) & HI;
+    }
+
+    private static long firstLanes(final int n) {
+        return n == Long.BYTES ? -1L : (1L << (n << 3)) - 1;
+    }
+
+    /**
+     * The first {@code n} lanes from {@code lower}, the others from {@code word}.
+     */
+    private static long lowerFirstLanes(final long word, final long lower, final int n) {
+        final long keep = firstLanes(n);
+        return lower & keep | word & ~keep;
+    }
+
+    /**
+     * Whether lower-casing changes any of the first {@code n} lanes (upper-case letters after them, e.g. in a header
+     * value in the same word, don't count: nothing is written then).
+     */
+    private static boolean changesFirstLanes(final long word, final long lower, final int n) {
+        return ((lower ^ word) & firstLanes(n)) != 0;
+    }
+
+    /**
+     * Sets the 0x80 bit of each lane that is &lt;= 0x20 or {@code '?'}.
+     */
+    private static long uriDelimiterMask(final long word) {
+        final long t = word & LO7;
+        final long le20 = ~(t + 0x5F5F5F5F5F5F5F5FL) & ~word & HI;            // t + 0x5F reaches bit 7 iff t > 0x20
+        final long q = t ^ 0x3F3F3F3F3F3F3F3FL;                               // zero lane iff t == '?'
+        final long question = ~(q + LO7) & ~word & HI;                        // q + 0x7F reaches bit 7 iff q != 0
+        return le20 | question;
+    }
+
+    /**
      * Returns the index of the first byte in [{@code from}, {@code to}) that is &lt;= 0x20 (SP, HT, CR, LF and the
      * other controls) or {@code '?'}, or {@code to} if there is none: the bytes that end the request-URI or its path.
      */
     public static int indexOfUriDelimiter(final byte[] array, int from, final int to) {
         while (to - from >= Long.BYTES) {
-            final long word = getLong(array, from);
-            final long t = word & LO7;
-            final long le20 = ~(t + 0x5F5F5F5F5F5F5F5FL) & ~word & HI;            // t + 0x5F reaches bit 7 iff t > 0x20
-            final long q = t ^ 0x3F3F3F3F3F3F3F3FL;                               // zero lane iff t == '?'
-            final long question = ~(q + LO7) & ~word & HI;                        // q + 0x7F reaches bit 7 iff q != 0
-            final long mask = le20 | question;
+            final long mask = uriDelimiterMask(getLong(array, from));
             if (mask != 0) {
                 return from + (Long.numberOfTrailingZeros(mask) >>> 3);
             }
@@ -153,6 +209,66 @@ public final class Swar {
         }
         for (; from < to; from++) {
             final int b = array[from];
+            if (b < 0x20 || b == 0x7F) { // negative (non-ASCII) bytes are < 0x20 here as well
+                return from;
+            }
+        }
+        return to;
+    }
+
+    /**
+     * {@link #skipAlphaNumDash(byte[], int, int, boolean)} over the absolute indexes of a {@link ByteBuffer} (e.g. a
+     * direct one).
+     */
+    public static int skipAlphaNumDash(final ByteBuffer buffer, int from, final int to, final boolean toLowerCase) {
+        while (to - from >= Long.BYTES) {
+            final long word = getLong(buffer, from);
+            final long lower = toLowerCase(word);
+            final int n = Long.numberOfTrailingZeros(notAlphaNumDashMask(word, lower)) >>> 3; // 8 if every lane matched
+            if (toLowerCase && changesFirstLanes(word, lower, n)) {
+                setLong(buffer, from, lowerFirstLanes(word, lower, n));
+            }
+            from += n;
+            if (n != Long.BYTES) {
+                break;
+            }
+        }
+        return from;
+    }
+
+    /**
+     * {@link #indexOfUriDelimiter(byte[], int, int)} over the absolute indexes of a {@link ByteBuffer}.
+     */
+    public static int indexOfUriDelimiter(final ByteBuffer buffer, int from, final int to) {
+        while (to - from >= Long.BYTES) {
+            final long mask = uriDelimiterMask(getLong(buffer, from));
+            if (mask != 0) {
+                return from + (Long.numberOfTrailingZeros(mask) >>> 3);
+            }
+            from += Long.BYTES;
+        }
+        for (; from < to; from++) {
+            final int b = buffer.get(from);
+            if (b >= 0 && b <= 0x20 || b == '?') {
+                return from;
+            }
+        }
+        return to;
+    }
+
+    /**
+     * {@link #indexOfNonVisible(byte[], int, int)} over the absolute indexes of a {@link ByteBuffer}.
+     */
+    public static int indexOfNonVisible(final ByteBuffer buffer, int from, final int to) {
+        while (to - from >= Long.BYTES) {
+            final long mask = nonVisibleMask(getLong(buffer, from));
+            if (mask != 0) {
+                return from + (Long.numberOfTrailingZeros(mask) >>> 3);
+            }
+            from += Long.BYTES;
+        }
+        for (; from < to; from++) {
+            final int b = buffer.get(from);
             if (b < 0x20 || b == 0x7F) { // negative (non-ASCII) bytes are < 0x20 here as well
                 return from;
             }

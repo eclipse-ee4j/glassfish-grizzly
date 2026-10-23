@@ -21,14 +21,20 @@ import java.io.CharConversionException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Random;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.HashMap;
 
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.Connection;
@@ -45,6 +51,7 @@ import org.glassfish.grizzly.http.util.MimeHeaders;
 import org.glassfish.grizzly.http.util.RequestURIRef;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.impl.SafeFutureImpl;
+import org.glassfish.grizzly.memory.ByteBufferWrapper;
 import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.memory.MemoryManager;
 import org.glassfish.grizzly.nio.NIOConnection;
@@ -68,6 +75,8 @@ import static java.util.Arrays.asList;
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_NAME_VALIDATION_RFC_9110;
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_VALUE_VALIDATION_RFC_9110;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -401,6 +410,134 @@ public class HttpRequestParseTest {
         // names are lower-cased in place; values, the body and the bytes around the buffer are untouched
         assertEquals("#####POST /p?q=A?B HTTP/1.1\r\nx-abcdefghijklmnop:VALUE-ABCDEFGH  \r\nhost: LOCALHOST\tX\r\n"
                 + "content-length: 16\r\n\r\nBODYBODYBODYBODY#####", new String(raw, StandardCharsets.ISO_8859_1));
+    }
+
+    /**
+     * The word-at-a-time scans of the Buffer parsing path (direct buffers) and the byte loop of composite buffers must
+     * parse exactly what the byte[] path parses: fixed requests plus random ones, from a direct buffer at an offset and
+     * from a composite split at every position.
+     */
+    @Test
+    public void testBufferPathsParseLikeTheArrayPath() throws Exception {
+        final List<String> requests = new ArrayList<>(asList(
+                "GET /p?q=A?B HTTP/1.1\r\nHost: localhost\r\n\r\n",
+                "GET /static/js/app.bundle.js?v=1&lang=it HTTP/1.1\r\nHOST: Example.COM\r\nUser-Agent: Mozilla/5.0 (X11; Linux x86_64)\r\n"
+                        + "Accept-Language: it-IT,it;q=0.9\r\nX-Very-Long-Header-Name-Abcdefgh: v\t  \r\n\r\n",
+                "POST /api HTTP/1.1\r\nhost: h\r\nContent-Length: 4\r\nX-Empty:\r\nX-Spaces:    \r\n\r\nBODY",
+                "GET / HTTP/1.1\r\nHost: h\r\nX-Bin: a\u00e9b\u007fc\r\n\r\n",
+                "GET / HTTP/1.1\r\nHost: h\r\nX-Fold: a\r\n  b\r\n\r\n",
+                "GET / HTTP/1.1\r\nHost: h\r\nBad Name: x\r\n\r\n"));
+        final Random random = new Random(2367);
+        final String alphabet = "aZ-0:; \t?/=&%\u00e9\u007f.";
+        for (int i = 0; i < 2000; i++) {
+            final StringBuilder request = new StringBuilder("GET /");
+            appendRandom(request, random, alphabet, 20);
+            request.append(" HTTP/1.1\r\nHost: h\r\n");
+            for (int h = random.nextInt(4); h > 0; h--) {
+                appendRandom(request, random, "Ab-9zZ0x", 14);
+                request.append(':');
+                appendRandom(request, random, alphabet, 30);
+                request.append("\r\n");
+            }
+            requests.add(request.append("\r\n").toString());
+        }
+
+        final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
+        for (final boolean preserveCase : new boolean[] { false, true }) {
+            for (final String request : requests) {
+                final byte[] bytes = request.getBytes(StandardCharsets.ISO_8859_1);
+                final String viaArray = parseAndDescribe(Buffers.wrap(mm, bytes.clone()), preserveCase);
+
+                // big-endian, as Grizzly's buffers are: a little-endian direct buffer fails to parse on main as well,
+                // with or without the word scans (SwarTest covers both orders for the word scans themselves)
+                for (final ByteOrder order : new ByteOrder[] { ByteOrder.BIG_ENDIAN }) {
+                    // a slice of a larger direct buffer, with other bytes around it (the Buffer parsing path starts at
+                    // index 0, so the request starts there)
+                    final ByteBuffer outer = ByteBuffer.allocateDirect(bytes.length + 10);
+                    outer.put(new byte[] { 'x', 'x', 'x', 'x', 'x' });
+                    final ByteBuffer direct = outer.slice().order(order);
+                    direct.put(bytes).flip();
+                    assertEquals(request + " (direct, " + order + ")", viaArray, parseAndDescribe(Buffers.wrap(mm, direct), preserveCase));
+                }
+
+                for (int split = 1; split < bytes.length; split += 7) {
+                    final Buffer composite = Buffers.appendBuffers(mm, Buffers.wrap(mm, Arrays.copyOfRange(bytes, 0, split)),
+                            Buffers.wrap(mm, Arrays.copyOfRange(bytes, split, bytes.length)));
+                    assertEquals(request + " (composite split at " + split + ")", viaArray, parseAndDescribe(composite, preserveCase));
+                }
+            }
+        }
+    }
+
+    /**
+     * A direct buffer is scanned a word at a time: far fewer single-byte reads than bytes in the request.
+     */
+    @Test
+    public void testDirectBufferHeadersAreScannedWordAtATime() throws Exception {
+        final String request = "GET /static/js/application.bundle.js?version=20261016 HTTP/1.1\r\n"
+                + "Host: www.example.com\r\n"
+                + "User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0\r\n"
+                + "Accept-Language: it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7\r\n"
+                + "X-Request-Identifier-Header: 3f2504e0-4f89-11d3-9a0c-0305e82c3301\r\n\r\n";
+        final byte[] bytes = request.getBytes(StandardCharsets.ISO_8859_1);
+        final ByteBuffer direct = ByteBuffer.allocateDirect(bytes.length);
+        direct.put(bytes).flip();
+        final int[] gets = new int[1];
+        final ByteBufferWrapper input = new ByteBufferWrapper(direct) {
+            @Override
+            public byte get(final int index) {
+                gets[0]++;
+                return super.get(index);
+            }
+        };
+        final String parsed = parseAndDescribe(input, false);
+        assertEquals(parseAndDescribe(Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, bytes), false), parsed);
+        assertTrue("single-byte reads for " + bytes.length + " bytes: " + gets[0], gets[0] < bytes.length / 2);
+    }
+
+    /** The word scan is for direct, writable, non-composite buffers: it writes (lower-cases) and it was measured on those. */
+    @Test
+    public void testWordViewOnlyForWritableDirectBuffers() {
+        final MemoryManager mm = MemoryManager.DEFAULT_MEMORY_MANAGER;
+        final ByteBuffer direct = ByteBuffer.allocateDirect(32);
+        assertNotNull("direct", HttpCodecFilter.wordView(new ByteBufferWrapper(direct)));
+        assertNull("read-only direct", HttpCodecFilter.wordView(new ByteBufferWrapper(direct.asReadOnlyBuffer())));
+        assertNull("heap", HttpCodecFilter.wordView(new ByteBufferWrapper(ByteBuffer.allocate(32))));
+        // not a ByteBufferWrapper: the next two cases are left out by that check alone
+        assertNull("composite", HttpCodecFilter.wordView(Buffers.appendBuffers(mm, new ByteBufferWrapper(ByteBuffer.allocateDirect(8)),
+                new ByteBufferWrapper(ByteBuffer.allocateDirect(8)))));
+        assertNull("HeapBuffer (reaches the Buffer path for chunked trailers)", HttpCodecFilter.wordView(Buffers.wrap(mm, new byte[32])));
+    }
+
+    private static void appendRandom(final StringBuilder sb, final Random random, final String alphabet, final int maxLength) {
+        for (int n = random.nextInt(maxLength + 1); n > 0; n--) {
+            sb.append(alphabet.charAt(random.nextInt(alphabet.length())));
+        }
+    }
+
+    private static String parseAndDescribe(final Buffer input, final boolean preserveHeaderCase) {
+        final HttpServerFilter filter = new HttpServerFilter(true, 8192, null, null);
+        filter.setPreserveHeaderCase(preserveHeaderCase);
+        final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
+        ctx.setMessage(input);
+        try {
+            filter.handleRead(ctx);
+        } catch (Exception e) {
+            return "error " + e.getClass().getName();
+        }
+        if (!(ctx.getMessage() instanceof HttpContent)) {
+            return "incomplete";
+        }
+        final HttpRequestPacket r = (HttpRequestPacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
+        final StringBuilder sb = new StringBuilder();
+        sb.append(r.getMethod()).append(' ').append(r.getRequestURI()).append(" ? ").append(r.getQueryString()).append(' ')
+                .append(r.getProtocolString()).append(" error=").append(r.getProcessingState().isError()).append('\n');
+        for (final String name : r.getHeaders().names()) {
+            for (final String value : r.getHeaders().values(name)) {
+                sb.append(name).append(": [").append(value).append("]\n");
+            }
+        }
+        return sb.toString();
     }
 
     @SuppressWarnings({ "unchecked" })

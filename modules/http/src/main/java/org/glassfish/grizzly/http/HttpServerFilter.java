@@ -24,6 +24,7 @@ import static org.glassfish.grizzly.http.util.HttpCodecUtils.skipSpaces;
 import static org.glassfish.grizzly.http.util.HttpCodecUtils.toCheckedByteArray;
 
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
@@ -524,7 +525,15 @@ public class HttpServerFilter extends HttpCodecFilter {
 
         boolean found = false;
 
+        final ByteBuffer words = wordView(input);
         while (offset < limit) {
+            if (words != null) {
+                // skip bytes that are neither delimiters nor '?' eight at a time
+                offset = Swar.indexOfUriDelimiter(words, offset, limit);
+                if (offset == limit) {
+                    break;
+                }
+            }
             final byte b = input.get(offset);
             if (b == Constants.SP || b == Constants.HT) {
                 found = true;
