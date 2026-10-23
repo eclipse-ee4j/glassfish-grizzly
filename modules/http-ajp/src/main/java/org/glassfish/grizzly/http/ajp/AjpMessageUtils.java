@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -379,7 +380,7 @@ final class AjpMessageUtils {
 
         encodedBuffer.put(AjpConstants.JK_AJP13_SEND_HEADERS);
         encodedBuffer.putShort((short) status.getStatusCode());
-        final byte[] tempBuffer = httpResponsePacket.getTempHeaderEncodingBuffer();
+        final byte[] tempBuffer = httpResponsePacket.getTempHeaderEncodingBuffer(encodedBuffer);
         // CustomReasonPhrase belongs to the final response, never to an interim status.
         if (!isInterim && httpResponsePacket.isCustomReasonPhraseSet()) {
             encodedBuffer = putBytes(mm, encodedBuffer, HttpUtils.filter(httpResponsePacket.getReasonPhraseDC()), tempBuffer);
