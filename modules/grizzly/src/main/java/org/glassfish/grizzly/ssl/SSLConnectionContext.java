@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -21,6 +22,7 @@ import static org.glassfish.grizzly.ssl.SSLUtils.sslEngineUnwrap;
 import static org.glassfish.grizzly.ssl.SSLUtils.sslEngineWrap;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -64,6 +66,25 @@ public final class SSLConnectionContext {
     final ByteBufferArray inputByteBufferArray = ByteBufferArray.create();
 
     private Buffer lastOutputBuffer;
+    /**
+     * Application data decrypted while unwrapping handshake records, not yet passed upstream. Added and taken by the thread
+     * processing the connection's input or handshake; taken atomically, as a close may dispose of it concurrently.
+     */
+    private volatile Buffer handshakeAppData;
+    /** Set once the kept data has been disposed of (handshake failure or close): nothing is kept after that. */
+    private volatile boolean handshakeAppDataDisposed;
+    /**
+     * System property with the most application data, in bytes, kept during one handshake (default 64 KiB). Above it
+     * the handshake fails: a peer could otherwise send data records forever in the middle of a renegotiation it never
+     * finishes.
+     *
+     * @since 5.0.4
+     */
+    public static final String MAX_HANDSHAKE_APP_DATA_PROPERTY = SSLConnectionContext.class.getName() + ".maxHandshakeAppData";
+
+    static final int MAX_HANDSHAKE_APP_DATA = Integer.getInteger(MAX_HANDSHAKE_APP_DATA_PROPERTY, 64 * 1024);
+    private static final AtomicReferenceFieldUpdater<SSLConnectionContext, Buffer> handshakeAppDataUpdater = AtomicReferenceFieldUpdater
+            .newUpdater(SSLConnectionContext.class, Buffer.class, "handshakeAppData");
     private final InputBufferWrapper inputBuffer = new InputBufferWrapper();
     private InputBufferWrapper lastInputBuffer;
 
@@ -122,6 +143,56 @@ public final class SSLConnectionContext {
 
     public void setNewConnectionFilterChain(FilterChain newConnectionFilterChain) {
         this.newConnectionFilterChain = newConnectionFilterChain;
+    }
+
+    /**
+     * Keeps application data that an {@link javax.net.ssl.SSLEngine} decrypted while unwrapping handshake records, so
+     * it can be passed upstream once the handshake is done. Engines that process several TLS records per unwrap (e.g.
+     * OpenSSL/BoringSSL based ones) decrypt e.g. the first HTTP request together with the client's Finished message.
+     *
+     * @param src buffer holding the decrypted bytes
+     * @param from index of the first decrypted byte
+     * @param to index after the last decrypted byte
+     */
+    boolean addHandshakeAppData(final Buffer src, final int from, final int to) {
+        final int length = to - from;
+        Buffer data = takeHandshakeAppData();
+        final int size = (data == null ? 0 : data.position()) + length;
+        if (size > MAX_HANDSHAKE_APP_DATA) {
+            if (data != null) {
+                data.dispose();
+            }
+            return false;
+        }
+        if (data == null) {
+            data = connection.getMemoryManager().allocate(Math.max(length, appBufferSize));
+        } else if (data.remaining() < length) {
+            data = connection.getMemoryManager().reallocate(data, Math.min(Math.max(size, data.capacity() * 2), MAX_HANDSHAKE_APP_DATA));
+        }
+        data.put(src, from, length);
+        // left in write mode (position after the data): unwrapAll() appends the next decrypted records to it
+        handshakeAppData = data;
+        if (handshakeAppDataDisposed) {
+            // disposed of concurrently (the connection was closed): don't keep anything
+            disposeHandshakeAppData();
+        }
+        return true;
+    }
+
+    boolean hasHandshakeAppData() {
+        return handshakeAppData != null;
+    }
+
+    Buffer takeHandshakeAppData() {
+        return handshakeAppData == null ? null : handshakeAppDataUpdater.getAndSet(this, null);
+    }
+
+    void disposeHandshakeAppData() {
+        handshakeAppDataDisposed = true;
+        final Buffer data = takeHandshakeAppData();
+        if (data != null) {
+            data.dispose();
+        }
     }
 
     Buffer resetLastOutputBuffer() {
