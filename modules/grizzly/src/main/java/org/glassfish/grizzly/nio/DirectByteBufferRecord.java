@@ -39,10 +39,11 @@ public final class DirectByteBufferRecord {
     /**
      * Records released by virtual threads. A virtual thread's {@link ThreadCache} ends with it, and every read or write
      * event may run on a new virtual thread, so a record of its own would allocate a direct buffer again each time. The
-     * pool is striped by thread id, with a power of two stripes (at least the number of processors), and each stripe keeps
+     * pool is striped by thread id, with a power of two stripes (the smallest one that is at least the number of processors), and each stripe keeps
      * at most {@link #VIRTUAL_STRIPE_CAPACITY} records. A pooled record keeps its largest direct buffer behind a
      * {@link SoftReference} (see {@link #release()}), so the pool holds at most stripes * capacity of the largest buffers
-     * requested, until the heap is under pressure.
+     * requested. A soft reference is cleared when the heap is under pressure, not when the direct memory is, so those
+     * buffers stay allocated until a garbage collection finds the heap short.
      */
     private static final VirtualPool[] VIRTUAL_POOLS = new VirtualPool[Integer.highestOneBit(Math.max(1, Runtime.getRuntime().availableProcessors()) * 2 - 1)];
 
@@ -55,9 +56,10 @@ public final class DirectByteBufferRecord {
     }
 
     /**
-     * Returns a record that only the calling code uses until it calls {@link #release()}, exactly once. On a virtual
-     * thread the record comes from a pool shared with other virtual threads, so it must not be touched after it was
-     * released.
+     * Returns a record to use until {@link #release()}, which has to be called exactly once. On a platform thread this is
+     * the thread's own record, which nested calls share. On a virtual thread it comes from a pool shared with other virtual
+     * threads, so it is used by this caller alone, and after {@link #release()} neither the record nor the buffers it
+     * handed out may be touched, not even by the caller that released it: another virtual thread may have taken it.
      */
     public static DirectByteBufferRecord get() {
         final Thread currentThread = Thread.currentThread();
@@ -156,8 +158,9 @@ public final class DirectByteBufferRecord {
     /**
      * Gives the record back, exactly once per {@link #get()}. A record of a virtual thread goes back to the pool and may
      * be taken by another virtual thread at once, so the caller must not touch it, nor the buffers it handed out, after
-     * this call. A second call for the same {@link #get()} is ignored for a record of a virtual thread, as long as no other
-     * virtual thread took it in the meantime.
+     * this call. A second call for the same {@link #get()} is ignored for a record of a virtual thread only as long as no
+     * other virtual thread took the record in the meantime; after that it corrupts the record of that thread and may hand
+     * the record out twice.
      */
     public void release() {
         if (virtual && pool == null) {
