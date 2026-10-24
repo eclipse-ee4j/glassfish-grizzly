@@ -163,6 +163,24 @@ public final class DirectByteBufferRecord {
         }
     }
 
+    /**
+     * @return how many released records the pools of the virtual threads hold, for tests
+     */
+    static int pooledVirtualRecords() {
+        int pooled = 0;
+        for (final VirtualPool virtualPool : VIRTUAL_POOLS) {
+            pooled += virtualPool.size.get();
+        }
+        return pooled;
+    }
+
+    /**
+     * @return the most records the pools of the virtual threads keep, for tests
+     */
+    static int virtualPoolsCapacity() {
+        return VIRTUAL_POOLS.length * VIRTUAL_STRIPE_CAPACITY;
+    }
+
     private static final class VirtualPool {
         final ConcurrentLinkedQueue<DirectByteBufferRecord> records = new ConcurrentLinkedQueue<>();
         final AtomicInteger size = new AtomicInteger();
