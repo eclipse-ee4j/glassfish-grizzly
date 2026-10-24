@@ -17,6 +17,7 @@
 package org.glassfish.grizzly.nio;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotSame;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
@@ -26,13 +27,15 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.Test;
 
@@ -52,7 +55,8 @@ public class DirectByteBufferRecordTest {
     @Test
     public void recordsOfVirtualThreadsAreReused() throws Exception {
         final Set<DirectByteBufferRecord> records = Collections.newSetFromMap(new IdentityHashMap<>());
-        final int threads = 300;
+        // more threads than the pool can hold records: without the pool every thread has a record of its own
+        final int threads = DirectByteBufferRecord.virtualPoolsCapacity() * 2 + 1;
         try (ExecutorService virtual = Executors.newVirtualThreadPerTaskExecutor()) {
             for (int i = 0; i < threads; i++) {
                 // one virtual thread after the other: each one finds what the previous ones released
@@ -74,9 +78,11 @@ public class DirectByteBufferRecordTest {
     }
 
     @Test
-    public void aReleasedRecordIsCleared() throws Exception {
+    public void aRecordTakenFromThePoolStartsEmpty() throws Exception {
+        final Set<DirectByteBufferRecord> records = Collections.newSetFromMap(new IdentityHashMap<>());
+        final int threads = DirectByteBufferRecord.virtualPoolsCapacity() * 2 + 1;
         try (ExecutorService virtual = Executors.newVirtualThreadPerTaskExecutor()) {
-            for (int i = 0; i < 50; i++) {
+            for (int i = 0; i < threads; i++) {
                 onVirtualThread(virtual, () -> {
                     final DirectByteBufferRecord record = DirectByteBufferRecord.get();
                     try {
@@ -88,11 +94,43 @@ public class DirectByteBufferRecordTest {
                         assertTrue(buffer.remaining() >= BUFFER_SIZE);
                         buffer.put(new byte[100]);
                         record.putToArray(buffer);
+                        synchronized (records) {
+                            records.add(record);
+                        }
                     } finally {
                         record.release();
                     }
                 });
             }
+        }
+        // the checks above ran on records that were used before
+        assertTrue("distinct records for " + threads + " virtual threads: " + records.size(), records.size() < threads);
+    }
+
+    /** A second release of the same get() does not put the record into the pool twice. */
+    @Test
+    public void aRecordIsPooledOnceWhenReleasedTwice() throws Exception {
+        try (ExecutorService virtual = Executors.newVirtualThreadPerTaskExecutor()) {
+            onVirtualThread(virtual, () -> {
+                // empty the pool stripe of this thread: it takes the records until it has to create new ones
+                final List<DirectByteBufferRecord> held = new ArrayList<>();
+                for (int i = 0; i < 8; i++) {
+                    final DirectByteBufferRecord record = DirectByteBufferRecord.get();
+                    held.add(record);
+                }
+                final DirectByteBufferRecord record = DirectByteBufferRecord.get();
+                record.release();
+                record.release();
+                final DirectByteBufferRecord first = DirectByteBufferRecord.get();
+                final DirectByteBufferRecord second = DirectByteBufferRecord.get();
+                try {
+                    assertNotSame("the record was handed out twice", first, second);
+                } finally {
+                    first.release();
+                    second.release();
+                    held.forEach(DirectByteBufferRecord::release);
+                }
+            });
         }
     }
 
@@ -101,8 +139,9 @@ public class DirectByteBufferRecordTest {
     public void recordsAreNotSharedWhileInUse() throws Exception {
         final int threads = 64;
         final int rounds = 200;
-        final AtomicInteger reuses = new AtomicInteger();
-        final Set<DirectByteBufferRecord> inUse = Collections.newSetFromMap(new java.util.concurrent.ConcurrentHashMap<>());
+        final Set<DirectByteBufferRecord> seen = Collections.newSetFromMap(new ConcurrentHashMap<>());
+        final Set<DirectByteBufferRecord> inUse = Collections.newSetFromMap(new ConcurrentHashMap<>());
+        final Queue<Throwable> errors = new ConcurrentLinkedQueue<>();
         final List<Future<?>> done = new ArrayList<>();
         try (ExecutorService virtual = Executors.newVirtualThreadPerTaskExecutor()) {
             for (int t = 0; t < threads; t++) {
@@ -110,28 +149,11 @@ public class DirectByteBufferRecordTest {
                 done.add(virtual.submit(() -> {
                     for (int r = 0; r < rounds; r++) {
                         // a new virtual thread for every round, as for every read or write event
-                        final DirectByteBufferRecord[] taken = new DirectByteBufferRecord[1];
                         final Thread round = Thread.ofVirtual().unstarted(() -> {
-                            final DirectByteBufferRecord record = DirectByteBufferRecord.get();
-                            taken[0] = record;
                             try {
-                                if (!inUse.add(record)) {
-                                    throw new AssertionError("a record in use was handed out again");
-                                }
-                                final ByteBuffer buffer = record.allocate(BUFFER_SIZE);
-                                final int position = buffer.position();
-                                for (int i = 0; i < 64; i++) {
-                                    buffer.put(position + i, id);
-                                }
-                                Thread.yield();
-                                for (int i = 0; i < 64; i++) {
-                                    if (buffer.get(position + i) != id) {
-                                        throw new AssertionError("another thread wrote into a record in use");
-                                    }
-                                }
-                                inUse.remove(record);
-                            } finally {
-                                record.release();
+                                useRecord(id, seen, inUse);
+                            } catch (final Throwable e) {
+                                errors.add(e);
                             }
                         });
                         round.start();
@@ -140,24 +162,46 @@ public class DirectByteBufferRecordTest {
                         } catch (final InterruptedException e) {
                             throw new IllegalStateException(e);
                         }
-                        if (taken[0] != null) {
-                            reuses.incrementAndGet();
-                        }
                     }
                 }));
             }
             for (final Future<?> f : done) {
-                f.get(60, TimeUnit.SECONDS);
+                f.get(120, TimeUnit.SECONDS);
             }
         }
-        assertEquals(threads * rounds, reuses.get());
+        assertTrue("errors: " + errors, errors.isEmpty());
         assertTrue("records left in use: " + inUse.size(), inUse.isEmpty());
+        assertTrue("distinct records for " + threads * rounds + " uses: " + seen.size(), seen.size() < threads * rounds / 2);
+    }
+
+    private static void useRecord(final byte id, final Set<DirectByteBufferRecord> seen, final Set<DirectByteBufferRecord> inUse) {
+        final DirectByteBufferRecord record = DirectByteBufferRecord.get();
+        boolean added = false;
+        try {
+            seen.add(record);
+            added = inUse.add(record);
+            assertTrue("a record in use was handed out again", added);
+            final ByteBuffer buffer = record.allocate(BUFFER_SIZE);
+            final int position = buffer.position();
+            for (int i = 0; i < 64; i++) {
+                buffer.put(position + i, id);
+            }
+            Thread.yield();
+            for (int i = 0; i < 64; i++) {
+                assertEquals("another thread wrote into a record in use", id, buffer.get(position + i));
+            }
+        } finally {
+            if (added) {
+                inUse.remove(record);
+            }
+            record.release();
+        }
     }
 
     /** The pool keeps a bounded number of records, however many were in use at once. */
     @Test
     public void thePoolIsBounded() throws Exception {
-        final int threads = 200;
+        final int threads = DirectByteBufferRecord.virtualPoolsCapacity() * 2 + 1;
         final CountDownLatch allTaken = new CountDownLatch(threads);
         final CountDownLatch release = new CountDownLatch(1);
         final List<Future<?>> done = new ArrayList<>();

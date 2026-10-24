@@ -97,10 +97,10 @@ public class TCPNIOUtils {
             buffer.limit(oldPos + bufferSize);
 
             final DirectByteBufferRecord ioRecord = DirectByteBufferRecord.get();
-            final ByteBuffer directByteBuffer = ioRecord.allocate(bufferSize);
-            fill(buffer, bufferSize, directByteBuffer);
 
             try {
+                final ByteBuffer directByteBuffer = ioRecord.allocate(bufferSize);
+                fill(buffer, bufferSize, directByteBuffer);
                 written = flushByteBuffer(socketChannel, directByteBuffer);
             } finally {
                 ioRecord.release();
@@ -191,9 +191,9 @@ public class TCPNIOUtils {
 
             if (!memoryManager.willAllocateDirect(receiveBufferSize)) {
                 final DirectByteBufferRecord ioRecord = DirectByteBufferRecord.get();
-                final ByteBuffer directByteBuffer = ioRecord.allocate(receiveBufferSize);
 
                 try {
+                    final ByteBuffer directByteBuffer = ioRecord.allocate(receiveBufferSize);
                     read = readSimpleByteBuffer(connection, directByteBuffer);
                     if (read > 0) {
                         directByteBuffer.flip();
