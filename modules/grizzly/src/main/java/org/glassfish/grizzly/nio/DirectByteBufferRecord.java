@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -19,12 +20,14 @@ package org.glassfish.grizzly.nio;
 import java.lang.ref.SoftReference;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.concurrent.atomic.AtomicReferenceArray;
 
 import org.glassfish.grizzly.ThreadCache;
 import org.glassfish.grizzly.memory.Buffers;
 
 /**
- * Thread-local Direct {@link ByteBuffer} storage.
+ * Direct {@link ByteBuffer} storage: one record per platform thread (in its {@link ThreadCache}), and records that
+ * virtual threads take from a small shared pool and give back with {@link #release()}.
  *
  * @author Alexey Stashok
  */
@@ -33,7 +36,42 @@ public final class DirectByteBufferRecord {
     private static final ThreadCache.CachedTypeIndex<DirectByteBufferRecord> CACHE_IDX = ThreadCache.obtainIndex("direct-buffer-cache",
             DirectByteBufferRecord.class, 1);
 
+    /**
+     * Records released by virtual threads. A virtual thread's {@link ThreadCache} ends with it, and every read or write
+     * event may run on a new virtual thread, so a record of its own would allocate a direct buffer again each time. The
+     * pool is striped by thread id, with a power of two stripes (the smallest one that is at least the number of processors), and each stripe keeps
+     * at most {@link #VIRTUAL_STRIPE_CAPACITY} records. A pooled record keeps its largest direct buffer behind a
+     * {@link SoftReference} (see {@link #release()}), so the pool holds at most stripes * capacity of the largest buffers
+     * requested. A soft reference is cleared when the heap is under pressure, not when the direct memory is, so those
+     * buffers stay allocated until a garbage collection finds the heap short.
+     */
+    private static final VirtualPool[] VIRTUAL_POOLS = new VirtualPool[Integer.highestOneBit(Math.max(1, Runtime.getRuntime().availableProcessors()) * 2 - 1)];
+
+    private static final int VIRTUAL_STRIPE_CAPACITY = 4;
+
+    static {
+        for (int i = 0; i < VIRTUAL_POOLS.length; i++) {
+            VIRTUAL_POOLS[i] = new VirtualPool();
+        }
+    }
+
+    /**
+     * Returns a record to use until {@link #release()}, which has to be called exactly once. On a platform thread this is
+     * the thread's own record, which nested calls share. On a virtual thread it comes from a pool shared with other virtual
+     * threads, so it is used by this caller alone, and after {@link #release()} neither the record nor the buffers it
+     * handed out may be touched, not even by the caller that released it: another virtual thread may have taken it.
+     */
     public static DirectByteBufferRecord get() {
+        final Thread currentThread = Thread.currentThread();
+        if (currentThread.isVirtual()) {
+            final VirtualPool pool = VIRTUAL_POOLS[(int) (currentThread.threadId() & (VIRTUAL_POOLS.length - 1))];
+            DirectByteBufferRecord virtualRecord = pool.take();
+            if (virtualRecord == null) {
+                virtualRecord = new DirectByteBufferRecord(true);
+            }
+            virtualRecord.pool = pool;
+            return virtualRecord;
+        }
         final DirectByteBufferRecord record = ThreadCache.getFromCache(CACHE_IDX);
         if (record != null) {
             return record;
@@ -43,6 +81,10 @@ public final class DirectByteBufferRecord {
         return recordLocal;
     }
 
+    // whether this record belongs to the pool of the virtual threads
+    private final boolean virtual;
+    // set while a virtual thread uses the record: where #release() gives it back
+    private VirtualPool pool;
     private ByteBuffer directBuffer;
     private int sliceOffset;
     private ByteBuffer directBufferSlice;
@@ -51,6 +93,11 @@ public final class DirectByteBufferRecord {
     private int arraySize;
 
     DirectByteBufferRecord() {
+        this(false);
+    }
+
+    private DirectByteBufferRecord(final boolean virtual) {
+        this.virtual = virtual;
         array = new ByteBuffer[8];
     }
 
@@ -108,7 +155,18 @@ public final class DirectByteBufferRecord {
         array[arraySize++] = byteBuffer;
     }
 
+    /**
+     * Gives the record back, exactly once per {@link #get()}. A record of a virtual thread goes back to the pool and may
+     * be taken by another virtual thread at once, so the caller must not touch it, nor the buffers it handed out, after
+     * this call. A second call for the same {@link #get()} is ignored for a record of a virtual thread only as long as no
+     * other virtual thread took the record in the meantime; after that it corrupts the record of that thread and may hand
+     * the record out twice.
+     */
     public void release() {
+        if (virtual && pool == null) {
+            // released already
+            return;
+        }
         if (directBuffer != null) {
             directBuffer.clear();
             switchToSoft();
@@ -118,6 +176,69 @@ public final class DirectByteBufferRecord {
         arraySize = 0;
         directBufferSlice = null;
         sliceOffset = 0;
+
+        final VirtualPool poolLocal = pool;
+        if (poolLocal != null) {
+            // from here on another virtual thread may take this record
+            pool = null;
+            poolLocal.offer(this);
+        }
+    }
+
+    /**
+     * @return how many released records the pools of the virtual threads hold, for tests
+     */
+    static int pooledVirtualRecords() {
+        int pooled = 0;
+        for (final VirtualPool virtualPool : VIRTUAL_POOLS) {
+            pooled += virtualPool.pooled();
+        }
+        return pooled;
+    }
+
+    /**
+     * @return the most records the pools of the virtual threads keep, for tests
+     */
+    static int virtualPoolsCapacity() {
+        return VIRTUAL_POOLS.length * VIRTUAL_STRIPE_CAPACITY;
+    }
+
+    /**
+     * A stripe of the pool: a few slots, each empty or holding one released record. A record is in at most one slot,
+     * because it is offered once, when it is released, and a slot is emptied when the record is taken. Taking and offering
+     * go through atomic operations on the slots, which also order the writes to the record before its next user.
+     */
+    private static final class VirtualPool {
+        private final AtomicReferenceArray<DirectByteBufferRecord> slots = new AtomicReferenceArray<>(VIRTUAL_STRIPE_CAPACITY);
+
+        DirectByteBufferRecord take() {
+            for (int i = 0; i < slots.length(); i++) {
+                final DirectByteBufferRecord record = slots.get(i);
+                if (record != null && slots.compareAndSet(i, record, null)) {
+                    return record;
+                }
+            }
+            return null;
+        }
+
+        void offer(final DirectByteBufferRecord record) {
+            for (int i = 0; i < slots.length(); i++) {
+                if (slots.get(i) == null && slots.compareAndSet(i, null, record)) {
+                    return;
+                }
+            }
+            // the stripe is full: the record is dropped
+        }
+
+        int pooled() {
+            int pooled = 0;
+            for (int i = 0; i < slots.length(); i++) {
+                if (slots.get(i) != null) {
+                    pooled++;
+                }
+            }
+            return pooled;
+        }
     }
 
     private ByteBuffer switchToStrong() {
