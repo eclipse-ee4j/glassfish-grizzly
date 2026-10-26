@@ -479,7 +479,16 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
         AsyncWriteQueueRecord queueRecord = null;
         try {
             while ((queueRecord = aggregate(writeTaskQueue)) != null) {
-                final RecordWriteResult writeResult = write0(nioConnection, queueRecord);
+                final RecordWriteResult writeResult;
+                try {
+                    writeResult = write0(nioConnection, queueRecord);
+                } catch (RuntimeException | Error e) {
+                    // the completion handlers of aggregated records run in write0(); the connection is closed, see below
+                    LOGGER.log(Level.WARNING, "Writing the held records failed", e);
+                    failed = true;
+                    onWriteFailure(nioConnection, queueRecord, false, e);
+                    break;
+                }
                 writeTaskQueue.releaseSpace((int) writeResult.bytesToReleaseAfterLastWrite());
 
                 if (!queueRecord.isFinished()) {
@@ -495,7 +504,6 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
                     // As when it runs in a filter chain, the connection is closed: its state may be broken.
                     LOGGER.log(Level.WARNING, "Completion handler of a write failed", e);
                     failed = true;
-                    nioConnection.heldWritesState = NIOConnection.NONE_HELD;
                     nioConnection.terminateSilently();
                     break;
                 }
@@ -507,11 +515,11 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
             onWriteFailure(nioConnection, queueRecord, false, e);
         } finally {
             nioConnection.heldWritesState = NIOConnection.NONE_HELD;
-            // an incomplete record, or records queued meanwhile, are written as usual; also if a completion handler threw
+            // an incomplete record, or records queued meanwhile, are written as usual, unless the drain failed: then the close fails them
             if (writeTaskQueue.releaseSpace(1) > 0 && !failed) {
                 try {
                     onReadyToWrite(nioConnection);
-                } catch (IOException e) {
+                } catch (IOException | RuntimeException e) {
                     LOGGER.log(Level.FINE, "Could not register for OP_WRITE", e);
                     nioConnection.terminateSilently();
                 }

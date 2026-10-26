@@ -137,7 +137,7 @@ public final class ProcessorExecutor {
                     try {
                         task.run();
                     } catch (Throwable t) {
-                        // as for any other failure while processing a READ, see execute0()
+                        // the task of a connection closes it, see NIOConnection.uncorkWrites()
                         LOGGER.log(Level.WARNING, "Task at the end of a READ processing run failed", t);
                     }
                 }

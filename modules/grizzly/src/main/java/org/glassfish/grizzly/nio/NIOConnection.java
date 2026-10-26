@@ -938,7 +938,13 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
     private void uncorkWrites() {
         if (corkingThread == Thread.currentThread()) {
             corkingThread = null;
-            flushHeldWrites();
+            try {
+                flushHeldWrites();
+            } catch (RuntimeException | Error e) {
+                // the end of a READ run can't tell the caller: the held writes are lost, so is the connection
+                LOGGER.log(Level.WARNING, "Writing the held writes failed", e);
+                terminateSilently();
+            }
         }
     }
 
