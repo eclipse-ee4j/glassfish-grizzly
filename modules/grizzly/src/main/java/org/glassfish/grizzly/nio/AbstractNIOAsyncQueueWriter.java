@@ -490,9 +490,14 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
                 try {
                     finishQueueRecord(nioConnection, queueRecord);
-                } catch (RuntimeException e) {
-                    // don't fail the caller (e.g. a write, canWrite(), the end of a READ run) for a completion handler
+                } catch (RuntimeException | Error e) {
+                    // Don't fail the caller (e.g. a write, canWrite(), the end of a READ run) for a completion handler.
+                    // As when it runs in a filter chain, the connection is closed: its state may be broken.
                     LOGGER.log(Level.WARNING, "Completion handler of a write failed", e);
+                    failed = true;
+                    nioConnection.heldWritesState = NIOConnection.NONE_HELD;
+                    nioConnection.terminateSilently();
+                    break;
                 }
             }
         } catch (IOException e) {

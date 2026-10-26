@@ -18,11 +18,14 @@ package org.glassfish.grizzly;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.Socket;
+import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
@@ -52,6 +55,19 @@ public class CorkedWritesTest {
 
     @Test
     public void errorOfACompletionHandlerKeepsTheWorkerThread() throws Exception {
+        completionHandlerFails(new AssertionError("thrown on purpose"));
+    }
+
+    @Test
+    public void exceptionOfACompletionHandlerClosesTheConnection() throws Exception {
+        completionHandlerFails(new IllegalStateException("thrown on purpose"));
+    }
+
+    /**
+     * A completion handler of a held write throws while the end of the READ run writes the held writes: the connection is
+     * closed, as when a handler throws in a filter chain, and the only worker thread survives.
+     */
+    private void completionHandlerFails(final Throwable failure) throws Exception {
         final int port = TestUtils.findAvailableTcpPort();
         final AtomicBoolean corked = new AtomicBoolean();
         final CountDownLatch completionHandlerRan = new CountDownLatch(1);
@@ -69,7 +85,10 @@ public class CorkedWritesTest {
                         @Override
                         public void completed(final WriteResult result) {
                             completionHandlerRan.countDown();
-                            throw new AssertionError("thrown on purpose");
+                            if (failure instanceof Error) {
+                                throw (Error) failure;
+                            }
+                            throw (RuntimeException) failure;
                         }
                     });
                 } else {
@@ -81,13 +100,32 @@ public class CorkedWritesTest {
         transport.bind(port);
         transport.start();
         try {
-            exchange(port, "boom");
+            assertConnectionClosedAfterReply(port, "boom");
             assertTrue("the connection must be corked", corked.get());
             assertTrue("the completion handler must have run", completionHandlerRan.await(5, TimeUnit.SECONDS));
             // the only worker thread must have survived to serve the next connection
             assertEquals("reply", exchange(port, "ping"));
         } finally {
             transport.shutdownNow();
+        }
+    }
+
+    private static void assertConnectionClosedAfterReply(final int port, final String request) throws IOException {
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress("localhost", port), 5000);
+            socket.setSoTimeout(3000);
+            socket.getOutputStream().write(request.getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+            final InputStream in = socket.getInputStream();
+            try {
+                in.readNBytes(5);
+                // end of the stream, or a reset: the connection is closed
+                assertEquals(-1, in.read());
+            } catch (SocketTimeoutException e) {
+                fail("the connection is still open");
+            } catch (SocketException e) {
+                // reset by the server
+            }
         }
     }
 
