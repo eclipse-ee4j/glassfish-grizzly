@@ -194,7 +194,7 @@ public final class ProcessorExecutor {
         try {
             run.end();
         } catch (Throwable t) {
-            // the tasks catch their failures: this is a safety net, the context must complete
+            // runTasks() catches the failure of each task: this is a safety net, the context must complete
             LOGGER.log(Level.WARNING, "Ending a READ processing run failed", t);
         }
     }
