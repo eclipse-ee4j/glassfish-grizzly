@@ -35,6 +35,7 @@ import org.glassfish.grizzly.WriteResult;
 import org.glassfish.grizzly.asyncqueue.MessageCloner;
 import org.glassfish.grizzly.asyncqueue.WritableMessage;
 import org.glassfish.grizzly.impl.FutureImpl;
+import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.nio.NIOTransport;
 import org.glassfish.grizzly.threadpool.Threads;
@@ -46,6 +47,9 @@ import org.glassfish.grizzly.utils.Futures;
  */
 @SuppressWarnings("deprecation")
 public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddress> {
+
+    private static final MessageCloner<WritableMessage> COPY_BUFFER_CLONER = (connection, message) -> message instanceof Buffer buffer
+            ? Buffers.cloneBuffer(buffer) : message;
 
     protected final TemporarySelectorsEnabledTransport transport;
 
@@ -148,8 +152,10 @@ public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddre
             final CompletionHandler<WriteResult<WritableMessage, SocketAddress>> completionHandler,
             final org.glassfish.grizzly.asyncqueue.PushBackHandler pushBackHandler, final long timeout, final TimeUnit timeunit) {
         final FutureImpl<WriteResult<WritableMessage, SocketAddress>> future = Futures.createSafeFuture();
+        // a selector thread returns before the write completes: the caller may reuse its buffer
+        final MessageCloner<WritableMessage> cloner = Threads.isService() ? COPY_BUFFER_CLONER : null;
         ((NIOTransport) connection.getTransport()).getAsyncQueueIO().getWriter().write(connection, dstAddress, message,
-                Futures.toCompletionHandler(future, completionHandler), pushBackHandler);
+                Futures.toCompletionHandler(future, completionHandler), pushBackHandler, cloner);
         // the queue may have drained meanwhile, and then the write above was held back as the head of the queue
         connection.flushCorkedWrites();
         if (Threads.isService()) {
