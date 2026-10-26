@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2025 Contributors to the Eclipse Foundation.
+ * Copyright (c) 2025, 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  * Copyright 2004 The Apache Software Foundation
  *
@@ -357,8 +357,9 @@ public final class Parameters {
     final BufferChunk tmpValue = new BufferChunk();
     private final BufferChunk origName = new BufferChunk();
     private final BufferChunk origValue = new BufferChunk();
-    final CharChunk tmpNameC = new CharChunk(1024);
-    final CharChunk tmpValueC = new CharChunk(1024);
+    // buffers are allocated on first use (CharChunk.makeSpace): most requests never decode parameters
+    final CharChunk tmpNameC = new CharChunk();
+    final CharChunk tmpValueC = new CharChunk();
 
     public static final String DEFAULT_ENCODING = Constants.DEFAULT_HTTP_CHARACTER_ENCODING;
     public static final Charset DEFAULT_CHARSET = Constants.DEFAULT_HTTP_CHARSET;
