@@ -137,7 +137,7 @@ public final class ProcessorExecutor {
                     try {
                         task.run();
                     } catch (Throwable t) {
-                        // the task of a connection closes it, see NIOConnection.uncorkWrites()
+                        // the uncork task closes its connection itself, see NIOConnection.uncorkWrites()
                         LOGGER.log(Level.WARNING, "Task at the end of a READ processing run failed", t);
                     }
                 }
@@ -194,6 +194,7 @@ public final class ProcessorExecutor {
         try {
             run.end();
         } catch (Throwable t) {
+            // the tasks catch their failures: this is a safety net, the context must complete
             LOGGER.log(Level.WARNING, "Ending a READ processing run failed", t);
         }
     }

@@ -48,7 +48,8 @@ import org.glassfish.grizzly.threadpool.Threads;
 import org.junit.Test;
 
 /**
- * Corked writes: an {@link Error} of a completion handler and a blocking write on a selector thread.
+ * Corked writes: failures of completion handlers while the held writes are written at the end of a READ run, an
+ * {@link Error} in an end-of-run task and a blocking write on a selector thread.
  */
 public class CorkedWritesTest {
 
@@ -65,6 +66,11 @@ public class CorkedWritesTest {
     @Test
     public void exceptionOfACompletionHandlerOfAggregatedWritesClosesTheConnection() throws Exception {
         completionHandlerFails(new IllegalStateException("thrown on purpose"), 2);
+    }
+
+    @Test
+    public void failureOfAFailureHandlerDoesNotStopTheOtherWrites() throws Exception {
+        completionHandlerFails(new IllegalStateException("thrown on purpose"), 3);
     }
 
     @Test
@@ -135,6 +141,10 @@ public class CorkedWritesTest {
                             @Override
                             public void failed(final Throwable throwable) {
                                 otherWritesDone.countDown();
+                                if (writes > 2) {
+                                    // the failure of a failure handler must not keep the other writes from being failed
+                                    throw new IllegalStateException("thrown on purpose, too");
+                                }
                             }
                         });
                     }

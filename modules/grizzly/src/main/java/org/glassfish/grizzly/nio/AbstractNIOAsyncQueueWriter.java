@@ -492,15 +492,21 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
                 writeTaskQueue.releaseSpace((int) writeResult.bytesToReleaseAfterLastWrite());
 
                 if (!queueRecord.isFinished()) {
-                    queueRecord.notifyIncomplete();
                     writeTaskQueue.setCurrentElement(queueRecord);
+                    try {
+                        queueRecord.notifyIncomplete();
+                    } catch (RuntimeException | Error e) {
+                        LOGGER.log(Level.WARNING, "Completion handler of a write failed", e);
+                        failed = true;
+                        nioConnection.terminateSilently();
+                    }
                     break;
                 }
 
                 try {
                     finishQueueRecord(nioConnection, queueRecord);
                 } catch (RuntimeException | Error e) {
-                    // Don't fail the caller (e.g. a write, canWrite(), the end of a READ run) for a completion handler.
+                    // Don't fail the caller (e.g. a write, canWrite(), the end of a READ run) for a completion handler or a failure.
                     // As when it runs in a filter chain, the connection is closed: its state may be broken.
                     LOGGER.log(Level.WARNING, "Completion handler of a write failed", e);
                     failed = true;
@@ -510,7 +516,6 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
             }
         } catch (IOException e) {
             failed = true;
-            nioConnection.heldWritesState = NIOConnection.NONE_HELD;
             // not gracefully: the close would be queued behind records nobody writes any more
             onWriteFailure(nioConnection, queueRecord, false, e);
         } finally {
@@ -598,11 +603,14 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
     protected static void onWriteFailure(final Connection connection, final AsyncWriteQueueRecord failedRecord,
                                          final boolean graceful, final Throwable e) {
-        failedRecord.notifyFailure(e);
-        if (graceful) {
-            connection.closeSilently();
-        } else {
-            connection.terminateSilently();
+        try {
+            failedRecord.notifyFailure(e);
+        } finally {
+            if (graceful) {
+                connection.closeSilently();
+            } else {
+                connection.terminateSilently();
+            }
         }
     }
 
