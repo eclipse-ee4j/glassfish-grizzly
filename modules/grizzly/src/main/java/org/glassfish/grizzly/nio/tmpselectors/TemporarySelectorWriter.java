@@ -48,8 +48,14 @@ import org.glassfish.grizzly.utils.Futures;
 @SuppressWarnings("deprecation")
 public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddress> {
 
-    private static final MessageCloner<WritableMessage> COPY_BUFFER_CLONER = (connection, message) -> message instanceof Buffer buffer
-            ? Buffers.cloneBuffer(buffer) : message;
+    private static final MessageCloner<WritableMessage> COPY_BUFFER_CLONER = (connection, message) -> {
+        if (!(message instanceof Buffer) || !((Buffer) message).hasRemaining()) {
+            return message;
+        }
+        final Buffer copy = Buffers.cloneBuffer((Buffer) message);
+        message.release();
+        return copy;
+    };
 
     protected final TemporarySelectorsEnabledTransport transport;
 

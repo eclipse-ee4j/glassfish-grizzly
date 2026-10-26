@@ -50,23 +50,25 @@ import org.junit.Test;
  */
 public class CorkedWritesTest {
 
-    private static final String POOL = "corked-writes-worker";
-
     @Test
     public void errorOfACompletionHandlerKeepsTheWorkerThread() throws Exception {
         final int port = TestUtils.findAvailableTcpPort();
+        final AtomicBoolean corked = new AtomicBoolean();
+        final CountDownLatch completionHandlerRan = new CountDownLatch(1);
         final TCPNIOTransport transport = TCPNIOTransportBuilder.newInstance()
-                .setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().setCorePoolSize(1).setMaxPoolSize(1).setPoolName(POOL)).build();
+                .setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().setCorePoolSize(1).setMaxPoolSize(1).setPoolName("corked-writes-worker")).build();
         transport.setProcessor(FilterChainBuilder.stateless().add(new TransportFilter()).add(new BaseFilter() {
             @Override
             public NextAction handleRead(final FilterChainContext ctx) throws IOException {
                 final String in = ((Buffer) ctx.getMessage()).toStringContent(StandardCharsets.US_ASCII);
-                ((NIOConnection) ctx.getConnection()).corkWrites();
+                final boolean isCorked = ((NIOConnection) ctx.getConnection()).corkWrites();
                 final Buffer reply = Buffers.wrap(transport.getMemoryManager(), "reply");
                 if (in.startsWith("boom")) {
+                    corked.set(isCorked);
                     ctx.write(reply, new EmptyCompletionHandler<WriteResult>() {
                         @Override
                         public void completed(final WriteResult result) {
+                            completionHandlerRan.countDown();
                             throw new AssertionError("thrown on purpose");
                         }
                     });
@@ -80,6 +82,8 @@ public class CorkedWritesTest {
         transport.start();
         try {
             exchange(port, "boom");
+            assertTrue("the connection must be corked", corked.get());
+            assertTrue("the completion handler must have run", completionHandlerRan.await(5, TimeUnit.SECONDS));
             // the only worker thread must have survived to serve the next connection
             assertEquals("reply", exchange(port, "ping"));
         } finally {
@@ -112,16 +116,21 @@ public class CorkedWritesTest {
         transport.getAsyncQueueIO().getWriter().setMaxPendingBytesPerConnection(AsyncQueueWriter.UNLIMITED_SIZE);
         final CountDownLatch handled = new CountDownLatch(1);
         final AtomicBoolean onSelectorThread = new AtomicBoolean();
+        final AtomicBoolean corked = new AtomicBoolean();
+        final AtomicBoolean queued = new AtomicBoolean();
         transport.setProcessor(FilterChainBuilder.stateless().add(new TransportFilter()).add(new BaseFilter() {
             @Override
             public NextAction handleRead(final FilterChainContext ctx) throws IOException {
-                ((NIOConnection) ctx.getConnection()).corkWrites();
+                final NIOConnection connection = (NIOConnection) ctx.getConnection();
+                corked.set(connection.corkWrites());
                 onSelectorThread.set(Threads.isService());
                 final byte[] big = new byte[bigSize];
                 Arrays.fill(big, (byte) 'A');
                 ctx.write(Buffers.wrap(transport.getMemoryManager(), big));
                 final byte[] small = new byte[smallSize];
                 Arrays.fill(small, (byte) 'B');
+                // the blocking write must find data that is still queued
+                queued.set(connection.getAsyncWriteQueue().size() > 0);
                 ctx.write(Buffers.wrap(transport.getMemoryManager(), small), true);
                 // the caller reuses its buffer once the blocking write has returned
                 Arrays.fill(small, (byte) 'X');
@@ -138,8 +147,10 @@ public class CorkedWritesTest {
             final OutputStream out = socket.getOutputStream();
             out.write("go".getBytes(StandardCharsets.US_ASCII));
             out.flush();
-            assertTrue(handled.await(10, TimeUnit.SECONDS));
+            assertTrue("the handler did not finish", handled.await(10, TimeUnit.SECONDS));
+            assertTrue("the connection must be corked", corked.get());
             assertTrue("the handler must run on a selector thread", onSelectorThread.get());
+            assertTrue("the first write must still be queued", queued.get());
             final byte[] all = socket.getInputStream().readNBytes(bigSize + smallSize);
             assertEquals(bigSize + smallSize, all.length);
             final byte[] tail = Arrays.copyOfRange(all, bigSize, all.length);
