@@ -27,11 +27,14 @@ import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.glassfish.grizzly.filterchain.BaseFilter;
 import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.threadpool.ThreadPoolConfig;
+import org.glassfish.grizzly.utils.DelayedExecutor;
 import org.junit.Test;
 
 /**
@@ -98,6 +101,76 @@ public class RequestReuseTest {
         awaitNoOwner(packets);
         awaitNoOwner(requests);
         awaitNoOwner(contexts);
+    }
+
+    /**
+     * A {@link Request} subclass taken from {@link Request#create(java.util.function.Supplier)} is given back to the
+     * selector thread like a plain request, so a keep-alive connection reuses it too.
+     */
+    @Test
+    public void subclassRequestsFromTheFactoryAreReused() throws Exception {
+        final Set<Object> requests = Collections.newSetFromMap(new IdentityHashMap<>());
+        final Set<String> foreignTypes = Collections.synchronizedSet(new java.util.TreeSet<>());
+        final ExecutorService executor = Executors.newCachedThreadPool();
+        final DelayedExecutor delayedExecutor = new DelayedExecutor(executor);
+        delayedExecutor.start();
+        final HttpServer server = new HttpServer();
+        final NetworkListener listener = new NetworkListener("reuse", "127.0.0.1", 0);
+        server.addListener(listener);
+        listener.getTransport().setWorkerThreadPoolConfig(ThreadPoolConfig.defaultConfig().copy().setCorePoolSize(1).setMaxPoolSize(1));
+        // replace the default filter by one creating CustomRequests through the factory
+        listener.registerAddOn((networkListener, builder) -> {
+            final int idx = builder.indexOfType(HttpServerFilter.class);
+            final HttpServerFilter original = (HttpServerFilter) builder.get(idx);
+            final HttpServerFilter replacement = new HttpServerFilter(original.getConfiguration(), delayedExecutor) {
+                @Override
+                protected Request createRequest() {
+                    return Request.create(CustomRequest::new);
+                }
+            };
+            replacement.setHttpHandler(original.getHttpHandler());
+            builder.set(idx, replacement);
+        });
+        server.getServerConfiguration().addHttpHandler(new HttpHandler() {
+            @Override
+            public void service(final Request request, final Response response) throws Exception {
+                synchronized (requests) {
+                    requests.add(request);
+                }
+                if (request.getClass() != CustomRequest.class) {
+                    foreignTypes.add(request.getClass().getName());
+                }
+                response.setContentLength(5);
+                response.getOutputStream().write("hello".getBytes(StandardCharsets.US_ASCII));
+            }
+        }, "/");
+        server.start();
+        try (Socket socket = new Socket("127.0.0.1", listener.getPort())) {
+            socket.setSoTimeout(10_000);
+            final OutputStream out = socket.getOutputStream();
+            final InputStream in = socket.getInputStream();
+            for (int i = 0; i < REQUESTS; i++) {
+                out.write("GET / HTTP/1.1\r\nHost: localhost\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+                out.flush();
+                final String head = readResponse(in);
+                assertTrue(head, head.startsWith("HTTP/1.1 200"));
+            }
+        } finally {
+            server.shutdownNow();
+            delayedExecutor.stop();
+            delayedExecutor.destroy();
+            executor.shutdownNow();
+        }
+        assertEquals("requests not created by the factory", Set.of(), foreignTypes);
+        assertTrue("distinct requests for " + REQUESTS + " requests: " + requests.size(), requests.size() <= 3);
+        awaitNoOwner(requests);
+    }
+
+    private static final class CustomRequest extends Request {
+
+        CustomRequest() {
+            super(new Response());
+        }
     }
 
     /**

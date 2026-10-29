@@ -34,6 +34,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Supplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -98,9 +99,24 @@ public class Request {
     private static final AtomicLong REQUEST_ID_GENERATOR = new AtomicLong(0);
 
     public static Request create() {
+        return create(() -> new Request(new Response()));
+    }
+
+    /**
+     * Takes a {@link Request} from the pool of the current thread, or creates one with the given factory if the pool is
+     * empty. Like {@link #create()}, the request goes back to the pool of this thread when another thread recycles it.
+     * <p>
+     * The pool is shared with {@link #create()} and holds every recycled {@link Request}, whatever its class. A server
+     * that uses a {@link Request} subclass should therefore create all its requests through this method with the same
+     * factory, see {@link HttpServerFilter#createRequest()}.
+     *
+     * @param factory creates a new request, together with its {@link Response}, if the pool is empty
+     * @return a new or pooled, uninitialized {@link Request}
+     */
+    public static Request create(final Supplier<? extends Request> factory) {
         Request request = ThreadCache.takeFromCache(CACHE_IDX);
         if (request == null) {
-            request = new Request(new Response());
+            request = factory.get();
         }
         // service() and the recycle usually run on a worker thread, not on this one: give it back to this thread
         request.cacheOwner = ThreadCache.currentOwner();
