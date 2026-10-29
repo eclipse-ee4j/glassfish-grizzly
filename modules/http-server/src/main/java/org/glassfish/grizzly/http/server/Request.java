@@ -1922,7 +1922,17 @@ public class Request {
 
     }
 
-    private Charset lookupCharset(final String enc) {
+    /**
+     * Returns the charset request parameters are decoded with, see {@link #parseRequestParameters()}. The default
+     * implementation looks up the given encoding and falls back to
+     * {@link org.glassfish.grizzly.http.util.Constants#DEFAULT_HTTP_CHARSET} if the request names no encoding or one
+     * that is not supported. Subclasses may override this to use a fallback of their own, for example a configured
+     * default.
+     *
+     * @param enc the character encoding of the request, see {@link #getCharacterEncoding()}; may be {@code null}
+     * @return the charset to decode request parameters with
+     */
+    protected Charset lookupCharset(final String enc) {
         Charset charset;
         if (enc != null) {
             try {
