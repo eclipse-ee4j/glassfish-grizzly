@@ -251,13 +251,9 @@ public interface Connection<L> extends Readable<L>, Writeable<L>, Closeable, Att
      * write queue reservation size per connection.
      *
      * <p>The hard limit is calculated by multiplying the connection's configured
-     * soft limit by this value. If the value is less than or equal to zero, the
-     * default multiplier is used.</p>
+     * soft limit by this value.</p>
      *
-     * <p>The default multiplier is {@code 4}.</p>
-     *
-     * @param asyncWriteQueueSizeHardLimitMultiplier the hard limit multiplier,
-     *        or a value less than or equal to zero to use the default multiplier
+     * @param asyncWriteQueueSizeHardLimitMultiplier the hard limit multiplier
      */
     void setAsyncWriteQueueSizeHardLimitMultiplier(int asyncWriteQueueSizeHardLimitMultiplier);
 

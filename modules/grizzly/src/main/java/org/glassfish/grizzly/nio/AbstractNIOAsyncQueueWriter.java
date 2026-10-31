@@ -58,7 +58,7 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
     private volatile boolean isAllowDirectWrite = true;
 
-    private volatile int pendingBytesHardLimitMultiplier = DEFAULT_PENDING_BYTES_HARD_LIMIT_MULTIPLIER;
+    private volatile int pendingBytesHardLimitMultiplier = AUTO_SIZE;
 
     public AbstractNIOAsyncQueueWriter(NIOTransport transport) {
         this.transport = transport;
@@ -127,10 +127,7 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
      */
     @Override
     public void setPendingBytesHardLimitMultiplier(final int multiplier) {
-        if (multiplier < 1) {
-            throw new IllegalArgumentException("multiplier must be >= 1");
-        }
-        this.pendingBytesHardLimitMultiplier = multiplier;
+        this.pendingBytesHardLimitMultiplier = multiplier > 0 ? multiplier : AUTO_SIZE;
     }
 
     /**
@@ -207,11 +204,11 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
         final boolean isLogFine = LOGGER.isLoggable(Level.FINEST);
 
         final int maxPendingBytes = nioConnection.getMaxAsyncWriteQueueSize();
-        final long hardLimit = (long) maxPendingBytes * pendingBytesHardLimitMultiplier;
+        final long hardLimit = (long) maxPendingBytes * nioConnection.getAsyncWriteQueueSizeHardLimitMultiplier();
         // A writer that found canWrite() true had the queue below maxPendingBytes, so its record is accepted whatever
         // its size. Only a writer that keeps adding to a queue that is already full runs into the hard limit.
         final int pendingBytesBefore = pendingBytes - bytesToReserve;
-        if (maxPendingBytes >= 0 && pendingBytesBefore >= maxPendingBytes && pendingBytes > hardLimit) {
+        if (maxPendingBytes >= 0 && hardLimit >= 0 && pendingBytesBefore >= maxPendingBytes && pendingBytes > hardLimit) {
             if (isLogFine) {
                 doFineLog(
                         "Asynchronous write queue hard limit exceeded. connection={0}, record={1}, directWrite={2}, size={3}, isUncountable={4}, bytesToReserve={5}, pendingBytes={6}, maxPendingBytes={7}, hardLimit={8}",
