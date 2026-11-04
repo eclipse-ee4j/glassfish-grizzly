@@ -17,38 +17,11 @@
 
 package org.glassfish.grizzly;
 
-import java.io.IOException;
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
-import java.lang.reflect.Field;
-import java.net.InetSocketAddress;
-import java.nio.channels.SelectableChannel;
-import java.util.Collection;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.LinkedTransferQueue;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
-
-import org.glassfish.grizzly.filterchain.BaseFilter;
-import org.glassfish.grizzly.filterchain.FilterChainBuilder;
-import org.glassfish.grizzly.filterchain.FilterChainContext;
-import org.glassfish.grizzly.filterchain.NextAction;
-import org.glassfish.grizzly.filterchain.TransportFilter;
+import org.glassfish.grizzly.filterchain.*;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.impl.SafeFutureImpl;
 import org.glassfish.grizzly.memory.ByteBufferWrapper;
-import org.glassfish.grizzly.nio.AbstractNIOConnectionDistributor;
-import org.glassfish.grizzly.nio.NIOConnection;
-import org.glassfish.grizzly.nio.NIOTransport;
-import org.glassfish.grizzly.nio.RegisterChannelResult;
-import org.glassfish.grizzly.nio.SelectorRunner;
+import org.glassfish.grizzly.nio.*;
 import org.glassfish.grizzly.nio.transport.TCPNIOConnectorHandler;
 import org.glassfish.grizzly.nio.transport.TCPNIOServerConnection;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
@@ -57,16 +30,26 @@ import org.glassfish.grizzly.strategies.SameThreadIOStrategy;
 import org.glassfish.grizzly.streams.StreamReader;
 import org.glassfish.grizzly.streams.StreamWriter;
 import org.glassfish.grizzly.threadpool.ThreadPoolConfig;
-import org.glassfish.grizzly.utils.ClientCheckFilter;
-import org.glassfish.grizzly.utils.EchoFilter;
-import org.glassfish.grizzly.utils.Futures;
-import org.glassfish.grizzly.utils.ParallelWriteFilter;
-import org.glassfish.grizzly.utils.RandomDelayOnWriteFilter;
-import org.glassfish.grizzly.utils.StringFilter;
+import org.glassfish.grizzly.utils.*;
 import org.hamcrest.CoreMatchers;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+
+import java.io.IOException;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.lang.reflect.Field;
+import java.net.InetSocketAddress;
+import java.nio.channels.SelectableChannel;
+import java.util.Collection;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
 
 import static java.lang.Boolean.TRUE;
 import static java.time.Duration.ofMillis;
@@ -75,11 +58,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.glassfish.grizzly.IOEvent.READ;
 import static org.glassfish.grizzly.IOEvent.SERVER_ACCEPT;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.junit.Assert.assertArrayEquals;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertFalse;
-import static org.junit.Assert.assertNotNull;
-import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.*;
 
 /**
  * Unit test for {@link TCPNIOTransport}
@@ -273,6 +252,47 @@ public class TCPNIOTransportTest {
         } finally {
             close(acceptedConnection);
             close(connectedConnection);
+        }
+    }
+
+    @Test
+    public void testNotifyCanWriteOnClosingConnection() throws Exception {
+        var port = TestUtils.findAvailableTcpPort();
+        Connection<?> connection = null;
+        var canWriteDuringClose = new AtomicBoolean(true);
+        var writePossibleCount = new AtomicInteger();
+        var error = new AtomicReference<>();
+
+        try {
+            bindToPort(transport, port);
+            connection = transport.connect(new InetSocketAddress("localhost", port)).get(10, SECONDS);
+            assertNotNull(connection);
+
+            var closingConnection = connection;
+            closingConnection.addCloseListener((org.glassfish.grizzly.CloseListener<Connection<?>,?>) (closeable, type) -> {
+                canWriteDuringClose.set(closingConnection.canWrite());
+                closingConnection.notifyCanWrite(new WriteHandler() {
+                    @Override
+                    public void onWritePossible() {
+                        writePossibleCount.incrementAndGet();
+                    }
+
+                    @Override
+                    public void onError(Throwable throwable) {
+                        error.set(throwable);
+                    }
+                });
+            });
+
+            closingConnection.terminateWithReason(new IOException("test close"));
+
+            assertFalse(closingConnection.isOpen());
+            assertFalse(canWriteDuringClose.get());
+            assertFalse(closingConnection.canWrite());
+            assertEquals(0, writePossibleCount.get());
+            assertTrue(error.get() instanceof IOException);
+        } finally {
+            close(connection);
         }
     }
 

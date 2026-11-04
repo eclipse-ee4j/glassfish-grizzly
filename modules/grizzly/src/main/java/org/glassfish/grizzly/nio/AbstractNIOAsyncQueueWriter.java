@@ -103,7 +103,15 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
     @Override
     public void notifyWritePossible(final Connection<SocketAddress> connection, final WriteHandler writeHandler) {
-        ((NIOConnection) connection).getAsyncWriteQueue().notifyWritePossible(writeHandler);
+        final NIOConnection nioConnection = (NIOConnection) connection;
+        if (!nioConnection.isOpen()) {
+            if (writeHandler != null) {
+                writeHandler.onError(new IOException("Connection is closed", nioConnection.getCloseReason().getCause()));
+            }
+            return;
+        }
+
+        nioConnection.getAsyncWriteQueue().notifyWritePossible(writeHandler);
     }
 
     /**
