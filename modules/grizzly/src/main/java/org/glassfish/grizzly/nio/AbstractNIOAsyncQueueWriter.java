@@ -23,6 +23,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.glassfish.grizzly.AbstractWriter;
+import org.glassfish.grizzly.CloseReason;
 import org.glassfish.grizzly.CompletionHandler;
 import org.glassfish.grizzly.Connection;
 import org.glassfish.grizzly.Context;
@@ -103,6 +104,14 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
     @Override
     public void notifyWritePossible(final Connection<SocketAddress> connection, final WriteHandler writeHandler) {
+        if (!connection.isOpen()) {
+            if (writeHandler != null) {
+                final CloseReason reason = connection.getCloseReason();
+                writeHandler.onError(
+                        new IOException("Connection is closed", reason != null ? reason.getCause() : null));
+            }
+            return;
+        }
         ((NIOConnection) connection).getAsyncWriteQueue().notifyWritePossible(writeHandler);
     }
 
