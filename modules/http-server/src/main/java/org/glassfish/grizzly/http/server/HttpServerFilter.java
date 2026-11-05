@@ -358,8 +358,10 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
      * {@link Request} and {@link Response} subclasses.
      * <p>
      * The filter initializes the returned instance and recycles it once the request is complete.
-     * {@link Request#recycle()} puts every instance into the shared pool used by {@link Request#create()}; a subclass
-     * with a pool of its own has to override {@link Request#recycle()} accordingly.
+     * {@link Request#recycle()} puts every instance into the pool used by {@link Request#create()}: an instance taken
+     * from {@link Request#create()} goes back to the pool of the thread that took it, even if another thread recycles it;
+     * an instance created with {@code new} goes to the pool of the thread that recycles it. A subclass with a pool of its
+     * own has to override {@link Request#recycle()} accordingly.
      *
      * @return a new or pooled, uninitialized {@link Request}
      */
@@ -423,6 +425,10 @@ public class HttpServerFilter extends BaseFilter implements MonitoringAware<Http
         final HttpRequestPacket httpRequest = request.getRequest();
         final boolean isBroken = httpRequest.isContentBroken();
 
+        // only a request that completed synchronously goes back to the thread that created it (see Request#create())
+        if (response.suspendState != Response.SuspendState.NONE || request.inputBuffer.isAsyncReadStarted()) {
+            request.keepCachesLocal();
+        }
         // Suspend state is cancelled - it means normal processing might have
         // been broken. We don't want to reuse Request and Response in this state,
         // cause there still might be threads referencing them.
