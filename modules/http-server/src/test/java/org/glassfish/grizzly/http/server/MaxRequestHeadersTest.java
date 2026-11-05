@@ -49,7 +49,7 @@ public class MaxRequestHeadersTest {
     public void requestExceedingConfiguredLimitIsRejected() throws Exception {
         start(10);
         String statusLine = send(20);
-        assertTrue(statusLine, statusLine.startsWith("HTTP/1.1 400"));
+        assertTrue(statusLine, statusLine.startsWith("HTTP/1.1 431"));
     }
 
     @Test
