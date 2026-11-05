@@ -54,7 +54,6 @@ import org.glassfish.grizzly.impl.SafeFutureImpl;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
 import org.glassfish.grizzly.utils.ChunkingFilter;
-import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.Parameterized;
@@ -67,20 +66,10 @@ import org.junit.runners.Parameterized;
 @SuppressWarnings("unchecked")
 @RunWith(Parameterized.class)
 public class TransferEncodingTest {
-    private int port;
 
     @Parameterized.Parameters
     public static Collection<Object[]> getIsBinary() {
         return Arrays.asList(new Object[][] { { Boolean.FALSE }, { Boolean.TRUE } });
-    }
-
-    @Before
-    public void findPort() {
-        try {
-            port = TestUtils.findAvailableTcpPort();
-        } catch (IOException e) {
-            port = 8041;
-        }
     }
 
     private final boolean isBinary;
@@ -93,9 +82,10 @@ public class TransferEncodingTest {
     public void testExplicitContentType() throws Exception {
         final int msgSize = 10;
 
+        final int port = TestUtils.findAvailableTcpPort();
         final HttpHandler httpHandler = new ExplicitContentLengthHandler(msgSize);
-        final HttpPacket request = createRequest("/index.html", null);
-        final HttpContent response = doTest(httpHandler, request, 10);
+        final HttpPacket request = createRequest("/index.html", null, port);
+        final HttpContent response = doTest(httpHandler, request, 10, port);
 
         assertEquals(msgSize, response.getHttpHeader().getContentLength());
     }
@@ -104,9 +94,10 @@ public class TransferEncodingTest {
     public void testExplicitChunking() throws Exception {
         final int msgSize = 10;
 
+        final int port = TestUtils.findAvailableTcpPort();
         final HttpHandler httpHandler = new ExplicitChunkingHandler(msgSize);
-        final HttpPacket request = createRequest("/index.html", null);
-        final HttpContent response = doTest(httpHandler, request, 10);
+        final HttpPacket request = createRequest("/index.html", null, port);
+        final HttpContent response = doTest(httpHandler, request, 10, port);
 
         assertTrue(response.getHttpHeader().isChunked());
     }
@@ -115,15 +106,17 @@ public class TransferEncodingTest {
     public void testSmallMessageAutoContentLength() throws Exception {
         final int msgSize = 10;
 
-        final HttpPacket request1 = createRequest("/index.html", null);
+        int port = TestUtils.findAvailableTcpPort();
+        final HttpPacket request1 = createRequest("/index.html", null, port);
         final HttpHandler httpHandler1 = new AutoTransferEncodingHandler(msgSize, false);
-        final HttpContent response1 = doTest(httpHandler1, request1, 10);
+        final HttpContent response1 = doTest(httpHandler1, request1, 10, port);
 
         assertEquals(msgSize, response1.getHttpHeader().getContentLength());
 
-        final HttpPacket request2 = createRequest("/index.html", null);
+        port = TestUtils.findAvailableTcpPort();
+        final HttpPacket request2 = createRequest("/index.html", null, port);
         final HttpHandler httpHandler2 = new AutoTransferEncodingHandler(msgSize, true);
-        final HttpContent response2 = doTest(httpHandler2, request2, 10);
+        final HttpContent response2 = doTest(httpHandler2, request2, 10, port);
 
         assertEquals(msgSize, response2.getHttpHeader().getContentLength());
 
@@ -133,7 +126,8 @@ public class TransferEncodingTest {
     public void testLargeMessageChunkingDisabled() throws Exception {
         final int msgSize = 1024 * 24;
 
-        final HttpPacket request1 = createRequest("/index.html", null);
+        int port = TestUtils.findAvailableTcpPort();
+        final HttpPacket request1 = createRequest("/index.html", null, port);
         final HttpHandler httpHandler1 = new AutoTransferEncodingHandler(msgSize, false) {
             @Override
             public void service(Request request, Response response) throws Exception {
@@ -143,10 +137,11 @@ public class TransferEncodingTest {
             }
         };
 
-        final HttpContent response1 = doTest(httpHandler1, request1, 10);
+        final HttpContent response1 = doTest(httpHandler1, request1, 10, port);
         assertEquals(msgSize, response1.getHttpHeader().getContentLength());
 
-        final HttpPacket request2 = createRequest("/index.html", null);
+        port = TestUtils.findAvailableTcpPort();
+        final HttpPacket request2 = createRequest("/index.html", null, port);
         final HttpHandler httpHandler2 = new AutoTransferEncodingHandler(msgSize, true) {
             @Override
             public void service(Request request, Response response) throws Exception {
@@ -156,7 +151,7 @@ public class TransferEncodingTest {
             }
         };
 
-        final HttpContent response2 = doTest(httpHandler2, request2, 10);
+        final HttpContent response2 = doTest(httpHandler2, request2, 10, port);
         assertEquals(msgSize, response2.getHttpHeader().getContentLength());
     }
 
@@ -164,15 +159,17 @@ public class TransferEncodingTest {
     public void testLargeMessageAutoChunking() throws Exception {
         final int msgSize = 1024 * 24;
 
-        final HttpPacket request1 = createRequest("/index.html", null);
+        int port = TestUtils.findAvailableTcpPort();
+        final HttpPacket request1 = createRequest("/index.html", null, port);
         final HttpHandler httpHandler1 = new AutoTransferEncodingHandler(msgSize, false);
-        final HttpContent response1 = doTest(httpHandler1, request1, 10);
+        final HttpContent response1 = doTest(httpHandler1, request1, 10, port);
 
         assertTrue(response1.getHttpHeader().isChunked());
 
-        final HttpPacket request2 = createRequest("/index.html", null);
+        port = TestUtils.findAvailableTcpPort();
+        final HttpPacket request2 = createRequest("/index.html", null, port);
         final HttpHandler httpHandler2 = new AutoTransferEncodingHandler(msgSize, true);
-        final HttpContent response2 = doTest(httpHandler2, request2, 10);
+        final HttpContent response2 = doTest(httpHandler2, request2, 10, port);
 
         assertTrue(response2.getHttpHeader().isChunked());
 
@@ -181,18 +178,19 @@ public class TransferEncodingTest {
     @Test
     public void testLongContentLength() throws Exception {
         final long contentLength = Long.MAX_VALUE;
+        final int port = TestUtils.findAvailableTcpPort();
         HttpRequestPacket.Builder b = HttpRequestPacket.builder();
         b.method(Method.POST).protocol(Protocol.HTTP_1_1).uri("/postit").header("Host", "localhost:" + port);
         b.contentLength(contentLength);
 
         final HttpHandler httpHandler = new EchoHandler();
-        final HttpHeader response = doTestHeader(httpHandler, b.build(), 10);
+        final HttpHeader response = doTestHeader(httpHandler, b.build(), 10, port);
 
         assertEquals(contentLength, response.getContentLength());
     }
 
     @SuppressWarnings({ "unchecked" })
-    private HttpPacket createRequest(String uri, Map<String, String> headers) {
+    private HttpPacket createRequest(String uri, Map<String, String> headers, final int port) {
 
         HttpRequestPacket.Builder b = HttpRequestPacket.builder();
         b.method(Method.GET).protocol(Protocol.HTTP_1_1).uri(uri).header("Host", "localhost:" + port);
@@ -205,7 +203,7 @@ public class TransferEncodingTest {
         return b.build();
     }
 
-    private HttpContent doTest(final HttpHandler httpHandler, final HttpPacket request, final int timeout) throws Exception {
+    private HttpContent doTest(final HttpHandler httpHandler, final HttpPacket request, final int timeout, final int port) throws Exception {
 
         final TCPNIOTransport clientTransport = TCPNIOTransportBuilder.newInstance().build();
         final HttpServer server = createWebServer(httpHandler, port);
@@ -240,7 +238,7 @@ public class TransferEncodingTest {
         }
     }
 
-    private HttpHeader doTestHeader(final HttpHandler httpHandler, final HttpPacket request, final int timeout) throws Exception {
+    private HttpHeader doTestHeader(final HttpHandler httpHandler, final HttpPacket request, final int timeout, final int port) throws Exception {
 
         final TCPNIOTransport clientTransport = TCPNIOTransportBuilder.newInstance().build();
         final HttpServer server = createWebServer(httpHandler, port);
