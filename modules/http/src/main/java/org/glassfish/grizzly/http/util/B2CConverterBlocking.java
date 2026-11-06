@@ -217,7 +217,7 @@ final class ReadConverter extends InputStreamReader {
 }
 
 /**
- * Special output stream where close() is overriden, so super.close() is never called.
+ * Special output stream where close() is overridden, so super.close() is never called.
  * 
  * This allows recycling. It can also be disabled, so callbacks will not be called if recycling the converter and if
  * data was not flushed.
