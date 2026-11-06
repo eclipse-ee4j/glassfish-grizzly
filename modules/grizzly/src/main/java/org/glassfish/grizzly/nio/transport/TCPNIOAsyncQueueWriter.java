@@ -382,9 +382,23 @@ public final class TCPNIOAsyncQueueWriter extends AbstractNIOAsyncQueueWriter {
 
         @Override
         public void notifyFailure(final Throwable e) {
+            // the buffers of the records are back in their state, if a write failed before update()
+            for (int i = 0; i < savedBufferStates.size(); i++) {
+                final BufferArray savedState = savedBufferStates.get(i);
+                if (savedState != null) {
+                    savedState.restore();
+                    savedState.recycle();
+                }
+            }
+            savedBufferStates.clear();
             AsyncWriteQueueRecord record;
             while ((record = queue.poll()) != null) {
-                record.notifyFailure(e);
+                try {
+                    record.notifyFailure(e);
+                } catch (RuntimeException | Error handlerFailure) {
+                    // the other records are notified
+                    LOGGER.log(Level.WARNING, "Completion handler of a write failed", handlerFailure);
+                }
             }
         }
 

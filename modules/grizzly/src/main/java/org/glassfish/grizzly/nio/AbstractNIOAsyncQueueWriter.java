@@ -479,39 +479,71 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
         AsyncWriteQueueRecord queueRecord = null;
         try {
             while ((queueRecord = aggregate(writeTaskQueue)) != null) {
-                final RecordWriteResult writeResult = write0(nioConnection, queueRecord);
+                final RecordWriteResult writeResult;
+                try {
+                    writeResult = write0(nioConnection, queueRecord);
+                } catch (RuntimeException | Error e) {
+                    // the completion handlers of aggregated records run in write0(); the connection is closed, see below
+                    LOGGER.log(Level.WARNING, "Writing the held records failed", e);
+                    failed = true;
+                    failHeldRecords(nioConnection, queueRecord, e);
+                    break;
+                }
                 writeTaskQueue.releaseSpace((int) writeResult.bytesToReleaseAfterLastWrite());
 
                 if (!queueRecord.isFinished()) {
-                    queueRecord.notifyIncomplete();
+                    try {
+                        queueRecord.notifyIncomplete();
+                    } catch (RuntimeException | Error e) {
+                        LOGGER.log(Level.WARNING, "Completion handler of a write failed", e);
+                        failed = true;
+                        // the current element, so that the close fails it
+                        writeTaskQueue.setCurrentElement(queueRecord);
+                        nioConnection.terminateSilently();
+                        break;
+                    }
                     writeTaskQueue.setCurrentElement(queueRecord);
                     break;
                 }
 
                 try {
                     finishQueueRecord(nioConnection, queueRecord);
-                } catch (RuntimeException e) {
-                    // don't fail the caller (e.g. a write, canWrite(), the end of a READ run) for a completion handler
+                } catch (RuntimeException | Error e) {
+                    // Don't fail the caller (e.g. a write, canWrite(), the end of a READ run) for a completion handler.
+                    // As when it runs in a filter chain, the connection is closed: its state may be broken.
                     LOGGER.log(Level.WARNING, "Completion handler of a write failed", e);
+                    failed = true;
+                    nioConnection.terminateSilently();
+                    break;
                 }
             }
         } catch (IOException e) {
             failed = true;
-            nioConnection.heldWritesState = NIOConnection.NONE_HELD;
             // not gracefully: the close would be queued behind records nobody writes any more
-            onWriteFailure(nioConnection, queueRecord, false, e);
+            failHeldRecords(nioConnection, queueRecord, e);
         } finally {
             nioConnection.heldWritesState = NIOConnection.NONE_HELD;
-            // an incomplete record, or records queued meanwhile, are written as usual; also if a completion handler threw
+            // an incomplete record, or records queued meanwhile, are written as usual, unless the drain failed: then the close fails them
             if (writeTaskQueue.releaseSpace(1) > 0 && !failed) {
                 try {
                     onReadyToWrite(nioConnection);
-                } catch (IOException e) {
+                } catch (IOException | RuntimeException e) {
                     LOGGER.log(Level.FINE, "Could not register for OP_WRITE", e);
                     nioConnection.terminateSilently();
                 }
             }
             writeTaskQueue.doNotify();
+        }
+    }
+
+    /**
+     * Fails the record and terminates the connection, without failing the caller for a completion handler.
+     */
+    private static void failHeldRecords(final NIOConnection nioConnection, final AsyncWriteQueueRecord queueRecord, final Throwable cause) {
+        try {
+            onWriteFailure(nioConnection, queueRecord, false, cause);
+        } catch (RuntimeException | Error e) {
+            LOGGER.log(Level.WARNING, "Completion handler of a write failed", e);
         }
     }
 
@@ -585,11 +617,14 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
     protected static void onWriteFailure(final Connection connection, final AsyncWriteQueueRecord failedRecord,
                                          final boolean graceful, final Throwable e) {
-        failedRecord.notifyFailure(e);
-        if (graceful) {
-            connection.closeSilently();
-        } else {
-            connection.terminateSilently();
+        try {
+            failedRecord.notifyFailure(e);
+        } finally {
+            if (graceful) {
+                connection.closeSilently();
+            } else {
+                connection.terminateSilently();
+            }
         }
     }
 
