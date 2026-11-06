@@ -104,7 +104,8 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
             // the caller would wait for writes it holds back itself: write them now
             flushHeldWrites(nioConnection);
             final int sizeAfterFlush = connectionQueue.spaceInBytes();
-            return sizeAfterFlush == 0 || sizeAfterFlush < connectionMaxPendingBytes;
+            // the flush may have closed the connection
+            return nioConnection.isOpen() && (sizeAfterFlush == 0 || sizeAfterFlush < connectionMaxPendingBytes);
         }
 
         return false;
@@ -121,20 +122,30 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
     @Override
     public void notifyWritePossible(final Connection<SocketAddress> connection, final WriteHandler writeHandler) {
-        if (!connection.isOpen()) {
-            if (writeHandler != null) {
-                final CloseReason reason = connection.getCloseReason();
-                writeHandler.onError(
-                        new IOException("Connection is closed", reason != null ? reason.getCause() : null));
-            }
+        final NIOConnection nioConnection = (NIOConnection) connection;
+        if (rejectIfClosed(nioConnection, writeHandler)) {
             return;
         }
-        final NIOConnection nioConnection = (NIOConnection) connection;
         if (nioConnection.isWritesCorked()) {
             // the caller would wait for writes it holds back itself: write them now
             flushHeldWrites(nioConnection);
+            // the flush may have closed the connection (a graceful close held behind the writes, a failing handler)
+            if (rejectIfClosed(nioConnection, writeHandler)) {
+                return;
+            }
         }
         nioConnection.getAsyncWriteQueue().notifyWritePossible(writeHandler);
+    }
+
+    private static boolean rejectIfClosed(final Connection<?> connection, final WriteHandler writeHandler) {
+        if (connection.isOpen()) {
+            return false;
+        }
+        if (writeHandler != null) {
+            final CloseReason reason = connection.getCloseReason();
+            writeHandler.onError(new IOException("Connection is closed", reason != null ? reason.getCause() : null));
+        }
+        return true;
     }
 
     /**
