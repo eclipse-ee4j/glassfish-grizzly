@@ -43,10 +43,13 @@ public class Context implements AttributeStorage, Cacheable {
         if (context == null) {
             context = new Context();
         }
+        // the processing may complete on another thread: give it back to this one
+        context.cacheOwner = ThreadCache.currentOwner();
 
         context.setConnection(connection);
         return context;
     }
+
 
     public static Context create(final Connection connection, final Processor processor, final IOEvent ioEvent,
             final IOEventLifeCycleListener lifeCycleListener) {
@@ -70,6 +73,8 @@ public class Context implements AttributeStorage, Cacheable {
      * Processing Connection
      */
     private Connection connection;
+    // the cache of the thread that took this Context, see #create(Connection)
+    private ThreadCache.Owner cacheOwner;
     /**
      * Processing IOEvent
      */
@@ -273,7 +278,9 @@ public class Context implements AttributeStorage, Cacheable {
     @Override
     public void recycle() {
         reset();
-        ThreadCache.putToCache(CACHE_IDX, this);
+        final ThreadCache.Owner owner = cacheOwner;
+        cacheOwner = null;
+        ThreadCache.putToOwnerCache(owner, CACHE_IDX, this);
     }
 
     /**

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -37,7 +38,7 @@ import org.glassfish.grizzly.utils.BufferInputStream;
  *
  * @author Alexey Stashok
  */
-public final class AjpHttpRequest extends HttpRequestPacket {
+public final class AjpHttpRequest extends HttpRequestPacket implements ThreadCache.OwnerAware {
     private static final Logger LOGGER = Grizzly.logger(AjpHttpRequest.class);
 
     private static final ThreadCache.CachedTypeIndex<AjpHttpRequest> CACHE_IDX = ThreadCache.obtainIndex(AjpHttpRequest.class, 2);
@@ -47,6 +48,8 @@ public final class AjpHttpRequest extends HttpRequestPacket {
         if (httpRequestImpl == null) {
             httpRequestImpl = new AjpHttpRequest();
         }
+        // service() and the recycle usually run on a worker thread, not on this one: give it back to this thread
+        httpRequestImpl.cacheOwner = ThreadCache.currentOwner();
 
         return httpRequestImpl.init();
     }
@@ -55,6 +58,14 @@ public final class AjpHttpRequest extends HttpRequestPacket {
     private final DataChunk sslCert = DataChunk.newInstance();
 
     final DataChunk tmpDataChunk = DataChunk.newInstance();
+
+    // the cache of the thread that created this request, see #create()
+    private ThreadCache.Owner cacheOwner;
+
+    @Override
+    public void keepInRecyclingThreadCache() {
+        cacheOwner = null;
+    }
 
     private String secret;
 
@@ -244,7 +255,10 @@ public final class AjpHttpRequest extends HttpRequestPacket {
     public void recycle() {
         reset();
 
-        ThreadCache.putToCache(CACHE_IDX, this);
+        final ThreadCache.Owner owner = cacheOwner;
+        // a retained request must not keep its owner's returned objects alive
+        cacheOwner = null;
+        ThreadCache.putToOwnerCache(owner, CACHE_IDX, this);
     }
 
 }

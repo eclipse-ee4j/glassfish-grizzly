@@ -98,12 +98,35 @@ public class Request {
     private static final AtomicLong REQUEST_ID_GENERATOR = new AtomicLong(0);
 
     public static Request create() {
-        final Request request = ThreadCache.takeFromCache(CACHE_IDX);
-        if (request != null) {
-            return request;
+        Request request = ThreadCache.takeFromCache(CACHE_IDX);
+        if (request == null) {
+            request = new Request(new Response());
         }
+        // service() and the recycle usually run on a worker thread, not on this one: give it back to this thread
+        request.cacheOwner = ThreadCache.currentOwner();
+        return request;
+    }
 
-        return new Request(new Response());
+    private ThreadCache.Owner cacheOwner;
+
+    /**
+     * The request did not complete synchronously (its response was suspended, or its body was read asynchronously):
+     * another thread may still touch this request, its packet or its context after the recycle (e.g. an async read
+     * callback after a resume), so none of them may go back to the thread that created it, which could hand it to
+     * another connection right away. They go to the cache of the recycling thread, as before #2386. An application that
+     * reads or writes from its own thread without suspending the response, racing its completion, is not covered (that
+     * was never allowed), nor is a WriteHandler registered with notifyCanWrite without a suspend whose callback runs
+     * after the request completed. A packet whose body is still expected is not recycled here at all: the codec recycles
+     * it later, as before.
+     */
+    void keepCachesLocal() {
+        cacheOwner = null;
+        if (request instanceof ThreadCache.OwnerAware) {
+            ((ThreadCache.OwnerAware) request).keepInRecyclingThreadCache();
+        }
+        if (ctx != null) {
+            ctx.keepInRecyclingThreadCache();
+        }
     }
 
     /**
@@ -599,7 +622,10 @@ public class Request {
             cachedMappingData.recycle();
         }
 
-        ThreadCache.putToCache(CACHE_IDX, this);
+        final ThreadCache.Owner owner = cacheOwner;
+        // a retained request must not keep its owner's returned objects alive
+        cacheOwner = null;
+        ThreadCache.putToOwnerCache(owner, CACHE_IDX, this);
     }
 
     // -------------------------------------------------------- Request Methods
@@ -1922,7 +1948,17 @@ public class Request {
 
     }
 
-    private Charset lookupCharset(final String enc) {
+    /**
+     * Returns the charset request parameters are decoded with, see {@link #parseRequestParameters()}. The default
+     * implementation looks up the given encoding and falls back to
+     * {@link org.glassfish.grizzly.http.util.Constants#DEFAULT_HTTP_CHARSET} if the request names no encoding or one
+     * that is not supported. Subclasses may override this to use a fallback of their own, for example a configured
+     * default.
+     *
+     * @param enc the character encoding of the request, see {@link #getCharacterEncoding()}; may be {@code null}
+     * @return the charset to decode request parameters with
+     */
+    protected Charset lookupCharset(final String enc) {
         Charset charset;
         if (enc != null) {
             try {

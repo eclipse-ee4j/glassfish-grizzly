@@ -1006,7 +1006,7 @@ public class HttpServerFilter extends HttpCodecFilter {
         if (status == httpResponse.getHttpStatus() && httpResponse.isCustomReasonPhraseSet()) {
             final DataChunk customReasonPhrase = httpResponse.isHtmlEncodingCustomReasonPhrase() ? HttpUtils.filter(httpResponse.getReasonPhraseDC())
                     : HttpUtils.filterNonPrintableCharacters(httpResponse.getReasonPhraseDC());
-            output = put(memoryManager, output, httpResponse.getTempHeaderEncodingBuffer(), customReasonPhrase);
+            output = put(memoryManager, output, httpResponse.getTempHeaderEncodingBuffer(output), customReasonPhrase);
         } else {
             output = put(memoryManager, output, status.getReasonPhraseBytes());
         }
@@ -1265,17 +1265,25 @@ public class HttpServerFilter extends HttpCodecFilter {
 
     } // END KeepAliveResolver
 
-    private static final class ServerHttpRequestImpl extends HttpRequestPacket implements HttpPacketParsing {
+    private static final class ServerHttpRequestImpl extends HttpRequestPacket implements HttpPacketParsing, ThreadCache.OwnerAware {
 
         private static final ThreadCache.CachedTypeIndex<ServerHttpRequestImpl> CACHE_IDX = ThreadCache.obtainIndex(ServerHttpRequestImpl.class, 16);
 
         public static ServerHttpRequestImpl create() {
-            final ServerHttpRequestImpl httpRequestImpl = ThreadCache.takeFromCache(CACHE_IDX);
-            if (httpRequestImpl != null) {
-                return httpRequestImpl;
+            ServerHttpRequestImpl httpRequestImpl = ThreadCache.takeFromCache(CACHE_IDX);
+            if (httpRequestImpl == null) {
+                httpRequestImpl = new ServerHttpRequestImpl();
             }
+            // service() and the recycle usually run on a worker thread, not on this one: give it back to this thread
+            httpRequestImpl.cacheOwner = ThreadCache.currentOwner();
+            return httpRequestImpl;
+        }
 
-            return new ServerHttpRequestImpl();
+        private ThreadCache.Owner cacheOwner;
+
+        @Override
+        public void keepInRecyclingThreadCache() {
+            cacheOwner = null;
         }
 
         /**
@@ -1404,7 +1412,10 @@ public class HttpServerFilter extends HttpCodecFilter {
                 return;
             }
             reset();
-            ThreadCache.putToCache(CACHE_IDX, this);
+            final ThreadCache.Owner owner = cacheOwner;
+            // a retained packet must not keep its owner's returned objects alive
+            cacheOwner = null;
+            ThreadCache.putToOwnerCache(owner, CACHE_IDX, this);
         }
     }
 }

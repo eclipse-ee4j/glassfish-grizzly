@@ -52,7 +52,7 @@ import org.glassfish.grizzly.utils.Holder;
  * @author Alexey Stashok
  */
 @SuppressWarnings("deprecation")
-public class FilterChainContext implements AttributeStorage {
+public class FilterChainContext implements AttributeStorage, ThreadCache.OwnerAware {
     private static final Logger logger = Grizzly.logger(FilterChainContext.class);
 
     public enum State {
@@ -74,6 +74,8 @@ public class FilterChainContext implements AttributeStorage {
         if (context == null) {
             context = new FilterChainContext();
         }
+        // the processing may complete on another thread (e.g. resumed by a worker): give it back to this one
+        context.cacheOwner = ThreadCache.currentOwner();
 
         context.setConnection(connection);
         context.setCloseable(closeable);
@@ -83,6 +85,7 @@ public class FilterChainContext implements AttributeStorage {
     }
 
     public static final int NO_FILTER_INDEX = Integer.MIN_VALUE;
+
 
     /**
      * Cached {@link NextAction} instance for "Invoke action" implementation
@@ -103,6 +106,9 @@ public class FilterChainContext implements AttributeStorage {
     private static final NextAction RERUN_FILTER_ACTION = new RerunFilterAction();
 
     final InternalContextImpl internalContext = new InternalContextImpl(this);
+
+    // the cache of the thread that took this context, see #create(Connection, Closeable)
+    private ThreadCache.Owner cacheOwner;
 
     final TransportContext transportFilterContext = new TransportContext();
 
@@ -917,11 +923,20 @@ public class FilterChainContext implements AttributeStorage {
     public void completeAndRecycle() {
         notifyComplete(this, completionListeners);
         reset();
-        ThreadCache.putToCache(CACHE_IDX, this);
+        final ThreadCache.Owner owner = cacheOwner;
+        cacheOwner = null;
+        ThreadCache.putToOwnerCache(owner, CACHE_IDX, this);
+    }
+
+    @Override
+    public void keepInRecyclingThreadCache() {
+        cacheOwner = null;
     }
 
     public void completeAndRelease() {
         notifyComplete(this, completionListeners);
+        // not cached again: a kept reference must not keep the owner's returned objects alive
+        cacheOwner = null;
     }
 
     @Override

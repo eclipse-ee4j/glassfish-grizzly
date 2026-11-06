@@ -609,7 +609,7 @@ public class HttpServer {
             config.setMaxFormPostSize(listener.getMaxFormPostSize());
             config.setMaxBufferedPostSize(listener.getMaxBufferedPostSize());
 
-            final HttpServerFilter httpServerFilter = new HttpServerFilter(config, delayedExecutor);
+            final HttpServerFilter httpServerFilter = createHttpServerFilter(listener, config, delayedExecutor);
             httpServerFilter.setHttpHandler(httpHandlerChain);
 
             httpServerFilter.getMonitoringConfig().addProbes(serverConfig.getMonitoringConfig().getWebServerConfig().getProbes());
@@ -675,6 +675,24 @@ public class HttpServer {
         // handle idle connections for us
         return new org.glassfish.grizzly.http.HttpServerFilter(listener.isChunkingEnabled(), maxHeaderSize, null, listener.getKeepAlive(), null,
                 listener.getMaxRequestHeaders(), listener.getMaxResponseHeaders());
+    }
+
+    /**
+     * Creates the HTTP server filter for the given listener. The default implementation builds a plain
+     * {@link HttpServerFilter}. Subclasses may override this to supply a subclass of their own, for example one that
+     * overrides {@link HttpServerFilter#createRequest()} or {@link HttpServerFilter#beforeService(Request, Response)}.
+     * The returned filter is wired up by {@link #configureListener(NetworkListener)}: it gets this server's handler
+     * chain and monitoring probes and is added to the listener's filter chain, so an override does not need to repeat
+     * that wiring.
+     *
+     * @param listener the listener the server filter is created for
+     * @param config the configuration of the server filter, already adjusted to the listener's settings
+     * @param delayedExecutor the delayed executor of this server
+     * @return the HTTP server filter to use for the listener
+     */
+    protected HttpServerFilter createHttpServerFilter(final NetworkListener listener, final ServerFilterConfiguration config,
+            final DelayedExecutor delayedExecutor) {
+        return new HttpServerFilter(config, delayedExecutor);
     }
 
     @SuppressWarnings("unchecked")

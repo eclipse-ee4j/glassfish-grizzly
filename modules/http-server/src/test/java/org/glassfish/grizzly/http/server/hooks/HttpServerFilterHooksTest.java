@@ -24,6 +24,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Locale;
@@ -97,6 +98,32 @@ public class HttpServerFilterHooksTest {
 
         assertEquals(List.of(), failures);
         assertEquals(3, handlerCalls.get());
+    }
+
+    @Test
+    public void customRequestChoosesParameterCharsetFallback() throws Exception {
+        startServer((config, delayed) -> new HttpServerFilter(config, delayed) {
+            @Override
+            protected Request createRequest() {
+                return new Utf8FallbackRequest();
+            }
+        }, new HttpHandler() {
+            @Override
+            public void service(final Request request, final Response response) throws Exception {
+                handlerCalls.incrementAndGet();
+                writeBody(response, 200, "\u00e4".equals(request.getParameter("p")) && "\u00f6".equals(request.getParameter("q")) ? "utf-8" : "other");
+            }
+        });
+
+        // Neither the request nor its form body names a charset: the query string and the body are decoded with the fallback
+        final String body = "q=%C3%B6";
+        try (Socket socket = connect()) {
+            final HttpResult result = exchange(socket, "POST /?p=%C3%A4 HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/x-www-form-urlencoded\r\n"
+                    + "Content-Length: " + body.length() + "\r\n\r\n" + body);
+            assertEquals(200, result.status);
+            assertEquals("utf-8", result.body);
+        }
+        assertEquals(1, handlerCalls.get());
     }
 
     @Test
@@ -300,5 +327,20 @@ public class HttpServerFilterHooksTest {
     }
 
     private static final class CustomResponse extends Response {
+    }
+
+    /**
+     * Request decoding parameters as UTF-8 unless the request names a charset.
+     */
+    private static final class Utf8FallbackRequest extends Request {
+
+        Utf8FallbackRequest() {
+            super(new CustomResponse());
+        }
+
+        @Override
+        protected Charset lookupCharset(final String enc) {
+            return enc == null ? StandardCharsets.UTF_8 : super.lookupCharset(enc);
+        }
     }
 }

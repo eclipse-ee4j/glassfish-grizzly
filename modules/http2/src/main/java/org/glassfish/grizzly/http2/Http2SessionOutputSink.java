@@ -161,6 +161,33 @@ public class Http2SessionOutputSink {
             writeDownStream(msg, completionHandler, messageCloner);
             return;
         } else if (headerFrames != null && !headerFrames.isEmpty()) {
+            // Fast path: nothing is queued ahead of this data and the connection window covers it, so send the
+            // HEADERS and the DATA frame in one write instead of two. Headers still leave right now from this thread,
+            // which keeps the compression state consistent; if another thread is flushing, take the regular path.
+            final int size = data.remaining();
+            if (size <= MAX_FRAME_PAYLOAD_SIZE && stream.getUnflushedWritesCount() == 1 && outputQueue.isEmpty()
+                    && writerLock.compareAndSet(false, true)) {
+                boolean written = false;
+                try {
+                    if (outputQueue.isEmpty() && availConnectionWindowSize.get() >= size && connectionCanWrite()) {
+                        final Buffer payload = messageCloner != null ? messageCloner.clone(http2Session.getConnection(), data) : data;
+                        headerFrames.add(DataFrame.builder().streamId(stream.getId()).data(payload).endStream(isLast).build());
+                        availConnectionWindowSize.addAndGet(-size);
+                        written = true;
+                        writeDownStream(headerFrames, completionHandler, null);
+                    }
+                } finally {
+                    writerLock.set(false);
+                }
+                if (written) {
+                    // data queued meanwhile, e.g. by the completion handler of this write, found the writer locked
+                    if (!outputQueue.isEmpty()) {
+                        flushOutputQueue();
+                    }
+                    return;
+                }
+            }
+
             // flush the headers now in this thread,
             // because we have to keep compression state consistent
             writeDownStream(headerFrames);

@@ -36,7 +36,9 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -705,6 +707,55 @@ public class AsyncWriteQueueTest {
             }
             if (transport.isPaused()) {
                 transport.resume();
+            }
+            transport.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testNotifyCanWriteOnClosingConnection() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
+        Connection<SocketAddress> connection = null;
+        FilterChainBuilder filterChainBuilder = FilterChainBuilder.stateless();
+        filterChainBuilder.add(new TransportFilter());
+        final TCPNIOTransport transport = createTransport(isOptimizedForMultiplexing);
+        transport.setProcessor(filterChainBuilder.build());
+        try {
+            final AsyncQueueWriter<SocketAddress> asyncQueueWriter = transport.getAsyncQueueIO().getWriter();
+            transport.bind(port);
+            transport.start();
+            connection = transport.connect("localhost", port).get(10, TimeUnit.SECONDS);
+            assertNotNull(connection);
+
+            var canWriteDuringClose = new AtomicBoolean(true);
+            var writePossibleCount = new AtomicInteger();
+            var error = new AtomicReference<>();
+            var closingConnection = connection;
+            closingConnection.addCloseListener(
+                    (org.glassfish.grizzly.CloseListener<Connection<SocketAddress>, ?>) (closeable, type) -> {
+                        canWriteDuringClose.set(asyncQueueWriter.canWrite(closingConnection));
+                        asyncQueueWriter.notifyWritePossible(closingConnection, new WriteHandler() {
+                            @Override
+                            public void onWritePossible() {
+                                writePossibleCount.incrementAndGet();
+                            }
+
+                            @Override
+                            public void onError(Throwable throwable) {
+                                error.set(throwable);
+                            }
+                        });
+                    });
+            closingConnection.close().get(3, TimeUnit.SECONDS);
+
+            assertFalse(closingConnection.isOpen());
+            assertFalse(closingConnection.canWrite());
+            assertFalse(canWriteDuringClose.get());
+            assertEquals(0, writePossibleCount.get());
+            assertTrue(error.get() instanceof IOException);
+        } finally {
+            if (connection != null && connection.isOpen()) {
+                connection.closeSilently();
             }
             transport.shutdownNow();
         }

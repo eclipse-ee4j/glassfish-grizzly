@@ -185,7 +185,7 @@ public class NetworkListener {
      * configured maximum pending bytes. If a write would exceed the hard limit,
      * the write fails and the connection is closed. The default is {@code 4}.
      */
-    private volatile int pendingBytesHardLimitMultiplier = AsyncQueueWriter.DEFAULT_PENDING_BYTES_HARD_LIMIT_MULTIPLIER;
+    private volatile int pendingBytesHardLimitMultiplier = AsyncQueueWriter.AUTO_SIZE;
     /**
      * Flag indicating the state of this listener.
      */
@@ -723,16 +723,12 @@ public class NetworkListener {
      * asynchronous writes per connection.
      *
      * <p>A value greater than zero is used as the multiplier. A value less than
-     * or equal to zero resets the multiplier to the default value.</p>
+     * or equal to zero enables automatic configuration.</p>
      *
-     * <p>The default value is {@code 4}.</p>
-     *
-     * @param multiplier the hard limit multiplier, or a non-positive value to
-     *        use the default multiplier
+     * @param multiplier the hard limit multiplier
      */
     public void setPendingBytesHardLimitMultiplier(final int multiplier) {
-        final int effectiveMultiplier =
-                multiplier > 0 ? multiplier : AsyncQueueWriter.DEFAULT_PENDING_BYTES_HARD_LIMIT_MULTIPLIER;
+        final int effectiveMultiplier = multiplier > 0 ? multiplier : AsyncQueueWriter.AUTO_SIZE;
         this.pendingBytesHardLimitMultiplier = effectiveMultiplier;
         transport.getAsyncQueueIO().getWriter().setPendingBytesHardLimitMultiplier(effectiveMultiplier);
     }

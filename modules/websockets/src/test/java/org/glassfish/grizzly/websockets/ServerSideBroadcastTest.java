@@ -60,15 +60,15 @@ public class ServerSideBroadcastTest extends BaseWebSocketTestUtilities {
     @Test
     public void broadcast() throws IOException, InstantiationException, ExecutionException, InterruptedException, URISyntaxException {
         final int websocketsCount = 5;
-
-        WebSocketServer server = WebSocketServer.createServer(PORT);
+        final int port = TestUtils.findAvailableTcpPort();
+        WebSocketServer server = WebSocketServer.createServer(port);
         server.register("", "/broadcast", new BroadcastApplication(broadcaster));
         server.start();
         List<TrackingWebSocket> clients = new ArrayList<>();
         try {
             String[] messages = { "test message", "let's try again", "3rd time's the charm!", "ok.  just one more", "now, we're done" };
 
-            final String address = String.format("ws://localhost:%s/broadcast", PORT);
+            final String address = String.format("ws://localhost:%s/broadcast", port);
             for (int x = 0; x < websocketsCount; x++) {
                 final TrackingWebSocket socket = new TrackingWebSocket(address, x + "", version, messages.length * websocketsCount * ITERATIONS);
 

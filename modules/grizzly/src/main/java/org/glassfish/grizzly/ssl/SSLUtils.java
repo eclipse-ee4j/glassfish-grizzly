@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2008, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -233,6 +234,10 @@ public final class SSLUtils {
         return !(handshakeStatus == HandshakeStatus.FINISHED || handshakeStatus == HandshakeStatus.NOT_HANDSHAKING);
     }
 
+    /**
+     * Unwraps one handshake record. Application data the engine decrypts meanwhile is kept in {@code sslCtx} (to be
+     * passed upstream once the handshake is done) and removed from {@code tmpOutputBuffer}, whose position is moved back.
+     */
     public static SSLEngineResult handshakeUnwrap(final int length, final SSLConnectionContext sslCtx, final Buffer inputBuffer, final Buffer tmpOutputBuffer)
             throws SSLException {
 
@@ -241,6 +246,24 @@ public final class SSLUtils {
         final Buffer output = result.getOutput();
 
         assert !output.isComposite();
+
+        if (!result.isError()) {
+            // Engines that process several records per unwrap may decrypt application data sent right after the
+            // client's Finished message (e.g. the first HTTP request) while still reporting the handshake: keep it.
+            final int produced = result.getSslEngineResult().bytesProduced();
+            if (produced > 0) {
+                final int end = output.position();
+                final boolean kept = sslCtx.addHandshakeAppData(output, end - produced, end);
+                output.position(end - produced);
+                if (!kept) {
+                    if (output != tmpOutputBuffer) {
+                        output.dispose();
+                    }
+                    throw new SSLException("More than " + SSLConnectionContext.MAX_HANDSHAKE_APP_DATA
+                            + " bytes of application data received during the handshake");
+                }
+            }
+        }
 
         if (output != tmpOutputBuffer) {
             output.dispose();

@@ -155,12 +155,15 @@ public class TCPNIOUtils {
                 ByteBuffer currentDirectBufferSlice = ioRecord.getDirectBufferSlice();
 
                 if (currentDirectBufferSlice == null) {
-                    final ByteBuffer directByteBuffer = ioRecord.getDirectBuffer();
-                    if (directByteBuffer == null) {
-                        ioRecord.allocate(totalRemaining); // allocate buffer big enough to put the entire message (not just the chunk we're writing)
+                    if (ioRecord.getDirectBuffer() == null) {
+                        // allocate a buffer big enough for the entire message (not just the chunk we're writing);
+                        // allocate() makes the whole cleared buffer the current slice, so no slice() view is needed
+                        currentDirectBufferSlice = ioRecord.allocate(totalRemaining);
+                        assert ioRecord.getDirectBufferSlice() == currentDirectBufferSlice;
+                    } else {
+                        // a direct component interrupted the heap run: continue behind it
+                        currentDirectBufferSlice = ioRecord.sliceBuffer();
                     }
-
-                    currentDirectBufferSlice = ioRecord.sliceBuffer();
                 }
 
                 final int oldLim = currentDirectBufferSlice.limit();

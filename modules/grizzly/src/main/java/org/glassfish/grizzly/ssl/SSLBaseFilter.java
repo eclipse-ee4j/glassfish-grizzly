@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates and others.
  * All rights reserved.
  *
@@ -281,13 +282,20 @@ public class SSLBaseFilter extends BaseFilter {
                 notifyHandshakeStart(connection);
             }
 
-            final Buffer buffer;
+            Buffer buffer;
             buffer = handshakeTimeoutMillis >= 0 ? doHandshakeSync(sslCtx, ctx, (Buffer) ctx.getMessage(), handshakeTimeoutMillis)
                     : makeInputRemainder(sslCtx, ctx, doHandshakeStep(sslCtx, ctx, (Buffer) ctx.getMessage()));
 
-            final boolean hasRemaining = buffer != null && buffer.hasRemaining();
-
             final boolean isHandshaking = isHandshaking(sslEngine);
+
+            // Application data decrypted together with the end of the handshake must be passed upstream now, even if
+            // no further input is pending (the peer is waiting for the response).
+            final boolean hasAppData = !isHandshaking && sslCtx.hasHandshakeAppData();
+            if (hasAppData && (buffer == null || !buffer.hasRemaining())) {
+                buffer = ctx.getMemoryManager().allocate(0);
+            }
+            final boolean hasRemaining = buffer != null && (buffer.hasRemaining() || hasAppData);
+
             if (!isHandshaking) {
                 notifyHandshakeComplete(connection, sslEngine);
                 final FilterChain connectionFilterChain = sslCtx.getNewConnectionFilterChain();
@@ -343,12 +351,22 @@ public class SSLBaseFilter extends BaseFilter {
         }
     }
 
+    @Override
+    public NextAction handleClose(final FilterChainContext ctx) throws IOException {
+        final SSLConnectionContext sslCtx = getSslConnectionContext(ctx.getConnection());
+        if (sslCtx != null) {
+            sslCtx.disposeHandshakeAppData();
+        }
+        return ctx.getInvokeAction();
+    }
+
     // ------------------------------------------------------- Protected Methods
 
     protected NextAction unwrapAll(final FilterChainContext ctx, final SSLConnectionContext sslCtx) throws SSLException {
         Buffer input = ctx.getMessage();
 
-        Buffer output = null;
+        // application data decrypted while the handshake completed goes first; further records are appended to it
+        Buffer output = sslCtx.takeHandshakeAppData();
 
         boolean isClosed = false;
 
@@ -370,12 +388,26 @@ public class SSLBaseFilter extends BaseFilter {
 
             if (isHandshaking(sslCtx.getSslEngine())) {
                 // is it re-handshake or graceful ssl termination
-                if (result.getSslEngineResult().getStatus() != Status.CLOSED) {
-                    input = rehandshake(ctx, sslCtx);
-                } else {
-                    input = silentRehandshake(ctx, sslCtx); // silent SSL termination
-                    isClosed = true;
+                try {
+                    if (result.getSslEngineResult().getStatus() != Status.CLOSED) {
+                        // the rest of the input (e.g. records the peer sent right after its ClientHello) belongs to
+                        // the handshake
+                        input = rehandshake(ctx, sslCtx, input);
+                    } else {
+                        // records after close_notify are ignored
+                        input.tryDispose();
+                        input = silentRehandshake(ctx, sslCtx); // silent SSL termination
+                        isClosed = true;
+                    }
+                } catch (SSLException e) {
+                    if (output != null) {
+                        output.dispose();
+                    }
+                    throw e;
                 }
+
+                // application data decrypted during the re-handshake follows the records unwrapped before it
+                output = appendHandshakeAppData(output, sslCtx.takeHandshakeAppData(), ctx);
 
                 if (input == null) {
                     break;
@@ -627,12 +659,30 @@ public class SSLBaseFilter extends BaseFilter {
         }
 
         try {
-            rehandshake(context, sslCtx);
+            // Application data the peer sends during this renegotiation is passed upstream with the next read. Input
+            // read beyond the end of the handshake is dropped, as it was before application data was kept.
+            rehandshake(context, sslCtx, null);
         } finally {
             if (!authConfigured) {
                 sslEngine.setNeedClientAuth(false);
             }
         }
+    }
+
+    private static Buffer appendHandshakeAppData(final Buffer output, final Buffer data, final FilterChainContext ctx) {
+        if (data == null) {
+            return output;
+        }
+        if (output == null) {
+            return data; // in write mode, like an unwrap output
+        }
+        data.flip();
+        final Buffer result = output.remaining() < data.remaining()
+                ? ctx.getMemoryManager().reallocate(output, output.position() + data.remaining())
+                : output;
+        result.put(data);
+        data.dispose();
+        return result;
     }
 
     private Buffer silentRehandshake(final FilterChainContext context, final SSLConnectionContext sslCtx) throws SSLException {
@@ -651,13 +701,13 @@ public class SSLBaseFilter extends BaseFilter {
         }
     }
 
-    private Buffer rehandshake(final FilterChainContext context, final SSLConnectionContext sslCtx) throws SSLException {
+    private Buffer rehandshake(final FilterChainContext context, final SSLConnectionContext sslCtx, final Buffer input) throws SSLException {
         final Connection c = context.getConnection();
 
         notifyHandshakeStart(c);
 
         try {
-            final Buffer buffer = doHandshakeSync(sslCtx, context, null, handshakeTimeoutMillis);
+            final Buffer buffer = doHandshakeSync(sslCtx, context, input, handshakeTimeoutMillis);
 
             notifyHandshakeComplete(c, sslCtx.getSslEngine());
 
@@ -825,6 +875,10 @@ public class SSLBaseFilter extends BaseFilter {
     }
 
     protected void notifyHandshakeFailed(final Connection connection, final Throwable t) {
+        final SSLConnectionContext sslCtx = getSslConnectionContext(connection);
+        if (sslCtx != null) {
+            sslCtx.disposeHandshakeAppData();
+        }
         if (!handshakeListeners.isEmpty()) {
             for (final HandshakeListener listener : handshakeListeners) {
                 listener.onFailure(connection, t);
