@@ -126,7 +126,6 @@ public final class ProcessorExecutor {
         }
 
         void runTasks() {
-            Error error = null;
             try {
                 // a task may register further tasks: count is re-read
                 for (int i = 0; i < count; i++) {
@@ -137,21 +136,14 @@ public final class ProcessorExecutor {
                     tasks[i] = null;
                     try {
                         task.run();
-                    } catch (RuntimeException e) {
-                        LOGGER.log(Level.WARNING, "Task at the end of a READ processing run failed", e);
-                    } catch (Error e) {
-                        // run the other tasks first
-                        if (error == null) {
-                            error = e;
-                        }
+                    } catch (Throwable t) {
+                        // the uncork task closes its connection itself, see NIOConnection.uncorkWrites()
+                        LOGGER.log(Level.WARNING, "Task at the end of a READ processing run failed", t);
                     }
                 }
             } finally {
                 Arrays.fill(tasks, 0, count, null);
                 count = 0;
-            }
-            if (error != null) {
-                throw error;
             }
         }
     }
@@ -202,6 +194,7 @@ public final class ProcessorExecutor {
         try {
             run.end();
         } catch (Throwable t) {
+            // runTasks() catches the failure of each task: this is a safety net, the context must complete
             LOGGER.log(Level.WARNING, "Ending a READ processing run failed", t);
         }
     }
