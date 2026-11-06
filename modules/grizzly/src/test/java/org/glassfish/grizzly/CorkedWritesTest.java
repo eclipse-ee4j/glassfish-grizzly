@@ -17,6 +17,7 @@
 package org.glassfish.grizzly;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -31,6 +32,7 @@ import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.glassfish.grizzly.asyncqueue.AsyncQueueWriter;
 import org.glassfish.grizzly.filterchain.BaseFilter;
@@ -40,6 +42,7 @@ import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.filterchain.TransportFilter;
 import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.nio.NIOConnection;
+import org.glassfish.grizzly.nio.NIOTransport;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
 import org.glassfish.grizzly.strategies.SameThreadIOStrategy;
@@ -198,6 +201,125 @@ public class CorkedWritesTest {
             } catch (SocketTimeoutException e) {
                 return "<timeout>";
             }
+        }
+    }
+
+    /**
+     * Another thread closes the connection while this thread holds a write: the close is queued behind the held write,
+     * so the connection is still open. The flush in notifyWritePossible completes the close, and the handler must then
+     * get an error, not onWritePossible(). Reverted, the test fails unless the selector thread has already finished closing
+     * the connection, a window of microseconds.
+     */
+    @Test
+    public void notifyWritePossibleFailsWhenTheFlushClosesTheConnection() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicBoolean corked = new AtomicBoolean();
+        final AtomicBoolean openBefore = new AtomicBoolean();
+        final AtomicBoolean closerFinished = new AtomicBoolean();
+        final AtomicBoolean possible = new AtomicBoolean();
+        final AtomicReference<Throwable> error = new AtomicReference<>();
+        final TCPNIOTransport transport = singleWorkerTransport(new BaseFilter() {
+            @Override
+            public NextAction handleRead(final FilterChainContext ctx) throws IOException {
+                final NIOConnection connection = (NIOConnection) ctx.getConnection();
+                corked.set(connection.corkWrites());
+                ctx.write(Buffers.wrap(ctx.getMemoryManager(), "reply"));
+                final Thread closer = new Thread(connection::closeSilently);
+                closer.start();
+                try {
+                    closer.join(5000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                closerFinished.set(!closer.isAlive());
+                openBefore.set(connection.isOpen());
+                ((NIOTransport) connection.getTransport()).getAsyncQueueIO().getWriter().notifyWritePossible(connection, new WriteHandler() {
+                    @Override
+                    public void onWritePossible() {
+                        possible.set(true);
+                        done.countDown();
+                    }
+
+                    @Override
+                    public void onError(final Throwable t) {
+                        error.set(t);
+                        done.countDown();
+                    }
+                });
+                return ctx.getStopAction();
+            }
+        });
+        transport.bind(port);
+        transport.start();
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress("localhost", port), 5000);
+            socket.getOutputStream().write("go".getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+            assertTrue("the write handler was not notified", done.await(5, TimeUnit.SECONDS));
+            assertTrue("the connection must be corked", corked.get());
+            assertTrue("the closing thread did not finish", closerFinished.get());
+            assertTrue("the close must be queued behind the held write", openBefore.get());
+            assertFalse("the write readiness must be rejected", possible.get());
+            assertTrue("expected an IOException but got " + error.get(), error.get() instanceof IOException);
+            assertEquals("Connection is closed", error.get().getMessage());
+        } finally {
+            transport.shutdownNow();
+        }
+    }
+
+    /**
+     * Another thread queues at least the maximum queue size behind the held write and closes the connection: canWrite()
+     * flushes the held writes, which completes the close, and then must not report write readiness.
+     */
+    @Test
+    public void canWriteIsFalseWhenTheFlushClosesTheConnection() throws Exception {
+        final int port = TestUtils.findAvailableTcpPort();
+        final CountDownLatch done = new CountDownLatch(1);
+        final AtomicBoolean corked = new AtomicBoolean();
+        final AtomicBoolean closerFinished = new AtomicBoolean();
+        final AtomicBoolean full = new AtomicBoolean();
+        final AtomicBoolean openBefore = new AtomicBoolean();
+        final AtomicBoolean canWrite = new AtomicBoolean(true);
+        final TCPNIOTransport transport = singleWorkerTransport(new BaseFilter() {
+            @Override
+            public NextAction handleRead(final FilterChainContext ctx) throws IOException {
+                final NIOConnection connection = (NIOConnection) ctx.getConnection();
+                connection.setMaxAsyncWriteQueueSize(100);
+                corked.set(connection.corkWrites());
+                ctx.write(Buffers.wrap(ctx.getMemoryManager(), "reply"));
+                final Thread closer = new Thread(() -> {
+                    connection.write(Buffers.wrap(connection.getMemoryManager(), new byte[200]));
+                    connection.closeSilently();
+                });
+                closer.start();
+                try {
+                    closer.join(5000);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+                closerFinished.set(!closer.isAlive());
+                full.set(connection.getAsyncWriteQueue().spaceInBytes() >= 100);
+                openBefore.set(connection.isOpen());
+                canWrite.set(((NIOTransport) connection.getTransport()).getAsyncQueueIO().getWriter().canWrite(connection));
+                done.countDown();
+                return ctx.getStopAction();
+            }
+        });
+        transport.bind(port);
+        transport.start();
+        try (Socket socket = new Socket()) {
+            socket.connect(new InetSocketAddress("localhost", port), 5000);
+            socket.getOutputStream().write("go".getBytes(StandardCharsets.US_ASCII));
+            socket.getOutputStream().flush();
+            assertTrue("the handler did not finish", done.await(5, TimeUnit.SECONDS));
+            assertTrue("the connection must be corked", corked.get());
+            assertTrue("the closing thread did not finish", closerFinished.get());
+            assertTrue("the queue must be full", full.get());
+            assertTrue("the close must be queued behind the held write", openBefore.get());
+            assertFalse("a connection closed by the flush has no write readiness", canWrite.get());
+        } finally {
+            transport.shutdownNow();
         }
     }
 
