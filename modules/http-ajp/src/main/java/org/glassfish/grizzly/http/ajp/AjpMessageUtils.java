@@ -248,7 +248,7 @@ final class AjpMessageUtils {
 
         if (hostDC == null) {
             // HTTP/1.0
-            // Default is what the socket tells us. Overriden if a host is
+            // Default is what the socket tells us. Overridden if a host is
             // found/parsed
             request.setServerPort(request.getLocalPort());
             serverNameDC.setString(request.getLocalName());
