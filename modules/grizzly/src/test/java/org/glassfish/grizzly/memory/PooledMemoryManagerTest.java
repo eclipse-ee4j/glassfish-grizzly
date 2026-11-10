@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -646,6 +647,56 @@ public class PooledMemoryManagerTest {
         assertEquals(elementCount + 2, probe.bufferReleasedToPool.get());
         assertEquals(elementCount, slice0.elementsCount());
         assertFalse(slice0.offer(slice0.allocate()));
+    }
+
+    /**
+     * poll()/offer() read the poll and offer indexes non-atomically. A thread delayed between the two reads could see the
+     * other index a whole pool length ahead and wrongly treat a non-empty slice as empty (allocating a new buffer) or a
+     * non-full slice as full (dropping the offered buffer, so the pool shrinks for good).
+     * <p>
+     * Every thread holds at most one buffer at a time and there are fewer threads than slots, so the slice can never be
+     * really empty or full: any {@code null} from poll() or {@code false} from offer() is a misread. The slice is kept
+     * small so that a short preemption between the two reads is enough to lap the index space.
+     */
+    @Test
+    public void testNoFalseEmptyOrFullUnderContention() throws Exception {
+        final int slots = 64;
+        final PooledMemoryManager mm = new PooledMemoryManager(128, 1, 0, 1, (float) (128 * slots) / Runtime.getRuntime().maxMemory(),
+                DEFAULT_PREALLOCATED_BUFFERS_PERCENTAGE, isDirect);
+        final PoolSlice slice = mm.getPools()[0].getSlices()[0];
+        assertEquals(slots, slice.getMaxElementsCount());
+        assertEquals(slots, slice.elementsCount());
+
+        // more threads than cores to provoke preemption, but fewer than slots (see above)
+        final int numThreads = Math.clamp(Runtime.getRuntime().availableProcessors() * 2L, 4, slots - 1);
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2);
+        final AtomicInteger falseEmpty = new AtomicInteger();
+        final AtomicInteger falseFull = new AtomicInteger();
+        final CountDownLatch done = new CountDownLatch(numThreads);
+
+        for (int i = 0; i < numThreads; i++) {
+            final Thread t = new Thread(() -> {
+                try {
+                    while (System.nanoTime() < deadline) {
+                        final PooledMemoryManager.PoolBuffer b = slice.poll();
+                        if (b == null) {
+                            falseEmpty.incrementAndGet();
+                        } else if (!slice.offer(b)) {
+                            falseFull.incrementAndGet();
+                        }
+                    }
+                } finally {
+                    done.countDown();
+                }
+            }, "FalseEmptyOrFull-" + i);
+            t.setDaemon(true);
+            t.start();
+        }
+
+        assertTrue("worker threads did not finish", done.await(1, TimeUnit.MINUTES));
+        final String failures = "poll() returned null although the slice was not empty: " + falseEmpty.get()
+                + ", offer() rejected a buffer although the slice was not full: " + falseFull.get() + ", " + slice;
+        assertTrue(failures, falseEmpty.get() == 0 && falseFull.get() == 0 && slice.elementsCount() == slots);
     }
 
     @Test
