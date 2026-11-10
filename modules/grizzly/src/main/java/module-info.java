@@ -66,4 +66,5 @@ module org.glassfish.grizzly {
     opens org.glassfish.grizzly.utils.conditions;
     
     requires java.logging;
+    requires java.management;
 }

@@ -54,6 +54,16 @@
             <plugin>
                 <groupId>org.apache.felix</groupId>
                 <artifactId>maven-bundle-plugin</artifactId>
+                <configuration>
+                    <instructions>
+                        <!-- PooledMemoryManager looks up HotSpotDiagnosticMXBean reflectively and falls back if missing -->
+                        <Import-Package>
+                            com.sun.management;resolution:=optional,
+                            !android.os,
+                            *,
+                        </Import-Package>
+                    </instructions>
+                </configuration>
                 <executions>
                     <execution>
                         <id>bundle-manifest</id>
