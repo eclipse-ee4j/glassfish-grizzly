@@ -16,6 +16,8 @@
 
 package org.glassfish.grizzly.memory;
 
+import java.lang.management.ManagementFactory;
+import java.lang.management.PlatformManagedObject;
 import java.nio.ByteBuffer;
 import java.nio.charset.Charset;
 import java.util.Arrays;
@@ -133,7 +135,8 @@ public class PooledMemoryManager implements MemoryManager<Buffer>, WrapperAware 
      * @param growthFactor the buffer size growth factor, that defines 2^x multiplier, used to calculate buffer size for
      * next allocated pool
      * @param numberOfPoolSlices the number of pool slices that every pool will stripe allocation requests across
-     * @param percentOfHeap percentage of the heap that will be used when populating the pools
+     * @param percentOfHeap percentage of the heap (of the max direct memory, if <code>isDirect</code> is <code>true</code>)
+     * that will be used when populating the pools
      * @param percentPreallocated percentage of buffers to be pre-allocated during MemoryManager initialization
      * @param isDirect flag, indicating whether direct or heap based {@link Buffer}s will be allocated
      */
@@ -167,8 +170,9 @@ public class PooledMemoryManager implements MemoryManager<Buffer>, WrapperAware 
             throw new IllegalArgumentException("percentPreallocated must be greater or equal to zero and less or equal to 1");
         }
 
-        final long heapSize = Runtime.getRuntime().maxMemory();
-        final long memoryPerSubPool = (long) (heapSize * percentOfHeap / numberOfPools);
+        // direct buffers are limited by the max direct memory, which can be much smaller than the heap
+        final long maxMemory = isDirect ? maxDirectMemory() : Runtime.getRuntime().maxMemory();
+        final long memoryPerSubPool = (long) (maxMemory * percentOfHeap / numberOfPools);
 
         pools = new Pool[numberOfPools];
         for (int i = 0, bufferSize = baseBufferSize; i < numberOfPools; i++, bufferSize <<= growthFactor) {
@@ -392,6 +396,29 @@ public class PooledMemoryManager implements MemoryManager<Buffer>, WrapperAware 
         cb.allowInternalBuffersDispose(true);
         cb.allowBufferDispose(true);
         return cb;
+    }
+
+    /*
+     * Returns the max direct memory (-XX:MaxDirectMemorySize). HotSpotDiagnosticMXBean is accessed reflectively, so neither
+     * a compile time dependency on jdk.management nor an OSGi import of com.sun.management is needed. If the value is not
+     * available or not set, the JDK default applies, i.e. the max direct memory equals the max heap.
+     */
+    static long maxDirectMemory() {
+        try {
+            @SuppressWarnings("unchecked")
+            final Class<? extends PlatformManagedObject> beanType = (Class<? extends PlatformManagedObject>) Class
+                    .forName("com.sun.management.HotSpotDiagnosticMXBean");
+            final Object bean = ManagementFactory.getPlatformMXBean(beanType);
+            final Object option = beanType.getMethod("getVMOption", String.class).invoke(bean, "MaxDirectMemorySize");
+            final long maxDirectMemory = Long.parseLong((String) option.getClass().getMethod("getValue").invoke(option));
+            if (maxDirectMemory > 0) {
+                return maxDirectMemory;
+            }
+        } catch (Exception | LinkageError ignored) {
+            // not a HotSpot based JVM or jdk.management is not available
+        }
+
+        return Runtime.getRuntime().maxMemory();
     }
 
     private static boolean isPowerOfTwo(final int valueToCheck) {
