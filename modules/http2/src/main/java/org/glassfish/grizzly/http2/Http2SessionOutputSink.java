@@ -68,6 +68,8 @@ public class Http2SessionOutputSink {
     private final AtomicBoolean writerLock = new AtomicBoolean();
     // set while a WriteHandler waits on the connection to resume flushOutputQueue()
     private final AtomicBoolean connectionWritePending = new AtomicBoolean();
+    // set by close() before the output queue is closed; the queue's byte counter isn't reliable afterwards
+    private volatile boolean closed;
 
     public Http2SessionOutputSink(Http2Session session) {
         this.http2Session = session;
@@ -218,7 +220,7 @@ public class Http2SessionOutputSink {
 
         // relaxed check if we have free window space and output queue is not empty
         // if yes - lock the writer (only one thread can flush)
-        while (availConnectionWindowSize.get() > 0 && !outputQueue.isEmpty() && connectionCanWrite()
+        while (!closed && availConnectionWindowSize.get() > 0 && !outputQueue.isEmpty() && connectionCanWrite()
                 && writerLock.compareAndSet(false, true)) {
 
             // hand at most one async write queue's worth of frames to the connection at a time
@@ -241,10 +243,13 @@ public class Http2SessionOutputSink {
 
                 final Http2OutputQueueRecord record = outputQueue.poll();
                 if (record == null) {
-                    // keep this warning for now - should be reported when null record is spotted
-                    LOGGER.log(Level.WARNING, "UNEXPECTED NULL RECORD. Queue-size: {0} "
-                                    + "byteToTransfer={1} queueSizeToFree={2} queueSize={3}",
-                            new Object[]{outputQueue.size(), bytesToTransfer, queueSizeToFree, queueSize});
+                    // the queue may be drained by a concurrent close(), that's expected
+                    if (!closed) {
+                        // keep this warning for now - should be reported when null record is spotted
+                        LOGGER.log(Level.WARNING, "UNEXPECTED NULL RECORD. Queue-size: {0} "
+                                        + "byteToTransfer={1} queueSizeToFree={2} queueSize={3}",
+                                new Object[]{outputQueue.size(), bytesToTransfer, queueSizeToFree, queueSize});
+                    }
                     breakNow = true;
                     break;
                 }
@@ -341,6 +346,7 @@ public class Http2SessionOutputSink {
     }
 
     public void close() {
+        closed = true;
         outputQueue.onClose();
     }
 
