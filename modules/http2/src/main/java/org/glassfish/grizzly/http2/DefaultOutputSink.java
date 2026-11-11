@@ -560,7 +560,8 @@ class DefaultOutputSink implements StreamOutputSink {
     public synchronized void terminate(final Termination terminationFlag) {
         if (!isTerminated()) {
             this.terminationFlag = terminationFlag;
-            outputQueue.onClose();
+            // fail the pending writes with the cause the stream was closed with, if any
+            outputQueue.onClose(stream.getCloseCause());
             // NOTIFY STREAM
             stream.onOutputClosed();
         }

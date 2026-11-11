@@ -30,6 +30,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import org.glassfish.grizzly.Buffer;
+import org.glassfish.grizzly.CloseReason;
 import org.glassfish.grizzly.CompletionHandler;
 import org.glassfish.grizzly.Connection;
 import org.glassfish.grizzly.Grizzly;
@@ -341,7 +342,10 @@ public class Http2SessionOutputSink {
     }
 
     public void close() {
-        outputQueue.onClose();
+        // fail the pending writes with the cause the connection was closed with, if any
+        final Connection<?> connection = http2Session.getConnection();
+        final CloseReason closeReason = connection != null ? connection.getCloseReason() : null;
+        outputQueue.onClose(closeReason != null ? closeReason.getCause() : null);
     }
 
 }

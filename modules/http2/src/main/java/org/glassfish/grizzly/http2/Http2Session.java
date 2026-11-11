@@ -31,6 +31,7 @@ import java.util.logging.Logger;
 
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.CloseListener;
+import org.glassfish.grizzly.CloseReason;
 import org.glassfish.grizzly.CloseType;
 import org.glassfish.grizzly.Closeable;
 import org.glassfish.grizzly.Connection;
@@ -1332,8 +1333,11 @@ public class Http2Session {
             }
 
             if (isClosing) {
+                // pass the connection's close cause on, so pending stream writes fail with the actual reason
+                final CloseReason closeReason = connection.getCloseReason();
+                final IOException cause = closeReason != null ? closeReason.getCause() : null;
                 for (Http2Stream stream : streamsMap.values()) {
-                    stream.closedRemotely();
+                    stream.closedRemotely(cause);
                 }
             }
         }
