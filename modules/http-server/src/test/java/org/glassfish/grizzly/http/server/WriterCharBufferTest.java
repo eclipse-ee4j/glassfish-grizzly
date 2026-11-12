@@ -236,7 +236,9 @@ public class WriterCharBufferTest {
             while (true) {
                 final StringBuilder line = new StringBuilder();
                 while (line.indexOf("\r\n") < 0) {
-                    line.append((char) in.read());
+                    final int b = in.read();
+                    assertTrue("end of stream in chunk size line: " + line, b >= 0);
+                    line.append((char) b);
                 }
                 final int size = Integer.parseInt(line.toString().trim(), 16);
                 in.readNBytes(size + 2);
