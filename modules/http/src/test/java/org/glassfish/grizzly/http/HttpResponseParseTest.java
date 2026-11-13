@@ -19,6 +19,7 @@ package org.glassfish.grizzly.http;
 
 import java.io.IOException;
 import java.net.SocketAddress;
+import java.lang.reflect.Method;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collection;
@@ -65,6 +66,7 @@ import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_NAME_VALI
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_VALUE_VALIDATION_RFC_9110;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -278,69 +280,178 @@ public class HttpResponseParseTest {
 
     private static final byte[] CONTINUE = "HTTP/1.1 100 Continue\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
 
+    private static final String[] BUFFER_KINDS = { "heap", "direct", "composite" };
+
     /**
-     * The 100 Continue response is read first, alone or together with the start of the final response, and the rest of the
-     * final response is read later, appended to the buffer kept for it. The final response is parsed whatever the kind of
-     * the buffer (the bytes of the 100 are not removed from a direct one) and whether bytes precede its position or not.
+     * Feeds the reads of one response to a {@link HttpClientFilter} like the filter chain does: the data of an incomplete
+     * read is kept (the filter must ask for it with a StopAction) and the next read is appended to it.
+     */
+    private static final class Reads {
+        final HttpClientFilter filter;
+        final StandaloneConnection connection = new StandaloneConnection();
+        final int[] headerSize = { -1 };
+        Buffer stored;
+        FilterChainContext ctx;
+
+        Reads(final int maxHeaderSize) {
+            filter = new HttpClientFilter(maxHeaderSize);
+            filter.getMonitoringConfig().addProbes(new HttpProbe.Adapter() {
+                @Override
+                public void onHeaderParseEvent(final Connection connection, final HttpHeader header, final int size) {
+                    headerSize[0] = size;
+                }
+            });
+        }
+
+        /** The next read, appended to the data kept by the filter, as {@link org.glassfish.grizzly.filterchain.DefaultFilterChain} does. */
+        void readMore(final String msg, final byte[] data, final boolean complete) throws Exception {
+            read(msg, Buffers.getBufferAppender(true).append(stored, Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, data)), complete);
+        }
+
+        void read(final String msg, final Buffer message, final boolean complete) throws Exception {
+            ctx = FilterChainContext.create(connection);
+            ctx.setMessage(message);
+            final NextAction action = filter.handleRead(ctx);
+            if (complete) {
+                assertTrue(msg + ": " + ctx.getMessage(), ctx.getMessage() instanceof HttpContent);
+                stored = null;
+            } else {
+                // StopAction is not visible from here
+                assertEquals(msg + ": the action", "StopAction", action.getClass().getSimpleName());
+                final Method getIncompleteChunk = action.getClass().getMethod("getIncompleteChunk");
+                getIncompleteChunk.setAccessible(true);
+                assertSame(msg + ": the incomplete chunk is the read buffer", message, getIncompleteChunk.invoke(action));
+                assertEquals(msg + ": the incomplete chunk is kept from position 0", 0, message.position());
+                stored = message;
+            }
+        }
+    }
+
+    private static byte[] concat(final byte[]... parts) {
+        int length = 0;
+        for (final byte[] part : parts) {
+            length += part.length;
+        }
+        final byte[] result = new byte[length];
+        int pos = 0;
+        for (final byte[] part : parts) {
+            System.arraycopy(part, 0, result, pos, part.length);
+            pos += part.length;
+        }
+        return result;
+    }
+
+    private static final byte[] CONTINUE_FINAL_RESPONSE = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-A: b\r\n\r\n"
+            .getBytes(StandardCharsets.ISO_8859_1);
+
+    /**
+     * Reads the stream, cut after the given indexes (a read each), and checks the final response and the size reported for
+     * its header.
+     */
+    private static void doTestContinueReads(final String kind, final String prefix, final byte[] stream, final int... cuts) throws Exception {
+        final Reads reads = new Reads(4096);
+        final StringBuilder msg = new StringBuilder(kind).append(" prefix '").append(prefix).append("' cuts");
+        for (final int cut : cuts) {
+            msg.append(' ').append(cut);
+        }
+        int from = 0;
+        for (int i = 0; i <= cuts.length; i++) {
+            final boolean last = i == cuts.length;
+            final byte[] chunk = Arrays.copyOfRange(stream, from, last ? stream.length : cuts[i]);
+            if (i == 0) {
+                reads.read(msg + " read 0", HttpRequestParseTest.bufferAtPosition(prefix.getBytes(StandardCharsets.ISO_8859_1), chunk, kind), last);
+            } else {
+                reads.readMore(msg + " read " + i, chunk, last);
+            }
+            from += chunk.length;
+        }
+        final HttpResponsePacket parsed = (HttpResponsePacket) ((HttpContent) reads.ctx.getMessage()).getHttpHeader();
+        assertEquals(msg.toString(), 200, parsed.getStatus());
+        assertEquals(msg.toString(), "b", parsed.getHeader("X-A"));
+        // the header is the final response, not the 100 Continue before it
+        assertEquals(msg + ": header size", CONTINUE_FINAL_RESPONSE.length, reads.headerSize[0]);
+    }
+
+    /**
+     * One or two 100 Continue responses are read first, alone or together with the start of the final response, the rest
+     * is read later, appended to the buffer kept for it. The final response is parsed whatever the kind of the buffer (the
+     * bytes of the 100 are not removed from a direct one), whether bytes precede its position or not, wherever the reads
+     * end: also inside the 100 itself (e.g. after its status line, or after the first byte of its closing CRLF, where the
+     * parsing index is past the end of the data read so far), and in three reads.
      */
     @Test
     public void testContinueThenFinalResponse() throws Exception {
-        final byte[] finalResponse = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-A: b\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
-        for (final String kind : new String[] { "heap", "direct", "composite" }) {
+        for (final String kind : BUFFER_KINDS) {
             for (final String prefix : new String[] { "", "PREFIX\r\n" }) {
-                // split: how much of the final response is in the first read (all of it for the last one)
-                for (int split = 0; split <= finalResponse.length; split++) {
-                    final byte[] firstData = new byte[CONTINUE.length + split];
-                    System.arraycopy(CONTINUE, 0, firstData, 0, CONTINUE.length);
-                    System.arraycopy(finalResponse, 0, firstData, CONTINUE.length, split);
-                    final Buffer first = HttpRequestParseTest.bufferAtPosition(prefix.getBytes(StandardCharsets.ISO_8859_1), firstData,
-                            kind);
-                    final HttpClientFilter filter = new HttpClientFilter(4096);
-                    final StandaloneConnection connection = new StandaloneConnection();
-                    FilterChainContext ctx = FilterChainContext.create(connection);
-                    ctx.setMessage(first);
-                    filter.handleRead(ctx);
-                    if (split < finalResponse.length) {
-                        ctx = FilterChainContext.create(connection);
-                        ctx.setMessage(Buffers.appendBuffers(MemoryManager.DEFAULT_MEMORY_MANAGER, first, Buffers
-                                .wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, Arrays.copyOfRange(finalResponse, split, finalResponse.length))));
-                        filter.handleRead(ctx);
+                for (int continues = 1; continues <= 2; continues++) {
+                    final byte[] stream = continues == 1 ? concat(CONTINUE, CONTINUE_FINAL_RESPONSE)
+                            : concat(CONTINUE, CONTINUE, CONTINUE_FINAL_RESPONSE);
+                    // at least 3 bytes in the first read: the composite buffer is split there
+                    for (int cut1 = 3; cut1 < stream.length; cut1++) {
+                        doTestContinueReads(kind, prefix, stream, cut1);
+                        // three reads
+                        for (final int cut2 : new int[] { cut1 + 1, cut1 + 13, stream.length - 1 }) {
+                            if (cut2 > cut1 && cut2 < stream.length) {
+                                doTestContinueReads(kind, prefix, stream, cut1, cut2);
+                            }
+                        }
                     }
-                    final String msg = kind + " prefix '" + prefix + "' split " + split;
-                    assertTrue(msg + ": " + ctx.getMessage(), ctx.getMessage() instanceof HttpContent);
-                    final HttpResponsePacket parsed = (HttpResponsePacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
-                    assertEquals(msg, 200, parsed.getStatus());
-                    assertEquals(msg, "b", parsed.getHeader("X-A"));
+                    doTestContinueReads(kind, prefix, stream);
+                    // explicit: the first read ends inside the closing CRLF of the first 100
+                    doTestContinueReads(kind, prefix, stream, CONTINUE.length - 2);
+                    doTestContinueReads(kind, prefix, stream, CONTINUE.length - 1);
+                    doTestContinueReads(kind, prefix, stream, CONTINUE.length - 2, CONTINUE.length - 1);
+                    doTestContinueReads(kind, prefix, stream, CONTINUE.length - 1, CONTINUE.length + 4, CONTINUE.length + 9);
                 }
             }
         }
     }
 
+    /** The final response with a header of the given size (it has a single header, a value of 'a's). */
+    private static byte[] finalResponseOfSize(final int size) {
+        final StringBuilder sb = new StringBuilder("HTTP/1.1 200 OK\r\nX-A: ");
+        while (sb.length() < size - 4) {
+            sb.append('a');
+        }
+        return sb.append("\r\n\r\n").toString().getBytes(StandardCharsets.ISO_8859_1);
+    }
+
     /**
      * The limit on the size of the header counts from the start of the message, and is not moved by the 100 Continue
      * response: a final response that fits the limit alone is rejected after a 100 Continue and a prefix, for every kind of
-     * buffer.
+     * buffer, because the header is too large, and the one that fits the limit after them is accepted.
      */
     @Test
     public void testHeaderSizeLimitAfterContinueAndPrefix() throws Exception {
         final byte[] prefix = "0123456789012345678901234567890123456789".getBytes(StandardCharsets.ISO_8859_1);
-        final StringBuilder sb = new StringBuilder("HTTP/1.1 200 OK\r\nX-A: ");
-        while (sb.length() < 46) {
-            sb.append('a');
-        }
-        // 50 bytes: below the maximum of 64 alone, but prefix (40) + 100 Continue (25) + 50 exceeds 40 + 64
-        final byte[] finalResponse = sb.append("\r\n\r\n").toString().getBytes(StandardCharsets.ISO_8859_1);
-        for (final String kind : new String[] { "heap", "direct", "composite" }) {
-            final byte[] data = new byte[CONTINUE.length + finalResponse.length];
-            System.arraycopy(CONTINUE, 0, data, 0, CONTINUE.length);
-            System.arraycopy(finalResponse, 0, data, CONTINUE.length, finalResponse.length);
-            final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
-            ctx.setMessage(HttpRequestParseTest.bufferAtPosition(prefix, data, kind));
-            try {
-                new HttpClientFilter(64).handleRead(ctx);
-                fail(kind + ": the header must be rejected, got " + ctx.getMessage());
-            } catch (IllegalStateException expected) {
-                // rejected
+        final int maxHeaderSize = 64;
+        // the limit is at prefix + maxHeaderSize: the parsing of the header, including its last CRLF for a byte array, has
+        // to end by then
+        final int packetLimit = prefix.length + maxHeaderSize;
+        for (final String kind : BUFFER_KINDS) {
+            // 1 byte under the limit, and at the limit
+            for (final int total : new int[] { packetLimit - 1, packetLimit }) {
+                final byte[] finalResponse = finalResponseOfSize(total - prefix.length - CONTINUE.length);
+                assertEquals(total - prefix.length - CONTINUE.length, finalResponse.length);
+                final Reads reads = new Reads(maxHeaderSize);
+                reads.read(kind + " total " + total, HttpRequestParseTest.bufferAtPosition(prefix, concat(CONTINUE, finalResponse), kind), true);
+                assertEquals(kind + " total " + total, 200, ((HttpResponsePacket) ((HttpContent) reads.ctx.getMessage()).getHttpHeader()).getStatus());
+                assertEquals(kind + " total " + total, finalResponse.length, reads.headerSize[0]);
+            }
+
+            // over the limit: the value of the header ends beyond it (alone, the final response would fit the maximum)
+            for (final int total : new int[] { packetLimit + 4, packetLimit + 11 }) {
+                final byte[] finalResponse = finalResponseOfSize(total - prefix.length - CONTINUE.length);
+                assertTrue(finalResponse.length < maxHeaderSize);
+                final Reads reads = new Reads(maxHeaderSize);
+                final String msg = kind + " total " + total;
+                try {
+                    reads.read(msg, HttpRequestParseTest.bufferAtPosition(prefix, concat(CONTINUE, finalResponse), kind), true);
+                    fail(msg + ": the header must be rejected, got " + reads.ctx.getMessage());
+                } catch (IllegalStateException expected) {
+                    // the codec wraps the failure; it has to be the limit, not e.g. an initial line cut short
+                    assertTrue(msg + ": " + expected.getCause(), expected.getCause() instanceof HttpHeaderTooLargeException);
+                }
             }
         }
     }

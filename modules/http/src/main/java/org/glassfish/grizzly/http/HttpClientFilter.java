@@ -386,9 +386,13 @@ public class HttpClientFilter extends HttpCodecFilter {
                     // another initial line which represents the final
                     // response from the server after it has sent a
                     // 100-Continue.
+                    //
+                    // The final response is the message for the size of the header (as for a Buffer): both indexes are
+                    // relative to the start of the buffer, the end is absolute in the array.
                     parsingState.offset += 2;
                     parsingState.start = parsingState.offset;
-                    if (parsingState.start < end) {
+                    parsingState.messageStart = parsingState.offset;
+                    if (parsingState.start < end - arrayOffs) {
                         parsingState.subState = 0;
                         continue;
                     }
