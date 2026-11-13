@@ -23,6 +23,7 @@ import static org.glassfish.grizzly.ssl.SSLUtils.sslEngineWrap;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -38,7 +39,6 @@ import org.glassfish.grizzly.Grizzly;
 import org.glassfish.grizzly.filterchain.FilterChain;
 import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.memory.ByteBufferArray;
-import org.glassfish.grizzly.memory.MemoryManager;
 
 /**
  * SSL context associated with a {@link Connection}.
@@ -48,6 +48,34 @@ import org.glassfish.grizzly.memory.MemoryManager;
 public final class SSLConnectionContext {
     private static final Logger LOGGER = Grizzly.logger(SSLConnectionContext.class);
     private static final float BUFFER_SIZE_COEF;
+
+    /** Lower bound for the per-record overhead of a wrap (header, MAC/tag, padding). */
+    private static final int MIN_WRAP_OVERHEAD = 512;
+
+    /**
+     * Engine classes that refused a destination sized for the data, see {@link #wrapBufferSize(Buffer, int)}. A class
+     * can also get flagged later, when the engine reports an overflow for a pending post-handshake record (e.g. BouncyCastle
+     * or Conscrypt): from then on that class gets packet-sized destinations, which is harmless.
+     */
+    private static final ClassValue<AtomicBoolean> NEEDS_PACKET_BUFFER = new ClassValue<AtomicBoolean>() {
+        @Override
+        protected AtomicBoolean computeValue(final Class<?> engineClass) {
+            return new AtomicBoolean();
+        }
+    };
+
+    /** Forgets what was learned about an engine class, so that tests don't depend on the JVM-wide state. */
+    static void forgetNeedsPacketBufferForTests(final Class<?> engineClass) {
+        NEEDS_PACKET_BUFFER.get(engineClass).set(false);
+    }
+
+    /**
+     * Whether the application data of {@link SSLEngine}s outside the JDK is staged in direct buffers, see
+     * {@link DirectEngineBuffers}. On by default.
+     */
+    static final String DIRECT_ENGINE_BUFFERS_PROPERTY = SSLConnectionContext.class.getName() + ".directEngineBuffers";
+    /** Read by {@link #configure(SSLEngine)}; not final so that tests can switch it. */
+    static boolean directEngineBuffers = Boolean.parseBoolean(System.getProperty(DIRECT_ENGINE_BUFFERS_PROPERTY, "true"));
 
     static {
         final String coef = System.getProperty(SSLConnectionContext.class.getName(), "1.5");
@@ -90,6 +118,10 @@ public final class SSLConnectionContext {
 
     private boolean isServerMode;
     private SSLEngine sslEngine;
+    /** Resolved in {@link #configure(SSLEngine)}, the only place the engine is set; used by the wrap methods only. */
+    private AtomicBoolean needsPacketBuffer;
+
+    private boolean stageInDirectBuffers;
 
     private volatile int appBufferSize;
     private volatile int netBufferSize;
@@ -115,12 +147,21 @@ public final class SSLConnectionContext {
 
     public void configure(final SSLEngine sslEngine) {
         this.sslEngine = sslEngine;
+        this.needsPacketBuffer = NEEDS_PACKET_BUFFER.get(sslEngine.getClass());
         this.isServerMode = !sslEngine.getUseClientMode();
+        // the JDK engine (loaded by the bootstrap class loader) works on heap memory as well as on direct one: leave its
+        // buffers alone. Any other engine is staged, including a JDK engine behind a delegating SSLEngine subclass or a
+        // pure Java one: for them staging costs a copy per direction and no more.
+        this.stageInDirectBuffers = directEngineBuffers && sslEngine.getClass().getClassLoader() != null;
         updateBufferSizes();
     }
 
     public boolean isServerMode() {
         return isServerMode;
+    }
+
+    boolean isStagingInDirectBuffers() {
+        return stageInDirectBuffers;
     }
 
     void updateBufferSizes() {
@@ -231,10 +272,14 @@ public final class SSLConnectionContext {
 
         final ByteBuffer inputByteBuffer = input.toByteBuffer(input.position(), input.position() + len);
         final int initPosition = inputByteBuffer.position();
-        final SSLEngineResult sslEngineResult;
+        SSLEngineResult sslEngineResult;
+        final ByteBuffer[] staging = stageInDirectBuffers && !output.isComposite() ? DirectEngineBuffers.acquire() : null;
 
         try {
-            if (!output.isComposite()) {
+            sslEngineResult = staging != null ? DirectEngineBuffers.unwrap(staging, sslEngine, inputByteBuffer, output.toByteBuffer()) : null;
+            if (sslEngineResult != null) {
+                // staged in direct buffers
+            } else if (!output.isComposite()) {
                 sslEngineResult = sslEngineUnwrap(sslEngine, inputByteBuffer, output.toByteBuffer());
 
             } else {
@@ -250,6 +295,10 @@ public final class SSLConnectionContext {
             }
         } catch (SSLException e) {
             return new SslResult(output, e);
+        } finally {
+            if (staging != null) {
+                DirectEngineBuffers.release(staging);
+            }
         }
 
         final Status status = sslEngineResult.getStatus();
@@ -274,7 +323,6 @@ public final class SSLConnectionContext {
     }
 
     Buffer wrapAll(final Buffer input, final Allocator allocator) throws SSLException {
-        final MemoryManager memoryManager = connection.getMemoryManager();
 
         final ByteBufferArray bba = input.toByteBufferArray(inputByteBufferArray);
         final ByteBuffer[] inputArray = bba.getArray();
@@ -301,7 +349,7 @@ public final class SSLConnectionContext {
                     final Buffer newOutput = result.getOutput();
                     newOutput.trim();
 
-                    output = Buffers.appendBuffers(memoryManager, output, newOutput);
+                    output = Buffers.appendBuffers(connection.getMemoryManager(), output, newOutput);
                 } while (input.hasRemaining());
             }
 
@@ -321,7 +369,14 @@ public final class SSLConnectionContext {
 
     private SslResult wrap(final Buffer input, final ByteBuffer[] inputArray, final int inputArraySize, Buffer output, final Allocator allocator) {
 
+        // allocated packet-sized as before (so the per-thread cached buffers stay reusable), but only the size computed
+        // for the data is offered to the engine
         output = ensureBufferSize(output, netBufferSize, allocator);
+        final int wrapBufferSize = wrapBufferSize(input, inputArraySize);
+        final int offered = (int) (wrapBufferSize * BUFFER_SIZE_COEF);
+        if (output.remaining() > offered) {
+            output.limit(output.position() + offered);
+        }
 
         if (LOGGER.isLoggable(Level.FINE)) {
             LOGGER.log(Level.FINE, "wrap engine: {0} input: {1} output: {2}", new Object[] { sslEngine, input, output });
@@ -331,12 +386,22 @@ public final class SSLConnectionContext {
         final int outPos = output.position();
 
         final ByteBuffer outputByteBuffer = output.toByteBuffer();
-        final SSLEngineResult sslEngineResult;
+        SSLEngineResult sslEngineResult;
 
+        final ByteBuffer[] staging = stageInDirectBuffers ? DirectEngineBuffers.acquire() : null;
         try {
-            sslEngineResult = sslEngineWrap(sslEngine, inputArray, 0, inputArraySize, outputByteBuffer);
+            sslEngineResult = staging != null
+                    ? DirectEngineBuffers.wrap(staging, sslEngine, inputArray, inputArraySize, appBufferSize, outputByteBuffer)
+                    : null;
+            if (sslEngineResult == null) {
+                sslEngineResult = sslEngineWrap(sslEngine, inputArray, 0, inputArraySize, outputByteBuffer);
+            }
         } catch (SSLException e) {
             return new SslResult(output, e);
+        } finally {
+            if (staging != null) {
+                DirectEngineBuffers.release(staging);
+            }
         }
 
         final Status status = sslEngineResult.getStatus();
@@ -346,6 +411,15 @@ public final class SSLConnectionContext {
 
         final boolean isOverflow = status == Status.BUFFER_OVERFLOW;
         if (allocator != null && isOverflow) {
+            if (wrapBufferSize < netBufferSize) {
+                // refused a destination sized for the data: this engine class wants room for a whole packet
+                needsPacketBuffer.set(true);
+            }
+            if (outPos == 0) {
+                // nothing was written into it: it is replaced
+                output.dispose();
+                output = null;
+            }
             updateBufferSizes();
             output = ensureBufferSize(output, netBufferSize, allocator);
             return wrap(input, inputArray, inputArraySize, output, null);
@@ -422,6 +496,21 @@ public final class SSLConnectionContext {
         return new SslResult(output, sslEngineResult);
     }
 
+    /**
+     * Engines that encrypt through a temporary direct buffer as large as the destination (e.g. Netty's OpenSSL engine
+     * with a heap destination) would allocate and clear a packet-sized buffer for every small write: give them a
+     * destination sized for the data instead, i.e. at most one record of plaintext plus the per-record overhead. An
+     * engine class that refuses it once gets packet-sized destinations from then on.
+     */
+    private int wrapBufferSize(final Buffer input, final int inputArraySize) {
+        if (needsPacketBuffer.get()) {
+            return netBufferSize;
+        }
+        final int overheadPerRecord = Math.max(netBufferSize - appBufferSize, MIN_WRAP_OVERHEAD);
+        final long size = (long) Math.min(input.remaining(), appBufferSize) + (long) overheadPerRecord * Math.max(1, inputArraySize);
+        return (int) Math.min(size, netBufferSize);
+    }
+
     private Buffer ensureBufferSize(Buffer output, final int size, final Allocator allocator) {
         final int sz = (int) (size * BUFFER_SIZE_COEF);
 
@@ -430,7 +519,8 @@ public final class SSLConnectionContext {
             output = allocator.grow(this, null, sz);
         } else if (output.remaining() < sz) {
             assert allocator != null;
-            output = allocator.grow(this, output, output.capacity() + sz - output.remaining());
+            // room for what is already in the buffer plus sz (the limit may be below the capacity)
+            output = allocator.grow(this, output, output.position() + sz);
         }
         return output;
     }
