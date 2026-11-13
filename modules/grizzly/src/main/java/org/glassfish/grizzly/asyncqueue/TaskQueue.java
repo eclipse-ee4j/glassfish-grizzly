@@ -296,15 +296,20 @@ public final class TaskQueue<E extends AsyncQueueRecord> {
         closeCause = cause;
         isClosed = true;
 
+        // Drain unconditionally: spaceInBytes is updated separately from the queue (e.g. offer() before
+        // reserveSpace()), so an empty counter doesn't guarantee there's no queued record to fail.
         IOException error = null;
-        if (!isEmpty()) {
+        // a throwing callback must not prevent the remaining records and handlers from being notified
+        Throwable callbackFailure = null;
+        AsyncQueueRecord record;
+        while ((record = poll()) != null) {
             if (error == null) {
                 error = new IOException("Connection closed", cause);
             }
-
-            AsyncQueueRecord record;
-            while ((record = poll()) != null) {
+            try {
                 record.notifyFailure(error);
+            } catch (Throwable t) {
+                callbackFailure = addFailure(callbackFailure, t);
             }
         }
 
@@ -313,8 +318,30 @@ public final class TaskQueue<E extends AsyncQueueRecord> {
             if (error == null) {
                 error = new IOException("Connection closed", cause);
             }
-            writeHandler.onError(error);
+            try {
+                writeHandler.onError(error);
+            } catch (Throwable t) {
+                callbackFailure = addFailure(callbackFailure, t);
+            }
         }
+
+        // keep propagating callback failures as before, but only once everything has been notified
+        switch (callbackFailure) {
+            case null -> { }
+            case RuntimeException e -> throw e;
+            case Error e -> throw e;
+            default -> throw new IllegalStateException(callbackFailure);
+        }
+    }
+
+    private static Throwable addFailure(final Throwable first, final Throwable next) {
+        if (first == null) {
+            return next;
+        }
+        if (first != next) {
+            first.addSuppressed(next);
+        }
+        return first;
     }
 
     private void offerWriteHandler(final WriteHandler writeHandler) {
