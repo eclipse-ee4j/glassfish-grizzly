@@ -65,6 +65,8 @@ import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
 import org.glassfish.grizzly.strategies.WorkerThreadIOStrategy;
 import org.glassfish.grizzly.threadpool.VirtualThreadExecutorService;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -72,6 +74,14 @@ import org.junit.Test;
  * destination, see {@link DirectEngineBuffers}.
  */
 public class DirectEngineBuffersTest {
+
+    // what SSLConnectionContext learns about an engine class is JVM-wide: every test must start (and leave) it unlearned
+    @Before
+    @After
+    public void forgetLearnedEngineState() {
+        SSLConnectionContext.forgetNeedsPacketBufferForTests(RecordingSSLEngine.class);
+        SSLConnectionContext.forgetNeedsPacketBufferForTests(CopyingSSLEngine.class);
+    }
 
     private static final byte[] PREFIX = "<".getBytes(StandardCharsets.US_ASCII);
     private static final byte[] SUFFIX = ">\n".getBytes(StandardCharsets.US_ASCII);
