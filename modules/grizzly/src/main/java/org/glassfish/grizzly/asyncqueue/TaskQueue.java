@@ -18,10 +18,13 @@
 package org.glassfish.grizzly.asyncqueue;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.glassfish.grizzly.WriteHandler;
 
@@ -48,6 +51,15 @@ public final class TaskQueue<E extends AsyncQueueRecord> {
     private static final AtomicIntegerFieldUpdater<TaskQueue> spaceInBytesUpdater
         = AtomicIntegerFieldUpdater.newUpdater(TaskQueue.class, "spaceInBytes");
     private volatile int spaceInBytes;
+
+    /**
+     * Guards {@link #isClosed} together with the {@link #spaceInBytes} mutations, so that
+     * {@link #onClose(Throwable)}, {@link #offer(AsyncQueueRecord)}, {@link #reserveSpace(int)} and
+     * {@link #releaseSpace(int)} cannot interleave and the counter always matches the queued records.
+     * A {@link ReentrantLock} is used instead of {@code synchronized} so that on Java 21 a virtual
+     * thread blocked on it does not pin its carrier thread.
+     */
+    private final ReentrantLock closeLock = new ReentrantLock();
 
     private final MutableMaxQueueSize maxQueueSizeHolder;
 
@@ -123,7 +135,15 @@ public final class TaskQueue<E extends AsyncQueueRecord> {
      * @return the new memory (in bytes) consumed by the queue.
      */
     public int reserveSpace(final int amount) {
-        return spaceInBytesUpdater.addAndGet(this, amount);
+        closeLock.lock();
+        try {
+            if (isClosed) {
+                return spaceInBytes;
+            }
+            return spaceInBytesUpdater.addAndGet(this, amount);
+        } finally {
+            closeLock.unlock();
+        }
     }
 
     /**
@@ -133,7 +153,15 @@ public final class TaskQueue<E extends AsyncQueueRecord> {
      * @return the new memory (in bytes) consumed by the queue.
      */
     public int releaseSpace(final int amount) {
-        return spaceInBytesUpdater.addAndGet(this, -amount);
+        closeLock.lock();
+        try {
+            if (isClosed) {
+                return spaceInBytes;
+            }
+            return spaceInBytesUpdater.addAndGet(this, -amount);
+        } finally {
+            closeLock.unlock();
+        }
     }
 
     /**
@@ -182,6 +210,10 @@ public final class TaskQueue<E extends AsyncQueueRecord> {
         }
 
         if (maxQueueSize < 0 || spaceInBytes() < maxQueueSize) {
+            if (isClosed) {
+                writeHandler.onError(new IOException("Connection is closed", closeCause));
+                return;
+            }
             try {
                 writeHandler.onWritePossible();
             } catch (Throwable e) {
@@ -193,11 +225,15 @@ public final class TaskQueue<E extends AsyncQueueRecord> {
 
         offerWriteHandler(writeHandler);
 
-        if (spaceInBytes() < maxQueueSize && removeWriteHandler(writeHandler)) {
-            try {
-                writeHandler.onWritePossible();
-            } catch (Throwable e) {
-                writeHandler.onError(e);
+        if (!isClosed && spaceInBytes() < maxQueueSize && removeWriteHandler(writeHandler)) {
+            if (isClosed) {
+                writeHandler.onError(new IOException("Connection is closed", closeCause));
+            } else {
+                try {
+                    writeHandler.onWritePossible();
+                } catch (Throwable e) {
+                    writeHandler.onError(e);
+                }
             }
         } else {
             checkWriteHandlerOnClose(writeHandler);
@@ -227,6 +263,10 @@ public final class TaskQueue<E extends AsyncQueueRecord> {
             final WriteHandler writeHandler = pollWriteHandler();
             if (writeHandler == null) {
                 return;
+            }
+            if (isClosed) {
+                writeHandler.onError(new IOException("Connection is closed", closeCause));
+                continue;
             }
             try {
                 writeHandler.onWritePossible();
@@ -278,10 +318,16 @@ public final class TaskQueue<E extends AsyncQueueRecord> {
      * @param task new task.
      */
     public void offer(final E task) {
-        queue.offer(task);
-        if (isClosed && queue.remove(task)) {
-            task.notifyFailure(new IOException("Connection closed", closeCause));
+        closeLock.lock();
+        try {
+            if (!isClosed) {
+                queue.offer(task);
+                return;
+            }
+        } finally {
+            closeLock.unlock();
         }
+        task.notifyFailure(new IOException("Connection closed", closeCause));
     }
 
     public boolean isEmpty() {
@@ -293,27 +339,54 @@ public final class TaskQueue<E extends AsyncQueueRecord> {
     }
 
     public void onClose(final Throwable cause) {
-        closeCause = cause;
-        isClosed = true;
+        final IOException error = new IOException("Connection closed", cause);
 
-        IOException error = null;
-        if (!isEmpty()) {
-            if (error == null) {
-                error = new IOException("Connection closed", cause);
-            }
+        final List<AsyncQueueRecord> drainedRecords = new ArrayList<>();
+        closeLock.lock();
+        try {
+            spaceInBytesUpdater.set(this, 0);
+
+            closeCause = cause;
+            isClosed = true;
 
             AsyncQueueRecord record;
             while ((record = poll()) != null) {
+                drainedRecords.add(record);
+            }
+        } finally {
+            closeLock.unlock();
+        }
+
+        Throwable callbackFailure = null;
+        for (final AsyncQueueRecord record : drainedRecords) {
+            try {
                 record.notifyFailure(error);
+            } catch (Throwable t) {
+                if (callbackFailure == null) {
+                    callbackFailure = t;
+                }
             }
         }
 
         WriteHandler writeHandler;
         while ((writeHandler = pollWriteHandler()) != null) {
-            if (error == null) {
-                error = new IOException("Connection closed", cause);
+            try {
+                writeHandler.onError(error);
+            } catch (Throwable t) {
+                if (callbackFailure == null) {
+                    callbackFailure = t;
+                }
             }
-            writeHandler.onError(error);
+        }
+
+        if (callbackFailure instanceof RuntimeException runtimeException) {
+            throw runtimeException;
+        }
+        if (callbackFailure instanceof Error err) {
+            throw err;
+        }
+        if (callbackFailure != null) {
+            throw new RuntimeException(callbackFailure);
         }
     }
 
