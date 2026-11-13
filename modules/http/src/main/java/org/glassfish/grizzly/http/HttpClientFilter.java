@@ -484,13 +484,16 @@ public class HttpClientFilter extends HttpCodecFilter {
                     // another initial line which represents the final
                     // response from the server after it has sent a
                     // 100-Continue.
+                    //
+                    // The indexes stay absolute in the input: the final response starts at the current offset, which is
+                    // not necessarily 0 (the input is not shrunk, as that does nothing for a direct buffer; and bytes
+                    // may precede the position the message was parsed from).
                     parsingState.offset += 2;
-                    parsingState.start = 0;
-                    input.position(parsingState.offset);
-                    input.shrink();
-                    parsingState.offset = 0;
-                    // the final response now starts at index 0
-                    parsingState.messageStart = 0;
+                    parsingState.start = parsingState.offset;
+                    parsingState.messageStart = parsingState.offset;
+                    if (parsingState.start < input.limit()) {
+                        continue;
+                    }
                     return false;
                 }
                 return true;

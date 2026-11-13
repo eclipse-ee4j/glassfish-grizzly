@@ -66,6 +66,7 @@ import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_VALUE_VAL
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 
 /**
  * Testing HTTP response parsing
@@ -271,6 +272,75 @@ public class HttpResponseParseTest {
                 assertEquals(msg, "HTTP/1.1", parsed.getProtocolString());
                 assertEquals(msg, 404, parsed.getStatus());
                 assertEquals(msg, "b", parsed.getHeader("X-A"));
+            }
+        }
+    }
+
+    private static final byte[] CONTINUE = "HTTP/1.1 100 Continue\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
+
+    /**
+     * The 100 Continue response is read first, alone or together with the start of the final response, and the rest of the
+     * final response is read later, appended to the buffer kept for it. The final response is parsed whatever the kind of
+     * the buffer (the bytes of the 100 are not removed from a direct one) and whether bytes precede its position or not.
+     */
+    @Test
+    public void testContinueThenFinalResponse() throws Exception {
+        final byte[] finalResponse = "HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-A: b\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
+        for (final String kind : new String[] { "heap", "direct", "composite" }) {
+            for (final String prefix : new String[] { "", "PREFIX\r\n" }) {
+                // split: how much of the final response is in the first read (all of it for the last one)
+                for (int split = 0; split <= finalResponse.length; split++) {
+                    final byte[] firstData = new byte[CONTINUE.length + split];
+                    System.arraycopy(CONTINUE, 0, firstData, 0, CONTINUE.length);
+                    System.arraycopy(finalResponse, 0, firstData, CONTINUE.length, split);
+                    final Buffer first = HttpRequestParseTest.bufferAtPosition(prefix.getBytes(StandardCharsets.ISO_8859_1), firstData,
+                            kind);
+                    final HttpClientFilter filter = new HttpClientFilter(4096);
+                    final StandaloneConnection connection = new StandaloneConnection();
+                    FilterChainContext ctx = FilterChainContext.create(connection);
+                    ctx.setMessage(first);
+                    filter.handleRead(ctx);
+                    if (split < finalResponse.length) {
+                        ctx = FilterChainContext.create(connection);
+                        ctx.setMessage(Buffers.appendBuffers(MemoryManager.DEFAULT_MEMORY_MANAGER, first, Buffers
+                                .wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, Arrays.copyOfRange(finalResponse, split, finalResponse.length))));
+                        filter.handleRead(ctx);
+                    }
+                    final String msg = kind + " prefix '" + prefix + "' split " + split;
+                    assertTrue(msg + ": " + ctx.getMessage(), ctx.getMessage() instanceof HttpContent);
+                    final HttpResponsePacket parsed = (HttpResponsePacket) ((HttpContent) ctx.getMessage()).getHttpHeader();
+                    assertEquals(msg, 200, parsed.getStatus());
+                    assertEquals(msg, "b", parsed.getHeader("X-A"));
+                }
+            }
+        }
+    }
+
+    /**
+     * The limit on the size of the header counts from the start of the message, and is not moved by the 100 Continue
+     * response: a final response that fits the limit alone is rejected after a 100 Continue and a prefix, for every kind of
+     * buffer.
+     */
+    @Test
+    public void testHeaderSizeLimitAfterContinueAndPrefix() throws Exception {
+        final byte[] prefix = "0123456789012345678901234567890123456789".getBytes(StandardCharsets.ISO_8859_1);
+        final StringBuilder sb = new StringBuilder("HTTP/1.1 200 OK\r\nX-A: ");
+        while (sb.length() < 46) {
+            sb.append('a');
+        }
+        // 50 bytes: below the maximum of 64 alone, but prefix (40) + 100 Continue (25) + 50 exceeds 40 + 64
+        final byte[] finalResponse = sb.append("\r\n\r\n").toString().getBytes(StandardCharsets.ISO_8859_1);
+        for (final String kind : new String[] { "heap", "direct", "composite" }) {
+            final byte[] data = new byte[CONTINUE.length + finalResponse.length];
+            System.arraycopy(CONTINUE, 0, data, 0, CONTINUE.length);
+            System.arraycopy(finalResponse, 0, data, CONTINUE.length, finalResponse.length);
+            final FilterChainContext ctx = FilterChainContext.create(new StandaloneConnection());
+            ctx.setMessage(HttpRequestParseTest.bufferAtPosition(prefix, data, kind));
+            try {
+                new HttpClientFilter(64).handleRead(ctx);
+                fail(kind + ": the header must be rejected, got " + ctx.getMessage());
+            } catch (IllegalStateException expected) {
+                // rejected
             }
         }
     }
