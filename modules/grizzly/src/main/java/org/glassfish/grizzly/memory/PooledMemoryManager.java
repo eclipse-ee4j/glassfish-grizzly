@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -584,7 +585,12 @@ public class PooledMemoryManager implements MemoryManager<Buffer>, WrapperAware 
 
                 // weak isEmpty check, might return false positives
                 if (isEmpty(pollIdx, offerIdx)) {
-                    return null;
+                    // Same as in offer(): offerIdx may have advanced a whole pool length past a stale pollIdx.
+                    // Only report "empty" (and let a new buffer be allocated) if a fresh re-read confirms it.
+                    if (this.pollIdx.get() == pollIdx && isEmpty(pollIdx, this.offerIdx.get())) {
+                        return null;
+                    }
+                    continue;
                 }
 
                 final int nextPollIdx = nextIndex(pollIdx);
@@ -618,7 +624,12 @@ public class PooledMemoryManager implements MemoryManager<Buffer>, WrapperAware 
 
                 // weak isFull check, might return false positives
                 if (isFull(pollIdx, offerIdx)) {
-                    return false;
+                    // The two indexes are not read atomically, so pollIdx may have advanced a whole pool length past
+                    // a stale offerIdx. Only report "full" (and let the buffer be dropped) if a fresh re-read confirms it.
+                    if (this.offerIdx.get() == offerIdx && isFull(this.pollIdx.get(), offerIdx)) {
+                        return false;
+                    }
+                    continue;
                 }
                 final int nextOfferIndex = nextIndex(offerIdx);
                 if (this.offerIdx.compareAndSet(offerIdx, nextOfferIndex)) {
