@@ -53,13 +53,22 @@ public final class SSLConnectionContext {
     /** Lower bound for the per-record overhead of a wrap (header, MAC/tag, padding). */
     private static final int MIN_WRAP_OVERHEAD = 512;
 
-    /** Engine classes that refused a destination sized for the data, see {@link #wrapBufferSize(Buffer, int)}. */
+    /**
+     * Engine classes that refused a destination sized for the data, see {@link #wrapBufferSize(Buffer, int)}. A class
+     * can also get flagged later, when the engine reports an overflow for a pending post-handshake record (e.g. BouncyCastle
+     * or Conscrypt): from then on that class gets packet-sized destinations, which is harmless.
+     */
     private static final ClassValue<AtomicBoolean> NEEDS_PACKET_BUFFER = new ClassValue<AtomicBoolean>() {
         @Override
         protected AtomicBoolean computeValue(final Class<?> engineClass) {
             return new AtomicBoolean();
         }
     };
+
+    /** Forgets what was learned about an engine class, so that tests don't depend on the JVM-wide state. */
+    static void forgetNeedsPacketBufferForTests(final Class<?> engineClass) {
+        NEEDS_PACKET_BUFFER.get(engineClass).set(false);
+    }
 
     static {
         final String coef = System.getProperty(SSLConnectionContext.class.getName(), "1.5");
@@ -102,6 +111,8 @@ public final class SSLConnectionContext {
 
     private boolean isServerMode;
     private SSLEngine sslEngine;
+    /** Resolved in {@link #configure(SSLEngine)}, the only place the engine is set; used by the wrap methods only. */
+    private AtomicBoolean needsPacketBuffer;
 
     private volatile int appBufferSize;
     private volatile int netBufferSize;
@@ -127,6 +138,7 @@ public final class SSLConnectionContext {
 
     public void configure(final SSLEngine sslEngine) {
         this.sslEngine = sslEngine;
+        this.needsPacketBuffer = NEEDS_PACKET_BUFFER.get(sslEngine.getClass());
         this.isServerMode = !sslEngine.getUseClientMode();
         updateBufferSizes();
     }
@@ -367,7 +379,7 @@ public final class SSLConnectionContext {
         if (allocator != null && isOverflow) {
             if (wrapBufferSize < netBufferSize) {
                 // refused a destination sized for the data: this engine class wants room for a whole packet
-                NEEDS_PACKET_BUFFER.get(sslEngine.getClass()).set(true);
+                needsPacketBuffer.set(true);
             }
             if (outPos == 0) {
                 // nothing was written into it: it is replaced
@@ -457,7 +469,7 @@ public final class SSLConnectionContext {
      * engine class that refuses it once gets packet-sized destinations from then on.
      */
     private int wrapBufferSize(final Buffer input, final int inputArraySize) {
-        if (NEEDS_PACKET_BUFFER.get(sslEngine.getClass()).get()) {
+        if (needsPacketBuffer.get()) {
             return netBufferSize;
         }
         final int overheadPerRecord = Math.max(netBufferSize - appBufferSize, MIN_WRAP_OVERHEAD);

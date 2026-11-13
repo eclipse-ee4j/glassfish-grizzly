@@ -14,7 +14,7 @@
  * SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
  */
 
-package org.glassfish.grizzly;
+package org.glassfish.grizzly.ssl;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -47,11 +47,10 @@ import org.glassfish.grizzly.filterchain.FilterChainBuilder;
 import org.glassfish.grizzly.filterchain.TransportFilter;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransport;
 import org.glassfish.grizzly.nio.transport.TCPNIOTransportBuilder;
-import org.glassfish.grizzly.ssl.SSLContextConfigurator;
-import org.glassfish.grizzly.ssl.SSLEngineConfigurator;
-import org.glassfish.grizzly.ssl.SSLFilter;
 import org.glassfish.grizzly.strategies.SameThreadIOStrategy;
 import org.glassfish.grizzly.utils.EchoFilter;
+import org.junit.After;
+import org.junit.Before;
 import org.junit.Test;
 
 /**
@@ -60,6 +59,15 @@ import org.junit.Test;
  * for a whole packet, still works.
  */
 public class SSLWrapBufferSizeTest {
+
+    // what SSLConnectionContext learns about an engine class is JVM-wide: both tests must start (and leave) it unlearned,
+    // or a second run in the same JVM (repeat, rerun of failures, reused fork) sees no refusal / packet-sized destinations
+    @Before
+    @After
+    public void forgetLearnedEngineState() {
+        SSLConnectionContext.forgetNeedsPacketBufferForTests(DestinationRecordingSSLEngine.class);
+        SSLConnectionContext.forgetNeedsPacketBufferForTests(PacketRecordingSSLEngine.class);
+    }
 
     @Test
     public void smallWritesGetASmallDestination() throws Exception {
