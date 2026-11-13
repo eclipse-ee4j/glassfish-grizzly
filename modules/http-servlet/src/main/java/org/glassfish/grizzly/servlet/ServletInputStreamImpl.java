@@ -37,8 +37,8 @@ public class ServletInputStreamImpl extends ServletInputStream {
     private NIOInputStream inputStream;
 
     private ReadHandler readHandler = null;
-    private boolean hasSetReadListener = false;
-    private boolean prevIsReady = true;
+    private volatile boolean hasSetReadListener = false;
+    private volatile boolean prevIsReady = true;
 
     private static final ThreadLocal<Boolean> IS_READY_SCOPE = new ThreadLocal<>();
 
@@ -189,14 +189,13 @@ public class ServletInputStreamImpl extends ServletInputStream {
         if (!inputStream.isReady()) {
             prevIsReady = false;
         }
+        hasSetReadListener = true;
         IS_READY_SCOPE.set(Boolean.TRUE);
         try {
             inputStream.notifyAvailable(readHandler);
         } finally {
             IS_READY_SCOPE.remove();
         }
-
-        hasSetReadListener = true;
     }
 
     class ReadHandlerImpl implements ReadHandler {
