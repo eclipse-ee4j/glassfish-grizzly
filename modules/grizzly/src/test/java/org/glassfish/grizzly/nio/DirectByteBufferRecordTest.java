@@ -55,6 +55,12 @@ public class DirectByteBufferRecordTest {
         DirectByteBufferRecord.drainForTests();
     }
 
+    private static void assumeSharedPoolKeeps(final int bufferSize) {
+        assumeTrue(DirectByteBufferRecord.virtualPoolsCapacity() > 0);
+        assumeTrue(Integer.getInteger(DirectByteBufferRecord.VIRTUAL_POOL_MAX_BUFFER_SIZE_PROPERTY,
+                DirectByteBufferRecord.DEFAULT_VIRTUAL_POOL_MAX_BUFFER_SIZE) >= bufferSize);
+    }
+
     /** Runs the task on a new virtual thread and waits for it. */
     private static void onVirtualThread(final ExecutorService virtual, final Runnable task) throws Exception {
         virtual.submit(task).get(30, TimeUnit.SECONDS);
@@ -62,8 +68,8 @@ public class DirectByteBufferRecordTest {
 
     @Test
     public void recordsOfVirtualThreadsAreReused() throws Exception {
-        // a disabled pool (slots property 0) creates a record per thread by design
-        assumeTrue(DirectByteBufferRecord.virtualPoolsCapacity() > 0);
+        // a disabled pool or a buffer above its size limit creates a record per thread by design
+        assumeSharedPoolKeeps(BUFFER_SIZE);
         final Set<DirectByteBufferRecord> records = Collections.newSetFromMap(new IdentityHashMap<>());
         // more threads than the pool can hold records: without the pool every thread has a record of its own
         final int threads = DirectByteBufferRecord.virtualPoolsCapacity() * 2 + 1;
@@ -89,7 +95,7 @@ public class DirectByteBufferRecordTest {
 
     @Test
     public void aRecordTakenFromThePoolStartsEmpty() throws Exception {
-        assumeTrue(DirectByteBufferRecord.virtualPoolsCapacity() > 0);
+        assumeSharedPoolKeeps(BUFFER_SIZE);
         final Set<DirectByteBufferRecord> records = Collections.newSetFromMap(new IdentityHashMap<>());
         final int threads = DirectByteBufferRecord.virtualPoolsCapacity() * 2 + 1;
         try (ExecutorService virtual = Executors.newVirtualThreadPerTaskExecutor()) {
@@ -242,7 +248,7 @@ public class DirectByteBufferRecordTest {
     /** No two virtual threads use a record at the same time, and each one keeps what it wrote until it releases it. */
     @Test
     public void recordsAreNotSharedWhileInUse() throws Exception {
-        assumeTrue(DirectByteBufferRecord.virtualPoolsCapacity() > 0);
+        assumeSharedPoolKeeps(BUFFER_SIZE);
         final int threads = 64;
         final int rounds = 200;
         final Set<DirectByteBufferRecord> seen = Collections.newSetFromMap(new ConcurrentHashMap<>());
@@ -307,7 +313,7 @@ public class DirectByteBufferRecordTest {
     /** Records released by concurrent threads are kept for the next ones, within what the pool holds. */
     @Test
     public void releasedRecordsAreKept() throws Exception {
-        assumeTrue(DirectByteBufferRecord.virtualPoolsCapacity() > 0);
+        assumeSharedPoolKeeps(BUFFER_SIZE);
         final int threads = DirectByteBufferRecord.virtualPoolsCapacity() * 2 + 1;
         final CountDownLatch allTaken = new CountDownLatch(threads);
         final CountDownLatch release = new CountDownLatch(1);
