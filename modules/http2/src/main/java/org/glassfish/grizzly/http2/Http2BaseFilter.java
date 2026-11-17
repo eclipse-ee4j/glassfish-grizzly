@@ -19,7 +19,9 @@ package org.glassfish.grizzly.http2;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -157,7 +159,9 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
                             throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR);
                         }
 
-                        sendRstStream(ctx, http2Session, streamId, e.getErrorCode());
+                        // Includes the streams refused for exceeding the concurrent streams limit. Which of these resets are
+                        // charged to the reset budget is decided there.
+                        http2Session.resetLocally(streamId, e.getErrorCode(), e.getMessage(), e.isClosedOpenStream());
                     }
                 }
             } finally {
@@ -566,8 +570,17 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, "Illegal attempt to RST IDLE stream.");
         }
 
+        // A peer cancelling a request which is still being served costs the server work it can't take back, which is what
+        // the reset budget is for. Resetting a stream the response to which has been sent is not a cancellation, nor is
+        // declining a stream the server has started on its own (a push): the work was the server's choice.
+        final boolean interruptsResponse = !stream.isLocallyInitiatedStream() && !stream.isResponseComplete();
+
         // Notify the stream that it has been reset remotely
         stream.resetRemotely();
+
+        if (interruptsResponse) {
+            http2Session.chargeReset("RST_STREAM received on stream " + streamId + " before its response was completed");
+        }
     }
 
     private void processHeadersFrame(final Http2Session http2Session, final FilterChainContext context, final Http2Frame frame) throws IOException {
@@ -754,26 +767,70 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
         final HttpContext httpContext = HttpContext.newInstance(stream, stream, stream, request);
         request.getProcessingState().setHttpContext(httpContext);
 
-        if (threadPool == null) {
-            // mark this thread as a service to let filters upstream know, that
-            // it must not be blocked, because otherwise entire HTTP2 connection
-            // can stall. The previous value is restored afterwards: a selector thread that is
-            // already marked as a service thread has to stay one.
-            final boolean wasService = Threads.isService();
-            Threads.setService(true);
-            try {
-                http2Session.sendMessageUpstream(stream, content);
-            } finally {
-                Threads.setService(wasService);
-            }
-        } else {
-            threadPool.execute(new Runnable() {
-                @Override
-                public void run() {
-                    http2Session.sendMessageUpstream(stream, content);
-                }
-            });
+        if (!http2Session.startProcessing(stream, content)) {
+            // The connection has as many requests in progress as it may have, this one waits for one of them to finish.
+            return;
         }
+
+        if (threadPool == null) {
+            dispatchOnCurrentThread(http2Session, stream, content);
+        } else {
+            threadPool.execute(dispatchTask(http2Session, stream, content));
+        }
+    }
+
+    /**
+     * Passes a request, which has been waiting for another one to finish (see {@link Http2Session#startProcessing}), to
+     * the processing chain. It is called from whichever thread has finished the other request, typically a worker thread
+     * in the middle of completing a response, so the request is handed over to another thread if there is a thread pool
+     * to hand it to: the configured HTTP/2 one, or else the transport's worker pool.
+     */
+    void dispatchDeferred(final Http2Session http2Session, final Http2Stream stream, final HttpContent content) {
+        final Executor executor = threadPool != null ? threadPool : http2Session.getConnection().getTransport().getWorkerThreadPool();
+        if (executor != null) {
+            try {
+                executor.execute(dispatchTask(http2Session, stream, content));
+                return;
+            } catch (RejectedExecutionException e) {
+                LOGGER.log(Level.FINE, "The thread pool rejected a deferred HTTP/2 request, processing it on the current thread", e);
+            }
+        }
+        dispatchOnCurrentThread(http2Session, stream, content);
+    }
+
+    private static void dispatchOnCurrentThread(final Http2Session http2Session, final Http2Stream stream, final HttpContent content) {
+        if (stream.getRequest().getProcessingState().isCancelled()) {
+            // a deferred request, the stream of which has been reset by now
+            stream.getRequest().recycle();
+            return;
+        }
+
+        // mark this thread as a service to let filters upstream know, that
+        // it must not be blocked, because otherwise entire HTTP2 connection
+        // can stall. The previous value is restored afterwards: a selector thread that is
+        // already marked as a service thread has to stay one.
+        final boolean wasService = Threads.isService();
+        Threads.setService(true);
+        try {
+            http2Session.sendRequestUpstream(stream, content);
+        } finally {
+            Threads.setService(wasService);
+        }
+    }
+
+    static Runnable dispatchTask(final Http2Session http2Session, final Http2Stream stream, final HttpContent content) {
+        return new Runnable() {
+            @Override
+            public void run() {
+                if (stream.getRequest().getProcessingState().isCancelled()) {
+                    // The stream has been reset while the request was waiting for a thread. Don't do the work, recycling the
+                    // request ends its processing, so it stops counting toward the requests in progress.
+                    stream.getRequest().recycle();
+                    return;
+                }
+                http2Session.sendRequestUpstream(stream, content);
+            }
+        };
     }
 
     void prepareIncomingRequest(final Http2Stream stream, final Http2Request request) {
@@ -809,13 +866,6 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             state.setError(true);
         }
 
-    }
-
-    void sendRstStream(final FilterChainContext ctx, final Http2Session http2Session, final int streamId, final ErrorCode errorCode) {
-
-        final RstStreamFrame rstStreamFrame = RstStreamFrame.builder().errorCode(errorCode).streamId(streamId).build();
-
-        ctx.write(frameCodec.serializeAndRecycle(http2Session, rstStreamFrame));
     }
 
     /**

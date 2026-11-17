@@ -33,6 +33,8 @@ public class Http2Configuration {
     public static final float DEFAULT_STREAMS_HIGH_WATER_MARK = 0.5f;
     public static final float DEFAULT_STREAMS_CLEAN_PERCENTAGE = 0.5f;
     public static final int DEFAULT_CLEAN_FREQUENCY_CHECK = 50;
+    public static final int DEFAULT_MAX_RESETS_PER_WINDOW = 200;
+    public static final int DEFAULT_RESET_WINDOW_MILLIS = 30000;
 
     private volatile int maxConcurrentStreams;
     private volatile int initialWindowSize;
@@ -44,6 +46,9 @@ public class Http2Configuration {
     private volatile boolean disableCipherCheck;
     private volatile boolean priorKnowledge;
     private volatile boolean pushEnabled;
+    private volatile int maxResetsPerWindow;
+    private volatile int resetWindowMillis;
+    private volatile boolean holdSlotUntilProcessingComplete;
     private final ExecutorService executorService;
     private final ThreadPoolConfig threadPoolConfig;
 
@@ -62,6 +67,9 @@ public class Http2Configuration {
         streamsHighWaterMark = builder.streamsHighWaterMark;
         cleanPercentage = builder.cleanPercentage;
         cleanFrequencyCheck = builder.cleanFrequencyCheck;
+        maxResetsPerWindow = builder.maxResetsPerWindow;
+        resetWindowMillis = builder.resetWindowMillis;
+        holdSlotUntilProcessingComplete = builder.holdSlotUntilProcessingComplete;
     }
 
     // --------------------------------------------------------- Public Methods
@@ -74,14 +82,24 @@ public class Http2Configuration {
     }
 
     /**
-     * @return the default maximum number of concurrent streams allowed for one session. Negative value means "unlimited".
+     * @return the default maximum number of concurrent streams allowed for one session, -1 (the default) for
+     * {@link Http2Session#getDefaultMaxConcurrentStreams() the default of 100}.
+     *
+     * @see #setMaxConcurrentStreams(int)
      */
     public int getMaxConcurrentStreams() {
         return maxConcurrentStreams;
     }
 
     /**
-     * Sets the default maximum number of concurrent streams allowed for one session. Negative value means "unlimited".
+     * Sets the default maximum number of concurrent streams allowed for one session. -1, the default, stands for
+     * {@link Http2Session#getDefaultMaxConcurrentStreams() the default of 100}: the number of streams can't be unlimited.
+     * <p>
+     * The limit applies to the requests being processed by the server as well, not just to the streams which are open: a
+     * request whose stream the client has reset keeps counting until the server has finished processing it, and a request
+     * over the limit waits for another one to finish, see {@link #setHoldSlotUntilProcessingComplete(boolean)}. So the
+     * number of requests a connection has in progress at any moment never exceeds this value, however fast the client
+     * resets streams.
      */
     public void setMaxConcurrentStreams(final int maxConcurrentStreams) {
         this.maxConcurrentStreams = maxConcurrentStreams;
@@ -244,6 +262,81 @@ public class Http2Configuration {
         return executorService;
     }
 
+    /**
+     * @return the number of stream resets a connection may cause per {@link #getResetWindowMillis() window}. Negative
+     * value means "unlimited". The default is {@link #DEFAULT_MAX_RESETS_PER_WINDOW}.
+     *
+     * @see #setMaxResetsPerWindow(int)
+     */
+    public int getMaxResetsPerWindow() {
+        return maxResetsPerWindow;
+    }
+
+    /**
+     * Sets the number of stream resets a connection may cause per {@link #getResetWindowMillis() window}. When a
+     * connection exceeds it, the server sends a GOAWAY frame with the {@code ENHANCE_YOUR_CALM} error code and closes the
+     * connection, and drops its requests which haven't been passed to the handler yet. A reset counts if the peer resets
+     * a stream it has opened before the whole response to it has been sent (a response waiting for flow-control window
+     * hasn't been), if the server resets a stream, which is still open, because of a protocol error of the peer, and if
+     * the server refuses a stream for exceeding {@code SETTINGS_MAX_CONCURRENT_STREAMS}. The peer declining a pushed
+     * stream doesn't count. Nor does a RST_STREAM the server sends in answer to a frame for a stream which is already
+     * closed: these come out of a budget of their own, of the same size, past which such frames are ignored without an
+     * answer, and the connection stays up. Together with the bound on the requests in progress (see
+     * {@link #setHoldSlotUntilProcessingComplete(boolean)}), this protects against the HTTP/2 Rapid Reset attack
+     * (CVE-2023-44487) and its variants. Negative value means "unlimited", which switches the check off.
+     */
+    public void setMaxResetsPerWindow(final int maxResetsPerWindow) {
+        this.maxResetsPerWindow = maxResetsPerWindow;
+    }
+
+    /**
+     * @return the length of the window, in milliseconds, {@link #getMaxResetsPerWindow()} is counted over. The default is
+     * {@link #DEFAULT_RESET_WINDOW_MILLIS}.
+     *
+     * @see #setResetWindowMillis(int)
+     */
+    public int getResetWindowMillis() {
+        return resetWindowMillis;
+    }
+
+    /**
+     * Sets the length of the window, in milliseconds, {@link #getMaxResetsPerWindow()} is counted over. A connection may
+     * cause that many resets at once, after which it is allowed {@code maxResetsPerWindow / resetWindowMillis} more per
+     * millisecond. A value which is not positive switches the check off.
+     */
+    public void setResetWindowMillis(final int resetWindowMillis) {
+        this.resetWindowMillis = resetWindowMillis;
+    }
+
+    /**
+     * @return {@code true} (the default) if the number of requests a connection has in progress is bounded by
+     * {@link #getMaxConcurrentStreams()}, including the requests whose stream has been reset.
+     *
+     * @see #setHoldSlotUntilProcessingComplete(boolean)
+     */
+    public boolean isHoldSlotUntilProcessingComplete() {
+        return holdSlotUntilProcessingComplete;
+    }
+
+    /**
+     * Sets whether the number of requests a connection has in progress is bounded by {@link #getMaxConcurrentStreams()}.
+     * A request is in progress from the moment it is passed to the processing chain until the processing is complete
+     * (the response has been completed, or the request has been recycled), even if the client resets its stream in the
+     * meantime. A request which arrives when the connection has as many requests in progress as it may have waits until
+     * one of them finishes; it is dropped if its stream is reset while it waits. It isn't refused: the client considers a
+     * reset stream closed, so a well-behaved client may open a new stream in its place right away.
+     * <p>
+     * This is the fix for the HTTP/2 Rapid Reset attack (CVE-2023-44487): a client which opens streams and resets them
+     * right away would otherwise keep the number of open streams low, while making the server process an unlimited
+     * number of requests. A request, which is suspended and has no timeout, counts for as long as it is suspended, or
+     * until its stream is reset, which cancels it.
+     * <p>
+     * Only switch it off if the number of requests in progress is bounded some other way. The default is {@code true}.
+     */
+    public void setHoldSlotUntilProcessingComplete(final boolean holdSlotUntilProcessingComplete) {
+        this.holdSlotUntilProcessingComplete = holdSlotUntilProcessingComplete;
+    }
+
     // --------------------------------------------------------- Nested Classes
 
     public static final class Http2ConfigurationBuilder {
@@ -257,6 +350,9 @@ public class Http2Configuration {
         private float streamsHighWaterMark = DEFAULT_STREAMS_HIGH_WATER_MARK;
         private float cleanPercentage = DEFAULT_STREAMS_CLEAN_PERCENTAGE;
         private int cleanFrequencyCheck = DEFAULT_CLEAN_FREQUENCY_CHECK;
+        private int maxResetsPerWindow = DEFAULT_MAX_RESETS_PER_WINDOW;
+        private int resetWindowMillis = DEFAULT_RESET_WINDOW_MILLIS;
+        private boolean holdSlotUntilProcessingComplete = true;
         private ThreadPoolConfig threadPoolConfig;
         private ExecutorService executorService;
 
@@ -359,6 +455,30 @@ public class Http2Configuration {
          */
         public Http2ConfigurationBuilder cleanFrequencyCheck(final int val) {
             cleanFrequencyCheck = val;
+            return this;
+        }
+
+        /**
+         * @see #setMaxResetsPerWindow(int)
+         */
+        public Http2ConfigurationBuilder maxResetsPerWindow(final int val) {
+            maxResetsPerWindow = val;
+            return this;
+        }
+
+        /**
+         * @see #setResetWindowMillis(int)
+         */
+        public Http2ConfigurationBuilder resetWindowMillis(final int val) {
+            resetWindowMillis = val;
+            return this;
+        }
+
+        /**
+         * @see #setHoldSlotUntilProcessingComplete(boolean)
+         */
+        public Http2ConfigurationBuilder holdSlotUntilProcessingComplete(final boolean val) {
+            holdSlotUntilProcessingComplete = val;
             return this;
         }
 

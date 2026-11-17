@@ -19,6 +19,7 @@
 package org.glassfish.grizzly.http2;
 
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -109,6 +110,16 @@ public class Http2Session {
     // streams which are still registered, but no longer count toward the local concurrent streams limit,
     // see onSendEndOfStream(Http2Stream); guarded by sessionLock
     private int closingStreamsCount;
+    // streams initiated by the peer which count toward the local concurrent streams limit: registered, and neither
+    // closing (see onSendEndOfStream(Http2Stream)) nor deregistered. Streams initiated by this side (e.g. pushed ones)
+    // count toward the peer's limit, not the local one (RFC 9113, section 5.1.2); guarded by sessionLock
+    private int activePeerStreamsCount;
+    // requests passed to the processing chain whose processing hasn't finished yet, whether their stream is still open or
+    // has been reset in the meantime, see startProcessing(Http2Stream, HttpContent); guarded by sessionLock
+    private int requestsInProgress;
+    // requests of open streams waiting for requestsInProgress to drop below the local concurrent streams limit, in the
+    // order they arrived; guarded by sessionLock
+    private final ArrayDeque<Http2Stream> deferredRequests = new ArrayDeque<>();
 
     private final TreeMap<Integer, Http2Stream> streamsMap = new TreeMap<>();
 
@@ -138,6 +149,16 @@ public class Http2Session {
     private final Http2SessionOutputSink outputSink;
 
     private final Http2Configuration http2Configuration;
+
+    // the stream resets this connection may still cause before it is told to calm down, see chargeReset(String);
+    // only used by the connection's read thread
+    private final Http2ResetBudget resetBudget;
+    private boolean resetBudgetExceededReported;
+    // the RST_STREAM frames this connection may still get, in answer to frames for streams which are already closed,
+    // before such frames are ignored, see resetLocally(...); only used by the connection's read thread
+    private final Http2ResetBudget closedStreamResetBudget;
+    // the streams have been closed along with the connection, see ConnectionCloseListener; guarded by sessionLock
+    private boolean streamsClosedWithConnection;
 
     private volatile int streamsHighWaterMark;
     private int checkCount;
@@ -182,6 +203,8 @@ public class Http2Session {
         this.handlerFilter = handlerFilter;
 
         this.http2Configuration = handlerFilter.getConfiguration();
+        this.resetBudget = new Http2ResetBudget(http2Configuration.getMaxResetsPerWindow(), http2Configuration.getResetWindowMillis());
+        this.closedStreamResetBudget = new Http2ResetBudget(http2Configuration.getMaxResetsPerWindow(), http2Configuration.getResetWindowMillis());
 
         if (this.http2Configuration.getMaxConcurrentStreams() != -1) {
             this.setLocalMaxConcurrentStreams(this.http2Configuration.getMaxConcurrentStreams());
@@ -983,7 +1006,11 @@ public class Http2Session {
                 throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR);
             }
 
-            if (concurrentStreamsCount.get() - closingStreamsCount >= getLocalMaxConcurrentStreams()) {
+            if (activePeerStreamsCount >= getLocalMaxConcurrentStreams()) {
+                // The peer has opened more streams than it was allowed to: reset streams aren't counted here, the peer
+                // considers them closed (the requests still being processed for them are bounded by startProcessing).
+                // Nor are the streams this side has initiated (pushed ones): they count toward the peer's limit, so a
+                // peer within the advertised limit is never refused, and charged for it, because of them.
                 // RFC 9113, section 5.1.2: a stream over the advertised limit is a stream error, not a connection error.
                 // The caller still has to decode the stream's header block to keep the HPACK context in sync.
                 // The stream ID is used up, so frames still arriving for it are handled as for a closed stream.
@@ -1124,6 +1151,192 @@ public class Http2Session {
             if (!stream.isClosing && !stream.isDeregistered) {
                 stream.isClosing = true;
                 closingStreamsCount++;
+                if (!stream.isLocallyInitiatedStream()) {
+                    activePeerStreamsCount--;
+                }
+            }
+        }
+    }
+
+    /**
+     * The one place where the server resets a stream: sends RST_STREAM, closes and deregisters the stream if there is
+     * one, and charges the reset to the connection's budget (see {@link #chargeReset(String)}). The peer considers the
+     * stream closed as soon as it gets the frame, so keeping it registered on this side would only leak its slot.
+     * <p>
+     * Only the resets the peer has caused to the server's cost are charged: closing a stream which was still open, and
+     * refusing a stream the peer wasn't allowed to open ({@link ErrorCode#REFUSED_STREAM}). A frame arriving for a
+     * stream which is already closed, e.g. DATA the peer had sent before it learned that the stream has been refused or
+     * answered early, costs nothing but the RST_STREAM, and must not get a well-behaved client disconnected. Answering
+     * each one of them would let the peer make the server write without limit though, so they get RST_STREAM out of a
+     * budget of their own, of the same size as the reset budget. Past it, such frames are ignored without an answer,
+     * which RFC 9113 (sections 5.1 and 5.4.2) allows for frames on closed streams, and the connection stays up.
+     * <p>
+     * Meant to be called from the connection's read thread only.
+     *
+     * @param streamId the stream to reset, may be one which doesn't exist (any more) on this side, e.g. a refused one
+     * @param errorCode the error code to send
+     * @param cause what made the server reset the stream, for the log
+     * @param streamClosedByError {@code true} if the error has already closed the stream, which was open until then
+     */
+    void resetLocally(final int streamId, final ErrorCode errorCode, final String cause, final boolean streamClosedByError) {
+        // Close the stream first, which also drops the frames still queued for it: none of them is to follow the RST_STREAM.
+        final Http2Stream stream = getStream(streamId);
+        final boolean closedOpenStream = stream != null && stream.resetLocally() || streamClosedByError;
+        final boolean charged = closedOpenStream || errorCode == ErrorCode.REFUSED_STREAM;
+
+        if (!charged && isServer && !closedStreamResetBudget.tryConsume(System.nanoTime())) {
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, "Ignoring a frame for the closed stream {0} of {1} without RST_STREAM ({2}): too many of them",
+                        new Object[] { streamId, connection, cause });
+            }
+            return;
+        }
+
+        final RstStreamFrame frame = RstStreamFrame.builder().errorCode(errorCode).streamId(streamId).build();
+        NetLogger.log(NetLogger.Context.TX, this, frame);
+        outputSink.writeDownStream(frame);
+
+        if (charged) {
+            chargeReset("RST_STREAM sent on stream " + streamId + " with " + errorCode + ": " + cause);
+        }
+    }
+
+    /**
+     * Charges a stream reset to the connection's reset budget, see {@link Http2Configuration#setMaxResetsPerWindow(int)}.
+     * Bounding the requests in progress (see {@link #startProcessing(Http2Stream, HttpContent)}) bounds the work a
+     * connection causes at any moment, but not the work the server does to accept and drop streams, so the number of
+     * resets has to be bounded too. A connection which exceeds the budget is sent a GOAWAY with
+     * {@link ErrorCode#ENHANCE_YOUR_CALM} and closed. None of its requests, which haven't been passed to the handler
+     * yet, is going to be: the ones waiting for their turn are dropped, and all the others are marked cancelled.
+     * <p>
+     * Meant to be called from the connection's read thread only. It does nothing for client sessions.
+     *
+     * @param cause what the reset was, for the log
+     * @return {@code true} if the connection has exceeded its budget
+     */
+    boolean chargeReset(final String cause) {
+        if (!isServer || resetBudget.tryConsume(System.nanoTime())) {
+            return false;
+        }
+
+        if (!resetBudgetExceededReported) {
+            resetBudgetExceededReported = true;
+            NetLogger.logResetBudgetExceeded(this, cause);
+            if (LOGGER.isLoggable(Level.WARNING)) {
+                LOGGER.log(Level.WARNING, "Closing the HTTP/2 connection with {0}: too many stream resets (more than {1} per {2} ms), last one: {3}",
+                        new Object[] { connection.getPeerAddress(), http2Configuration.getMaxResetsPerWindow(), http2Configuration.getResetWindowMillis(),
+                                cause });
+            }
+        }
+        // Before the GOAWAY: the connection is closed only once the GOAWAY has been written, which takes as long as the
+        // peer wants it to, and requests finishing in the meantime would pass the waiting ones to the handler.
+        abandonRequests();
+        terminate(ErrorCode.ENHANCE_YOUR_CALM, "Excessive stream resets");
+        return true;
+    }
+
+    /**
+     * Makes sure that no request of this connection, which hasn't been passed to the handler yet, is going to be: drops
+     * the requests waiting for their turn, and marks the requests of all the streams cancelled. The requests being
+     * processed already are left to finish.
+     */
+    private void abandonRequests() {
+        final List<Http2Stream> streams;
+        synchronized (sessionLock) {
+            for (final Http2Stream stream : deferredRequests) {
+                stream.deferredContent = null;
+            }
+            deferredRequests.clear();
+            streams = new ArrayList<>(streamsMap.values());
+        }
+        for (final Http2Stream stream : streams) {
+            stream.markCancelled();
+        }
+    }
+
+    /**
+     * Called before a request is passed to the processing chain (server side). A connection may have no more than
+     * {@link #getLocalMaxConcurrentStreams()} requests in progress: a request counts from the moment it is passed to the
+     * chain until its processing is finished (see {@link #finishProcessing(Http2Stream)}), even if its stream is reset in
+     * the meantime. Otherwise a peer could open a stream and reset it right away, over and over (HTTP/2 Rapid Reset,
+     * CVE-2023-44487), and make the server process an unlimited number of requests while it never has more than a few
+     * streams open.
+     * <p>
+     * A request over the limit isn't refused but waits until another one finishes: the peer considers a reset stream
+     * closed, so a well-behaved client (e.g. a browser cancelling requests when the user navigates away) may open new
+     * streams in its place right away, and is not to be punished for it. The number of waiting requests is bounded by
+     * the limit as well, they are requests of open streams. A waiting request is dropped if its stream is reset (see
+     * {@link #onStreamClosedAbruptly(Http2Stream)}).
+     * <p>
+     * Pushed requests count too: the peer may decline a pushed stream for free, which frees its slot right away, so they
+     * would not be bounded otherwise.
+     *
+     * @return {@code true} if the request may be passed to the processing chain now, or {@code false} if it has been
+     * put aside, to be passed by {@link Http2BaseFilter#dispatchDeferred} later
+     */
+    boolean startProcessing(final Http2Stream stream, final HttpContent content) {
+        if (!isServer || !http2Configuration.isHoldSlotUntilProcessingComplete()) {
+            return true;
+        }
+        synchronized (sessionLock) {
+            if (requestsInProgress < getLocalMaxConcurrentStreams() && deferredRequests.isEmpty()) {
+                stream.isInProgress = true;
+                requestsInProgress++;
+                return true;
+            }
+
+            stream.deferredContent = content;
+            deferredRequests.add(stream);
+            return false;
+        }
+    }
+
+    /**
+     * Called once the processing of the request of the stream has finished (the response has been completed, or the
+     * request has been recycled), see {@link #startProcessing(Http2Stream, HttpContent)}. It may be called any number of
+     * times and from any thread, the request stops counting once. Passes the requests, which have been waiting for it, to
+     * the processing chain.
+     */
+    void finishProcessing(final Http2Stream stream) {
+        List<Http2Stream> toDispatch = null;
+        List<HttpContent> contents = null;
+        synchronized (sessionLock) {
+            if (!stream.isInProgress) {
+                return;
+            }
+            stream.isInProgress = false;
+            requestsInProgress--;
+
+            while (requestsInProgress < getLocalMaxConcurrentStreams() && !deferredRequests.isEmpty()) {
+                final Http2Stream next = deferredRequests.poll();
+                next.isInProgress = true;
+                requestsInProgress++;
+                if (toDispatch == null) {
+                    toDispatch = new ArrayList<>(2);
+                    contents = new ArrayList<>(2);
+                }
+                toDispatch.add(next);
+                contents.add(next.deferredContent);
+                next.deferredContent = null;
+            }
+        }
+
+        if (toDispatch != null) {
+            for (int i = 0; i < toDispatch.size(); i++) {
+                handlerFilter.dispatchDeferred(this, toDispatch.get(i), contents.get(i));
+            }
+        }
+    }
+
+    /**
+     * Called when a stream is reset, or closed along with the connection. If its request is waiting to be processed, it
+     * is dropped: nobody is going to read the response. A request which is already being processed keeps counting until
+     * its processing finishes.
+     */
+    void onStreamClosedAbruptly(final Http2Stream stream) {
+        synchronized (sessionLock) {
+            if (deferredRequests.remove(stream)) {
+                stream.deferredContent = null;
             }
         }
     }
@@ -1139,6 +1352,8 @@ public class Http2Session {
             if (stream.isClosing) {
                 stream.isClosing = false;
                 closingStreamsCount--;
+            } else if (!stream.isDeregistered && !stream.isLocallyInitiatedStream()) {
+                activePeerStreamsCount--;
             }
             stream.isDeregistered = true;
             // If we're in GOAWAY state and there are no streams left - close this session
@@ -1197,6 +1412,36 @@ public class Http2Session {
         sendMessageUpstream(stream, message, upstreamContext);
     }
 
+    /**
+     * Passes the request of a stream, which has been counted by {@link #startProcessing(Http2Stream, HttpContent)}, to
+     * the processing chain (server side).
+     * <p>
+     * The processing of a request normally finishes with the response being completed, or the request being recycled.
+     * A suspended request whose stream has been reset gets neither: it is cancelled (see
+     * {@link Http2Stream#resetRemotely()}), and its processing ends without a response, the request being left alone
+     * as it may still be referenced. The processing chain is done with it then though, so it stops counting toward the
+     * requests in progress once the chain is, provided that its stream has been cancelled. A request which is not
+     * cancelled keeps counting until it finishes as usual, so a filter, which stops the chain and goes on processing the
+     * request on another thread, doesn't release it early.
+     */
+    void sendRequestUpstream(final Http2Stream stream, final HttpContent content) {
+        final FilterChainContext upstreamContext = http2StreamChain.obtainFilterChainContext(connection, stream);
+
+        final HttpContext httpContext = content.getHttpHeader().getProcessingState().getHttpContext();
+        httpContext.attach(upstreamContext);
+
+        upstreamContext.addCompletionListener(new FilterChainContext.CompletionListener() {
+            @Override
+            public void onComplete(final FilterChainContext context) {
+                if (stream.isCancelled()) {
+                    finishProcessing(stream);
+                }
+            }
+        });
+
+        sendMessageUpstream(stream, content, upstreamContext);
+    }
+
     private void sendMessageUpstream(final Http2Stream stream, final HttpPacket message, final FilterChainContext upstreamContext) {
 
         upstreamContext.getInternalContext().setIoEvent(IOEvent.READ);
@@ -1222,7 +1467,9 @@ public class Http2Session {
 
         final SettingsFrameBuilder builder = SettingsFrame.builder();
 
-        if (getLocalMaxConcurrentStreams() != getDefaultMaxConcurrentStreams()) {
+        // A server always advertises its limit, even the default one: without the setting the peer may assume there is
+        // no limit (RFC 9113, section 6.5.2), while streams over it are refused and charged to the reset budget.
+        if (isServer || getLocalMaxConcurrentStreams() != getDefaultMaxConcurrentStreams()) {
             builder.setting(SETTINGS_MAX_CONCURRENT_STREAMS, getLocalMaxConcurrentStreams());
         }
 
@@ -1294,6 +1541,9 @@ public class Http2Session {
 
         streamsMap.put(streamId, stream);
         incStreamCount();
+        if (!isLocallyInitiatedStream(streamId)) {
+            activePeerStreamsCount++;
+        }
     }
 
     private void registerUpgradeStream(final Http2Stream stream) throws Http2StreamException {
@@ -1323,18 +1573,22 @@ public class Http2Session {
         public void onClosed(final Closeable closeable, final CloseType type) throws IOException {
 
             NetLogger.logClose(Http2Session.this);
-            final boolean isClosing;
+            final List<Http2Stream> streams;
             synchronized (sessionLock) {
-                isClosing = !isClosed();
-                if (isClosing) {
+                if (!isClosed()) {
                     closeFlag = type;
                 }
+                // The streams have to be closed whether the session has been closed already or not: after a GOAWAY of
+                // this side, it has been, but its streams are still open until the connection is closed.
+                if (streamsClosedWithConnection) {
+                    return;
+                }
+                streamsClosedWithConnection = true;
+                streams = new ArrayList<>(streamsMap.values());
             }
 
-            if (isClosing) {
-                for (Http2Stream stream : streamsMap.values()) {
-                    stream.closedRemotely();
-                }
+            for (Http2Stream stream : streams) {
+                stream.closedRemotely();
             }
         }
     }

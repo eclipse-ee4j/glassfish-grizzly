@@ -185,6 +185,14 @@ public abstract class HttpHandler {
 
                     boolean wasSuspended = false;
                     try {
+                        if (request.getRequest().getProcessingState().isCancelled()) {
+                            // Whoever sent the request has gone away while it was waiting for a thread (e.g. the HTTP/2 stream has been
+                            // reset). Nobody is going to read a response, so don't do the work: the context is resumed below and the
+                            // response is finished without service() being called.
+                            LOGGER.log(Level.FINE, "The request has been cancelled before it was processed, skipping service()");
+                            return;
+                        }
+
                         HttpServerProbeNotifier.notifyBeforeService(httpServerFilter, connection, request, HttpHandler.this);
 
                         service(request, response);

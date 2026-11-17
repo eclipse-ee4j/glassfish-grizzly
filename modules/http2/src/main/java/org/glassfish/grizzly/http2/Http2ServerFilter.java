@@ -74,6 +74,7 @@ import org.glassfish.grizzly.http2.frames.HeaderBlockHead;
 import org.glassfish.grizzly.http2.frames.HeadersFrame;
 import org.glassfish.grizzly.http2.frames.Http2Frame;
 import org.glassfish.grizzly.http2.frames.PushPromiseFrame;
+import org.glassfish.grizzly.http2.frames.RstStreamFrame;
 import org.glassfish.grizzly.http2.frames.SettingsFrame;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.memory.Buffers;
@@ -834,12 +835,23 @@ public class Http2ServerFilter extends Http2BaseFilter {
             request.getProcessingState().setHttpContext(HttpContext.newInstance(pushStream, pushStream, pushStream, request));
             // now send the request upstream...
 
-            submit(ctx.getConnection(), new Runnable() {
-                @Override
-                public void run() {
-                    http2Session.sendMessageUpstream(pushStream, HttpContent.builder(request).content(Buffers.EMPTY_BUFFER).build());
+            // A pushed request is processed like any other, so it counts toward the requests in progress: the client may
+            // decline pushed streams for free, which frees their slots of the concurrent streams limit right away. If
+            // the connection has as many requests in progress as it may have, it waits for one of them to finish.
+            final HttpContent content = HttpContent.builder(request).content(Buffers.EMPTY_BUFFER).build();
+            if (http2Session.startProcessing(pushStream, content)) {
+                boolean dispatched = false;
+                try {
+                    submit(ctx.getConnection(), dispatchTask(http2Session, pushStream, content));
+                    dispatched = true;
+                } finally {
+                    if (!dispatched) {
+                        // e.g. the thread pool rejected the task: the request is counted toward the requests in progress,
+                        // but nothing is ever going to process it, so the slot has to be released here
+                        abandonPush(http2Session, pushStream);
+                    }
                 }
-            });
+            }
 
         } catch (Exception e) {
             LOGGER.log(Level.SEVERE, "Unable to push resource identified by path [{0}]", pushEvent.getPath());
@@ -849,6 +861,23 @@ public class Http2ServerFilter extends Http2BaseFilter {
             ctx.resume(ctx.getStopAction());
         }
 
+    }
+
+    /**
+     * Gives up on a pushed request which has been counted toward the requests in progress, but couldn't be passed to the
+     * processing chain. The client has got the PUSH_PROMISE, so the stream is reset ({@link ErrorCode#REFUSED_STREAM}: no
+     * processing has been done), which isn't charged to the reset budget, it's the server's failure. Recycling the
+     * request, as for a cancelled one (see {@link #dispatchTask}), releases its slot.
+     */
+    private static void abandonPush(final Http2Session http2Session, final Http2Stream pushStream) {
+        try {
+            pushStream.resetLocally();
+            final RstStreamFrame frame = RstStreamFrame.builder().errorCode(ErrorCode.REFUSED_STREAM).streamId(pushStream.getId()).build();
+            NetLogger.log(Context.TX, http2Session, frame);
+            http2Session.getOutputSink().writeDownStream(frame);
+        } finally {
+            pushStream.getRequest().recycle();
+        }
     }
 
     private void submit(final Connection c, final Runnable runnable) {

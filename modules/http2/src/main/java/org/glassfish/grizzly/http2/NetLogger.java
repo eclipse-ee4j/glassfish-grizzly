@@ -50,6 +50,7 @@ final class NetLogger {
     private static final String GOAWAY_FMT = "'{' \"session\":\"{0}\", \"event\":\"{1}\", \"stream\":\"{2}\", \"last-stream\":\"{3}\", \"error-code\":\"{4}\", \"detail\":\"{5}\" '}'";
     private static final String HEADERS = "HEADERS";
     private static final String HEADERS_FMT = "'{' \"session\":\"{0}\", \"event\":\"{1}\", \"stream\":\"{2}\", \"parent-stream\":\"{3}\", \"prioritized\":\"{4}\", \"exclusive\":\"{5}\", \"weight\":\"{6}\", \"fin\":\"{7}\", \"len\":\"{8}\", \"headers\":{9} '}'";
+    private static final String RESET_BUDGET_EXCEEDED_FMT = "'{' \"session\":\"{0}\", \"event\":\"RESET_BUDGET_EXCEEDED\", \"detail\":\"{1}\" '}'";
     private static final String OPEN_FMT = "'{' \"session\":\"{0}\", \"event\":\"SESSION_OPEN\" '}'";
     private static final String PING = "PING";
     private static final String PING_FMT = "'{' session=\"{0}\", event=\"{1}\", is-ack=\"{2}\", opaque-data=\"{3}\" '}'";
@@ -227,6 +228,12 @@ final class NetLogger {
 
     static void logClose(final Http2Session c) {
         logSessionEvent(CLOSE_FMT, c);
+    }
+
+    static void logResetBudgetExceeded(final Http2Session c, final String cause) {
+        if (isActive()) {
+            LOGGER.log(LEVEL, RESET_BUDGET_EXCEEDED_FMT, new Object[] { escape(c.getConnection().toString()), escape(cause) });
+        }
     }
 
     static void logOpen(final Http2Session c) {

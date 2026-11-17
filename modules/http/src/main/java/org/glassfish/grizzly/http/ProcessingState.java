@@ -44,6 +44,15 @@ public final class ProcessingState {
 
     /**
      * <p>
+     * Indicates that nobody is waiting for the result of the processing any more, e.g. the HTTP/2 stream the request was
+     * received on has been reset. Set from the thread which found it out, and read by the thread which is about to
+     * process the request.
+     * </p>
+     */
+    private volatile boolean cancelled;
+
+    /**
+     * <p>
      * This flag indicates whether error occurred during the HTTP processing.
      * </p>
      *
@@ -123,12 +132,37 @@ public final class ProcessingState {
 
     /**
      * <p>
+     * This flag indicates whether the processing has been cancelled, i.e. whoever sent the request is no longer interested
+     * in the response (the HTTP/2 stream has been reset, or the connection closed). Request processing, which hasn't
+     * started yet, may be skipped then.
+     * </p>
+     *
+     * @return <tt>true</tt>, if the processing has been cancelled, or <tt>false</tt> otherwise.
+     */
+    public boolean isCancelled() {
+        return cancelled;
+    }
+
+    /**
+     * <p>
+     * Marks the processing as cancelled, see {@link #isCancelled()}.
+     * </p>
+     *
+     * @param cancelled <tt>true</tt>, if the processing has been cancelled, or <tt>false</tt> otherwise.
+     */
+    public void setCancelled(final boolean cancelled) {
+        this.cancelled = cancelled;
+    }
+
+    /**
+     * <p>
      * Resets values to their initial states.
      * </p>
      */
     public void recycle() {
         keepAlive = false;
         error = false;
+        cancelled = false;
         httpContext = null;
     }
 

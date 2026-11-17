@@ -19,6 +19,7 @@ package org.glassfish.grizzly.http2;
 
 import static org.glassfish.grizzly.http2.Termination.CLOSED_BY_PEER_STRING;
 import static org.glassfish.grizzly.http2.Termination.LOCAL_CLOSE_TERMINATION;
+import static org.glassfish.grizzly.http2.Termination.LOCAL_RESET_TERMINATION;
 import static org.glassfish.grizzly.http2.Termination.PEER_CLOSE_TERMINATION;
 import static org.glassfish.grizzly.http2.Termination.RESET_TERMINATION;
 import static org.glassfish.grizzly.http2.Termination.UNEXPECTED_FRAME_TERMINATION;
@@ -122,6 +123,21 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
     // and the stream has been deregistered from the session; both guarded by the session lock
     boolean isClosing;
     boolean isDeregistered;
+
+    // the request counts toward the session's requests in progress (server side), see Http2Session.startProcessing;
+    // guarded by the session lock
+    boolean isInProgress;
+    // the content to pass to the processing chain, while the request waits for its turn, see
+    // Http2Session.startProcessing; guarded by the session lock
+    HttpContent deferredContent;
+
+    // The request object is pooled: once it has been recycled, it may already belong to another stream, even of another
+    // connection, so this stream must not touch it any more. Guarded by requestLock.
+    private final Object requestLock = new Object();
+    private boolean requestRecycled;
+    // nobody is waiting for the response of this stream any more, see markCancelled(); unlike the request's flag, it
+    // stays set once the request has been recycled
+    private volatile boolean cancelled;
 
     // the counter for inbound HeaderFrames
     private int inboundHeaderFramesCounter;
@@ -339,6 +355,23 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
         close0(null, CloseType.LOCALLY, cause, false);
     }
 
+    /**
+     * Closes the stream because of a frame the peer wasn't allowed to send on it.
+     *
+     * @return {@code true} if the stream was open until now, i.e. the peer's error has cost the server a stream it was
+     * serving, see {@link Http2Session#resetLocally}; {@code false} if it had already been closed
+     */
+    private boolean closeOnPeerError(final IOException cause) {
+        final boolean wasOpen = closeReason == null;
+        close0(null, CloseType.LOCALLY, cause, false);
+        if (wasOpen) {
+            // nobody is going to get the response, the same as for a reset
+            http2Session.onStreamClosedAbruptly(this);
+            markCancelled();
+        }
+        return wasOpen;
+    }
+
     void close0(final CompletionHandler<Closeable> completionHandler, final CloseType closeType, final IOException cause,
             final boolean isCloseOutputGracefully) {
 
@@ -377,28 +410,63 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
                 close0(null, CloseType.REMOTELY, null, false);
             }
         });
+
+        // The session is closed, or the stream is above the last stream ID of a GOAWAY, nobody gets a response either way.
+        http2Session.onStreamClosedAbruptly(this);
+        markCancelled();
     }
 
     /**
      * Notify the Http2Stream that peer sent RST_FRAME.
      */
     void resetRemotely() {
-        if (closeReasonUpdater.compareAndSet(this, null, new CloseReason(CloseType.REMOTELY, null))) {
-            onReset();
-            // initial graceful shutdown for input, so user is able to read
-            // the buffered data
-            inputBuffer.terminate(RESET_TERMINATION);
-
-            // forcibly terminate the output, so no more data will be sent
-            outputSink.terminate(RESET_TERMINATION);
-        }
+        reset(CloseType.REMOTELY, RESET_TERMINATION);
 
 //        rstAssociatedStreams();
+    }
+
+    /**
+     * Notify the Http2Stream that RST_STREAM has been sent to the peer: the stream is closed for good, the same way as
+     * if the peer had reset it, see {@link #resetRemotely()}. Use {@link Http2Session#resetLocally} to send the frame.
+     *
+     * @return {@code true} if the stream was open until now, {@code false} if it had already been closed
+     */
+    boolean resetLocally() {
+        return reset(CloseType.LOCALLY, LOCAL_RESET_TERMINATION);
+    }
+
+    /**
+     * Closes the stream for good once a RST_STREAM has been sent or received for it. Both peers consider the stream closed
+     * from then on, whatever state it is in on this side. In particular, a stream which has already been closed here,
+     * but whose response is still waiting for flow-control window (see {@link #onProcessingComplete()}), has to be
+     * terminated now: the peer is never going to open the window of a reset stream, so the end of the response would
+     * never be sent, and the stream would stay registered, taking a slot of the concurrent streams limit for good.
+     *
+     * @return {@code true} if the stream was open until now, {@code false} if it had already been closed
+     */
+    private boolean reset(final CloseType closeType, final Termination termination) {
+        final boolean wasOpen = closeReasonUpdater.compareAndSet(this, null, new CloseReason(closeType, null));
+
+        http2Session.onStreamClosedAbruptly(this);
+        onReset();
+
+        // Nothing is going to be read from or written to a reset stream, buffered data is of no use. Both are no-ops for
+        // a side which has been terminated already.
+        inputBuffer.terminate(termination);
+        outputSink.terminate(termination);
+
+        markCancelled();
+        // E.g. a suspended response has to learn that nobody is waiting for it any more. The listeners, which have been
+        // notified already, have been removed.
+        notifyCloseListeners();
+        return wasOpen;
     }
 
     void onProcessingComplete() {
         isProcessingComplete = true;
         close();
+        // last: it may pass a request, which has been waiting for this one to finish, to the processing chain
+        http2Session.finishProcessing(this);
 //        if (closeReasonUpdater.compareAndSet(this, null,
 //                new CloseReason(CloseType.LOCALLY, null))) {
 //
@@ -407,6 +475,66 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
 //
 //            notifyCloseListeners();
 //        }
+    }
+
+    /**
+     * @return {@code true} once the whole response, including the frame with END_STREAM, has been written to the
+     * connection, or the output has been terminated. A peer resetting a stream after that hasn't interrupted anything.
+     * A response which the handler has completed, but which is still waiting for flow-control window, isn't complete
+     * yet: resetting its stream throws away work the server has done.
+     */
+    boolean isResponseComplete() {
+        return outputSink.isClosed() && outputSink.getUnflushedWritesCount() <= 0;
+    }
+
+    /**
+     * @return {@code true} once nobody is waiting for the response of this stream any more: the stream has been reset, or
+     * closed along with its connection.
+     */
+    boolean isCancelled() {
+        return cancelled;
+    }
+
+    /**
+     * Tells whoever is about to process the request of this stream that nobody is waiting for the response any more, so
+     * a request still waiting for a thread can be dropped without doing the work. Called after the closing of the stream
+     * has been started (for a reset: after its input and output have been terminated), so that dropping the request can't
+     * interfere with it.
+     * <p>
+     * Does nothing once the request has been recycled: it may already be the request of another stream by now.
+     * <p>
+     * The request is only marked on the server side. On the client side the request is the application's own outgoing
+     * request, and what is waiting for a thread is the peer's response to it, which has to be delivered even if the
+     * stream is reset afterwards (e.g. a complete response followed by RST_STREAM(NO_ERROR), RFC 9113 section 8.1).
+     * <p>
+     * Only an {@link Http2Request} is marked: it tells the stream when it is recycled (see {@link #onRequestRecycled()}).
+     * The request of an h2c upgrade stream is the HTTP/1.1 request, which is recycled by the HTTP/1.1 processing without
+     * telling the stream and then reused, possibly by another connection, so marking it could cancel someone else's
+     * request. It is processed by the HTTP/1.1 processing, not dispatched by the HTTP/2 filter, so there is no request
+     * waiting for a thread to drop anyway.
+     */
+    void markCancelled() {
+        cancelled = true;
+        if (!http2Session.isServer() || !(request instanceof Http2Request)) {
+            return;
+        }
+        synchronized (requestLock) {
+            if (!requestRecycled) {
+                request.getProcessingState().setCancelled(true);
+            }
+        }
+    }
+
+    /**
+     * Called by the request of this stream when it is recycled, before its state is reset: from now on the request may
+     * be reused for another stream, so this one stops touching it (see {@link #markCancelled()}), and its processing is
+     * over, whether it has been completed or not (see {@link Http2Session#finishProcessing(Http2Stream)}). Idempotent.
+     */
+    void onRequestRecycled() {
+        synchronized (requestLock) {
+            requestRecycled = true;
+        }
+        http2Session.finishProcessing(this);
     }
 
     @Override
@@ -562,15 +690,15 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
         final Http2Stream.State state = getState();
         if (state == State.HALF_CLOSED_REMOTE || getState() == State.CLOSED) {
 
-            close0(null, CloseType.LOCALLY, new IOException("Received DATA frame on " + state + " stream."), false);
+            final boolean wasOpen = closeOnPeerError(new IOException("Received DATA frame on " + state + " stream."));
             return fin ? new Http2SessionException(ErrorCode.STREAM_CLOSED)
-                    : new Http2StreamException(getId(), ErrorCode.STREAM_CLOSED, "Received DATA frame on " + state + " stream.");
+                    : new Http2StreamException(getId(), ErrorCode.STREAM_CLOSED, "Received DATA frame on " + state + " stream.").setClosedOpenStream(wasOpen);
         }
 
         if (inboundHeaderFramesCounter != 1) { // we accept data only if we received one HeadersFrame
-            close0(null, CloseType.LOCALLY, new IOException("DATA frame came before HEADERS frame."), false);
+            final boolean wasOpen = closeOnPeerError(new IOException("DATA frame came before HEADERS frame."));
 
-            return new Http2StreamException(getId(), ErrorCode.PROTOCOL_ERROR, "DATA frame came before HEADERS frame.");
+            return new Http2StreamException(getId(), ErrorCode.PROTOCOL_ERROR, "DATA frame came before HEADERS frame.").setClosedOpenStream(wasOpen);
         }
 
         return null;
@@ -580,9 +708,9 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
         final Http2Stream.State state = getState();
         if (state == State.HALF_CLOSED_REMOTE || getState() == State.CLOSED) {
 
-            close0(null, CloseType.LOCALLY, new IOException("Received HEADER frame on " + state + " stream."), false);
+            final boolean wasOpen = closeOnPeerError(new IOException("Received HEADER frame on " + state + " stream."));
             return fin ? new Http2SessionException(ErrorCode.STREAM_CLOSED)
-                    : new Http2StreamException(getId(), ErrorCode.STREAM_CLOSED, "Received HEADER frame on " + state + " stream.");
+                    : new Http2StreamException(getId(), ErrorCode.STREAM_CLOSED, "Received HEADER frame on " + state + " stream.").setClosedOpenStream(wasOpen);
         }
 
         return null;
