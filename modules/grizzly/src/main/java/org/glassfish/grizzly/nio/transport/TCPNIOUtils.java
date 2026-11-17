@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -97,10 +98,10 @@ public class TCPNIOUtils {
             buffer.limit(oldPos + bufferSize);
 
             final DirectByteBufferRecord ioRecord = DirectByteBufferRecord.get();
-            final ByteBuffer directByteBuffer = ioRecord.allocate(bufferSize);
-            fill(buffer, bufferSize, directByteBuffer);
 
             try {
+                final ByteBuffer directByteBuffer = ioRecord.allocate(bufferSize);
+                fill(buffer, bufferSize, directByteBuffer);
                 written = flushByteBuffer(socketChannel, directByteBuffer);
             } finally {
                 ioRecord.release();
@@ -194,9 +195,9 @@ public class TCPNIOUtils {
 
             if (!memoryManager.willAllocateDirect(receiveBufferSize)) {
                 final DirectByteBufferRecord ioRecord = DirectByteBufferRecord.get();
-                final ByteBuffer directByteBuffer = ioRecord.allocate(receiveBufferSize);
 
                 try {
+                    final ByteBuffer directByteBuffer = ioRecord.allocate(receiveBufferSize);
                     read = readSimpleByteBuffer(connection, directByteBuffer);
                     if (read > 0) {
                         directByteBuffer.flip();
