@@ -48,9 +48,8 @@ final class DirectEngineBuffers {
     private static final int DESTINATION = 1;
     private static final int IN_USE = 2;
     private static final ByteBuffer IN_USE_MARK = ByteBuffer.allocate(0);
-    private static final ByteBuffer NONE = ByteBuffer.allocateDirect(0);
 
-    private static final ThreadLocal<ByteBuffer[]> AREA = ThreadLocal.withInitial(() -> new ByteBuffer[] { NONE, NONE, null });
+    private static final ThreadLocal<ByteBuffer[]> AREA = ThreadLocal.withInitial(() -> new ByteBuffer[3]);
 
     private DirectEngineBuffers() {
     }
@@ -185,7 +184,7 @@ final class DirectEngineBuffers {
     /** The cleared buffer of the slot with exactly {@code size} bytes remaining, or {@code null} if it can't grow. */
     private static ByteBuffer buffer(final ByteBuffer[] area, final int slot, final int size) {
         ByteBuffer buffer = area[slot];
-        if (buffer.capacity() < size) {
+        if (buffer == null || buffer.capacity() < size) {
             try {
                 buffer = ByteBuffer.allocateDirect(size);
             } catch (OutOfMemoryError e) {
