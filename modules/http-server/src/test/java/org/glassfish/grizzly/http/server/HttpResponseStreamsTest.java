@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2010, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -47,8 +48,6 @@ import org.glassfish.grizzly.utils.ChunkingFilter;
 import junit.framework.TestCase;
 
 public class HttpResponseStreamsTest extends TestCase {
-
-    private static final int PORT = 8004;
 
     private static final char[] ALPHA = "abcdefghijklmnopqrstuvwxyz".toCharArray();
 
@@ -958,8 +957,8 @@ public class HttpResponseStreamsTest extends TestCase {
     }
 
     private void doTest(WriteStrategy strategy, String expectedResult) throws Exception {
-
-        HttpServer server = HttpServer.createSimpleServer("/tmp", PORT);
+        final int port = TestUtils.findAvailableTcpPort();
+        HttpServer server = HttpServer.createSimpleServer("/tmp", port);
         ServerConfiguration sconfig = server.getServerConfiguration();
         sconfig.addHttpHandler(new TestHttpHandler(strategy), "/*");
 
@@ -972,12 +971,12 @@ public class HttpResponseStreamsTest extends TestCase {
             clientFilterChainBuilder.add(new TransportFilter());
             clientFilterChainBuilder.add(new ChunkingFilter(1024));
             clientFilterChainBuilder.add(new HttpClientFilter());
-            clientFilterChainBuilder.add(new ClientFilter(parseResult));
+            clientFilterChainBuilder.add(new ClientFilter(parseResult, port));
             ctransport.setProcessor(clientFilterChainBuilder.build());
 
             ctransport.start();
 
-            Future<Connection> connectFuture = ctransport.connect("localhost", PORT);
+            Future<Connection> connectFuture = ctransport.connect("localhost", port);
             String res = null;
             Connection connection = null;
             try {
@@ -1032,11 +1031,14 @@ public class HttpResponseStreamsTest extends TestCase {
         // number of bytes downloaded
         private volatile int bytesDownloaded;
 
+        private final int port;
+
         // -------------------------------------------------------- Constructors
 
-        public ClientFilter(FutureImpl<String> completeFuture) {
+        public ClientFilter(FutureImpl<String> completeFuture, final int port) {
 
             this.completeFuture = completeFuture;
+            this.port = port;
 
         }
 
@@ -1048,7 +1050,7 @@ public class HttpResponseStreamsTest extends TestCase {
             // We construct HTTP request version 1.1 and specifying the URL of the
             // resource we want to download
             final HttpRequestPacket httpRequest = HttpRequestPacket.builder().method("GET").uri("/path").protocol(Protocol.HTTP_1_1)
-                    .header("Host", "localhost:" + PORT).build();
+                    .header("Host", "localhost:" + port).build();
             if (logger.isLoggable(Level.FINE)) {
                 logger.log(Level.FINE, "Connected... Sending the request: {0}", httpRequest);
             }
