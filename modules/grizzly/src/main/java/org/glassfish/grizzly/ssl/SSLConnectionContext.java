@@ -39,7 +39,6 @@ import org.glassfish.grizzly.Grizzly;
 import org.glassfish.grizzly.filterchain.FilterChain;
 import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.memory.ByteBufferArray;
-import org.glassfish.grizzly.memory.MemoryManager;
 
 /**
  * SSL context associated with a {@link Connection}.
@@ -69,6 +68,14 @@ public final class SSLConnectionContext {
     static void forgetNeedsPacketBufferForTests(final Class<?> engineClass) {
         NEEDS_PACKET_BUFFER.get(engineClass).set(false);
     }
+
+    /**
+     * Whether the application data of {@link SSLEngine}s outside the JDK is staged in direct buffers, see
+     * {@link DirectEngineBuffers}. On by default.
+     */
+    static final String DIRECT_ENGINE_BUFFERS_PROPERTY = SSLConnectionContext.class.getName() + ".directEngineBuffers";
+    /** Read by {@link #configure(SSLEngine)}; not final so that tests can switch it. */
+    static boolean directEngineBuffers = Boolean.parseBoolean(System.getProperty(DIRECT_ENGINE_BUFFERS_PROPERTY, "true"));
 
     static {
         final String coef = System.getProperty(SSLConnectionContext.class.getName(), "1.5");
@@ -114,6 +121,8 @@ public final class SSLConnectionContext {
     /** Resolved in {@link #configure(SSLEngine)}, the only place the engine is set; used by the wrap methods only. */
     private AtomicBoolean needsPacketBuffer;
 
+    private boolean stageInDirectBuffers;
+
     private volatile int appBufferSize;
     private volatile int netBufferSize;
 
@@ -140,11 +149,19 @@ public final class SSLConnectionContext {
         this.sslEngine = sslEngine;
         this.needsPacketBuffer = NEEDS_PACKET_BUFFER.get(sslEngine.getClass());
         this.isServerMode = !sslEngine.getUseClientMode();
+        // the JDK engine (loaded by the bootstrap class loader) works on heap memory as well as on direct one: leave its
+        // buffers alone. Any other engine is staged, including a JDK engine behind a delegating SSLEngine subclass or a
+        // pure Java one: for them staging costs a copy per direction and no more.
+        this.stageInDirectBuffers = directEngineBuffers && sslEngine.getClass().getClassLoader() != null;
         updateBufferSizes();
     }
 
     public boolean isServerMode() {
         return isServerMode;
+    }
+
+    boolean isStagingInDirectBuffers() {
+        return stageInDirectBuffers;
     }
 
     void updateBufferSizes() {
@@ -255,10 +272,14 @@ public final class SSLConnectionContext {
 
         final ByteBuffer inputByteBuffer = input.toByteBuffer(input.position(), input.position() + len);
         final int initPosition = inputByteBuffer.position();
-        final SSLEngineResult sslEngineResult;
+        SSLEngineResult sslEngineResult;
+        final ByteBuffer[] staging = stageInDirectBuffers && !output.isComposite() ? DirectEngineBuffers.acquire() : null;
 
         try {
-            if (!output.isComposite()) {
+            sslEngineResult = staging != null ? DirectEngineBuffers.unwrap(staging, sslEngine, inputByteBuffer, output.toByteBuffer()) : null;
+            if (sslEngineResult != null) {
+                // staged in direct buffers
+            } else if (!output.isComposite()) {
                 sslEngineResult = sslEngineUnwrap(sslEngine, inputByteBuffer, output.toByteBuffer());
 
             } else {
@@ -274,6 +295,10 @@ public final class SSLConnectionContext {
             }
         } catch (SSLException e) {
             return new SslResult(output, e);
+        } finally {
+            if (staging != null) {
+                DirectEngineBuffers.release(staging);
+            }
         }
 
         final Status status = sslEngineResult.getStatus();
@@ -298,7 +323,6 @@ public final class SSLConnectionContext {
     }
 
     Buffer wrapAll(final Buffer input, final Allocator allocator) throws SSLException {
-        final MemoryManager memoryManager = connection.getMemoryManager();
 
         final ByteBufferArray bba = input.toByteBufferArray(inputByteBufferArray);
         final ByteBuffer[] inputArray = bba.getArray();
@@ -325,7 +349,7 @@ public final class SSLConnectionContext {
                     final Buffer newOutput = result.getOutput();
                     newOutput.trim();
 
-                    output = Buffers.appendBuffers(memoryManager, output, newOutput);
+                    output = Buffers.appendBuffers(connection.getMemoryManager(), output, newOutput);
                 } while (input.hasRemaining());
             }
 
@@ -362,12 +386,22 @@ public final class SSLConnectionContext {
         final int outPos = output.position();
 
         final ByteBuffer outputByteBuffer = output.toByteBuffer();
-        final SSLEngineResult sslEngineResult;
+        SSLEngineResult sslEngineResult;
 
+        final ByteBuffer[] staging = stageInDirectBuffers ? DirectEngineBuffers.acquire() : null;
         try {
-            sslEngineResult = sslEngineWrap(sslEngine, inputArray, 0, inputArraySize, outputByteBuffer);
+            sslEngineResult = staging != null
+                    ? DirectEngineBuffers.wrap(staging, sslEngine, inputArray, inputArraySize, appBufferSize, outputByteBuffer)
+                    : null;
+            if (sslEngineResult == null) {
+                sslEngineResult = sslEngineWrap(sslEngine, inputArray, 0, inputArraySize, outputByteBuffer);
+            }
         } catch (SSLException e) {
             return new SslResult(output, e);
+        } finally {
+            if (staging != null) {
+                DirectEngineBuffers.release(staging);
+            }
         }
 
         final Status status = sslEngineResult.getStatus();
