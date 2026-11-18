@@ -18,13 +18,15 @@
 package org.glassfish.grizzly.http;
 
 import java.io.IOException;
-import java.net.SocketAddress;
 import java.lang.reflect.Method;
+import java.net.SocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.concurrent.Future;
@@ -38,8 +40,10 @@ import org.glassfish.grizzly.Grizzly;
 import org.glassfish.grizzly.StandaloneProcessor;
 import org.glassfish.grizzly.WriteHandler;
 import org.glassfish.grizzly.filterchain.BaseFilter;
+import org.glassfish.grizzly.filterchain.FilterChain;
 import org.glassfish.grizzly.filterchain.FilterChainBuilder;
 import org.glassfish.grizzly.filterchain.FilterChainContext;
+import org.glassfish.grizzly.filterchain.FilterChainEvent;
 import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.filterchain.TransportFilter;
 import org.glassfish.grizzly.impl.FutureImpl;
@@ -66,6 +70,7 @@ import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_NAME_VALI
 import static org.glassfish.grizzly.http.HttpCodecFilter.STRICT_HEADER_VALUE_VALIDATION_RFC_9110;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
@@ -157,17 +162,6 @@ public class HttpResponseParseTest {
         headers.put("Multi-line", new Pair<>("first\n          second\n       third", "first seconds third"));
         headers.put("Content-length", new Pair<>("2345", "2345"));
         doHttpResponseTest("HTTP/1.0", 200, "DONE", headers, "\n");
-    }
-
-    @Test
-    public void testDecoder100continueThen200() {
-        try {
-            doTestDecoder("HTTP/1.1 100 Continue\n\nHTTP/1.1 200 OK\n\n", 4096);
-            assertTrue(true);
-        } catch (IllegalStateException e) {
-            logger.log(Level.SEVERE, "exception", e);
-            assertTrue("Unexpected exception", false);
-        }
     }
 
     @Test
@@ -279,6 +273,7 @@ public class HttpResponseParseTest {
     }
 
     private static final byte[] CONTINUE = "HTTP/1.1 100 Continue\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1);
+    private static final String EARLY_HINTS = "HTTP/1.1 103 Early Hints\r\nLink: </style.css>; rel=preload; as=style\r\n\r\n";
 
     private static final String[] BUFFER_KINDS = { "heap", "direct", "composite" };
 
@@ -290,6 +285,7 @@ public class HttpResponseParseTest {
         final HttpClientFilter filter;
         final StandaloneConnection connection = new StandaloneConnection();
         final int[] headerSize = { -1 };
+        int headerParses;
         Buffer stored;
         FilterChainContext ctx;
 
@@ -299,6 +295,7 @@ public class HttpResponseParseTest {
                 @Override
                 public void onHeaderParseEvent(final Connection connection, final HttpHeader header, final int size) {
                     headerSize[0] = size;
+                    headerParses++;
                 }
             });
         }
@@ -375,9 +372,8 @@ public class HttpResponseParseTest {
     /**
      * One or two 100 Continue responses are read first, alone or together with the start of the final response, the rest
      * is read later, appended to the buffer kept for it. The final response is parsed whatever the kind of the buffer (the
-     * bytes of the 100 are not removed from a direct one), whether bytes precede its position or not, wherever the reads
-     * end: also inside the 100 itself (e.g. after its status line, or after the first byte of its closing CRLF, where the
-     * parsing index is past the end of the data read so far), and in three reads.
+     * bytes of the 100 are retained), whether bytes precede its position or not, and with cuts inside the 100 itself
+     * (e.g. after its status line or the first byte of its closing CRLF).
      */
     @Test
     public void testContinueThenFinalResponse() throws Exception {
@@ -402,6 +398,147 @@ public class HttpResponseParseTest {
                     doTestContinueReads(kind, prefix, stream, CONTINUE.length - 1);
                     doTestContinueReads(kind, prefix, stream, CONTINUE.length - 2, CONTINUE.length - 1);
                     doTestContinueReads(kind, prefix, stream, CONTINUE.length - 1, CONTINUE.length + 4, CONTINUE.length + 9);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testContinueWithHeadersThenFinalResponse() throws Exception {
+        assertInterimResponsesSkipped("HTTP/1.1 100 Continue\r\nServer: example\r\n\r\n");
+
+        // A peer might send framing or upgrade fields in an interim response. They must not affect the final response.
+        assertInterimResponsesSkipped("HTTP/1.0 100 Continue\r\nServer: example\r\nContent-Type: text/plain\r\n"
+                + "Content-Length: 17\r\nTransfer-Encoding: chunked\r\nUpgrade: example\r\n\r\n");
+    }
+
+    @Test
+    public void testLfOnlyContinueThenFinalResponse() throws Exception {
+        assertInterimResponsesSkipped("HTTP/1.1 100 Continue\n\n");
+    }
+
+    @Test
+    public void testEarlyHintsThenFinalResponse() throws Exception {
+        assertInterimResponsesSkipped(EARLY_HINTS);
+        assertInterimResponsesSkipped("HTTP/1.1 100 Continue\r\n\r\n" + EARLY_HINTS + "HTTP/1.1 102 Processing\r\n\r\n");
+    }
+
+    private static void assertInterimResponsesSkipped(final String interimResponses) throws Exception {
+        final String finalHeader = "HTTP/1.1 200 OK\r\nContent-Length: 4\r\nX-A: b\r\n\r\n";
+        final byte[] stream = (interimResponses + finalHeader + "body").getBytes(StandardCharsets.ISO_8859_1);
+        final int firstLineEnd = interimResponses.indexOf('\n') + 1;
+        final int interimEnd = interimResponses.length();
+        final int[] cuts = { 0, 3, 11, firstLineEnd - 1, firstLineEnd, firstLineEnd + 1, (firstLineEnd + interimEnd) / 2,
+                interimEnd - 2, interimEnd - 1, interimEnd, interimEnd + 3 };
+        for (final String kind : BUFFER_KINDS) {
+            for (final byte[] prefix : new byte[][] { {}, { 'j', 'u', 'n', 'k' } }) {
+                for (final int cut : cuts) {
+                    final String msg = kind + " prefix " + prefix.length + " cut " + cut;
+                    final Reads reads = new Reads(4096);
+                    final HttpRequestPacket request = writeRequest(reads.filter, reads.connection);
+                    final byte[] first = Arrays.copyOfRange(stream, 0, cut == 0 ? stream.length : cut);
+                    reads.read(msg, HttpRequestParseTest.bufferAtPosition(prefix, first, kind), cut == 0);
+                    if (cut != 0) {
+                        reads.readMore(msg, Arrays.copyOfRange(stream, cut, stream.length), true);
+                    }
+                    final HttpContent content = reads.ctx.getMessage();
+                    final HttpResponsePacket response = (HttpResponsePacket) content.getHttpHeader();
+                    assertSame(msg, request, response.getRequest());
+                    assertEquals(msg, Protocol.HTTP_1_1, response.getProtocol());
+                    assertEquals(msg, 200, response.getStatus());
+                    assertEquals(msg, "OK", response.getReasonPhrase());
+                    assertEquals(msg, "b", response.getHeader("X-A"));
+                    assertEquals(msg, 4, response.getContentLength());
+                    assertNull(msg, response.getContentType());
+                    assertNull(msg, response.getHeader("Server"));
+                    assertNull(msg, response.getHeader("Link"));
+                    assertFalse(msg, response.isUpgrade());
+                    assertFalse(msg, response.isChunked());
+                    assertTrue(msg, content.isLast());
+                    assertEquals(msg, "body", content.getContent().toStringContent());
+                    assertEquals(msg, 1, reads.headerParses);
+                    assertEquals(msg, finalHeader.length(), reads.headerSize[0]);
+                }
+            }
+        }
+    }
+
+    @Test
+    public void testSwitchingProtocolsAfterInformationalResponse() throws Exception {
+        final String upgrade = "HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: example\r\n\r\n";
+        for (final String interim : new String[] { "", EARLY_HINTS }) {
+            final HttpClientFilter filter = new HttpClientFilter();
+            final List<HttpHeader> upgraded = new ArrayList<>();
+            final FilterChain chain = FilterChainBuilder.stateless().add(filter).add(new BaseFilter() {
+                @Override
+                public NextAction handleEvent(final FilterChainContext ctx, final FilterChainEvent event) {
+                    if (event instanceof HttpEvents.IncomingHttpUpgradeEvent) {
+                        upgraded.add(((HttpEvents.IncomingHttpUpgradeEvent) event).getHttpHeader());
+                    }
+                    return ctx.getInvokeAction();
+                }
+            }).build();
+            final StandaloneConnection connection = new StandaloneConnection();
+            final HttpRequestPacket request = writeRequest(filter, connection);
+            final FilterChainContext ctx = chain.obtainFilterChainContext(connection, 0, chain.size(), 0);
+            ctx.setMessage(Buffers.wrap(MemoryManager.DEFAULT_MEMORY_MANAGER, interim + upgrade + "upgraded payload"));
+            filter.handleRead(ctx);
+
+            final HttpContent content = ctx.getMessage();
+            final HttpResponsePacket response = (HttpResponsePacket) content.getHttpHeader();
+            assertEquals(101, response.getStatus());
+            assertSame(request, response.getRequest());
+            assertEquals("example", response.getUpgrade());
+            assertTrue(response.isIgnoreContentModifiers());
+            assertEquals("upgraded payload", content.getContent().toStringContent());
+            assertEquals(Collections.singletonList(response), upgraded);
+        }
+    }
+
+    private static HttpRequestPacket writeRequest(final HttpClientFilter filter, final Connection connection) throws IOException {
+        final HttpRequestPacket request = HttpRequestPacket.builder().method("GET").uri("/").protocol(Protocol.HTTP_1_1).build();
+        final FilterChainContext ctx = FilterChainContext.create(connection);
+        ctx.setMessage(request);
+        filter.handleWrite(ctx);
+        return request;
+    }
+
+    @Test
+    public void testHeaderLineEndingAtPacketLimit() throws Exception {
+        assertHeaderLineEndingAtPacketLimit("");
+    }
+
+    @Test
+    public void testHeaderLimitAcrossInformationalResponses() throws Exception {
+        assertHeaderLineEndingAtPacketLimit("HTTP/1.1 100 Continue\r\n\r\n" + EARLY_HINTS);
+    }
+
+    private static void assertHeaderLineEndingAtPacketLimit(final String interim) throws Exception {
+        final String finalHeader = "HTTP/1.1 200 OK\r\nX-A: b\r\n\r\n";
+        final byte[] stream = (interim + finalHeader).getBytes(StandardCharsets.ISO_8859_1);
+        final byte[] prefix = { 'j', 'u', 'n', 'k' };
+        for (final String kind : BUFFER_KINDS) {
+            for (final int overflow : new int[] { 0, 1, 2 }) {
+                final int maxHeaderSize = stream.length - overflow;
+                for (final int cut : new int[] { 0, maxHeaderSize - 1 }) {
+                    final String msg = kind + " overflow " + overflow + " cut " + cut;
+                    final Reads reads = new Reads(maxHeaderSize);
+                    final Buffer first = HttpRequestParseTest.bufferAtPosition(prefix,
+                            Arrays.copyOfRange(stream, 0, cut == 0 ? stream.length : cut), kind);
+                    if (cut != 0) {
+                        reads.read(msg, first, false);
+                    }
+                    try {
+                        if (cut == 0) {
+                            reads.read(msg, first, true);
+                        } else {
+                            reads.readMore(msg, Arrays.copyOfRange(stream, cut, stream.length), true);
+                        }
+                        assertEquals(msg + ": accepted header with overflow", 0, overflow);
+                    } catch (IllegalStateException error) {
+                        assertTrue(msg + ": " + error, overflow > 0 && error.getCause() instanceof HttpHeaderTooLargeException);
+                    }
+                    assertEquals(msg, overflow == 0 ? finalHeader.length() : -1, reads.headerSize[0]);
                 }
             }
         }
