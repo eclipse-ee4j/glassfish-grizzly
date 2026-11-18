@@ -51,9 +51,7 @@ public class RequestUtils {
             }
 
             // the renegotiation must not wait for writes this thread holds back
-            if (request.getContext().getConnection() instanceof NIOConnection) {
-                ((NIOConnection) request.getContext().getConnection()).flushCorkedWrites();
-            }
+            NIOConnection.flushCorkedWrites(request.getContext().getConnection());
             GrizzlyFuture<Object[]> certFuture = new CertificateEvent(true).trigger(request.getContext());
             try {
                 // TODO: make the timeout configurable

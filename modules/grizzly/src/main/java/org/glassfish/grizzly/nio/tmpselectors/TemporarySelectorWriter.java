@@ -169,7 +169,8 @@ public abstract class TemporarySelectorWriter extends AbstractWriter<SocketAddre
             return;
         }
         try {
-            if (timeout >= 0) {
+            // A zero timeout waits indefinitely, as in Selector.select(0).
+            if (timeout > 0) {
                 future.get(timeout, timeunit);
             } else {
                 future.get();

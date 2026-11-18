@@ -390,6 +390,7 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
 
         AsyncWriteQueueRecord queueRecord = null;
         try {
+            // Keep record handling in sync with the drain loop in flushHeldWrites().
             while ((queueRecord = aggregate(writeTaskQueue)) != null) {
                 if (isLogFine) {
                     doFineLog("AsyncQueueWriter.processAsync beforeWrite " + "connection={0} record={1}", nioConnection, queueRecord);
@@ -495,6 +496,7 @@ public abstract class AbstractNIOAsyncQueueWriter extends AbstractWriter<SocketA
         boolean failed = false;
         AsyncWriteQueueRecord queueRecord = null;
         try {
+            // Keep record handling in sync with the drain loop in processAsync().
             while ((queueRecord = aggregate(writeTaskQueue)) != null) {
                 final RecordWriteResult writeResult;
                 try {

@@ -387,9 +387,7 @@ public class OutputBuffer {
     public void writeInterimResponse() throws IOException {
         ctx.write(outputHeader, IS_BLOCKING);
         // the client waits for it (e.g. 100 Continue before it sends the request body)
-        if (connection instanceof NIOConnection) {
-            ((NIOConnection) connection).flushCorkedWrites();
-        }
+        NIOConnection.flushCorkedWrites(connection);
     }
 
     // ---------------------------------------------------- Writer-Based Methods
@@ -725,9 +723,7 @@ public class OutputBuffer {
         }
 
         // an explicit flush also writes what the connection holds back to coalesce responses to pipelined requests
-        if (connection instanceof NIOConnection) {
-            ((NIOConnection) connection).flushCorkedWrites();
-        }
+        NIOConnection.flushCorkedWrites(connection);
 
         blockAfterWriteIfNeeded();
     }

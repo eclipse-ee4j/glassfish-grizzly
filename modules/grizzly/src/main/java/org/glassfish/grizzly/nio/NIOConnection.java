@@ -890,8 +890,7 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
      * Corks the asynchronous writes of the current thread on this connection: until the {@link IOEvent#READ} processing
      * run of this thread ends, its writes are queued instead of being written to the channel, so that several small
      * messages produced while processing one batch of input (e.g. responses to pipelined HTTP requests) go out together
-     * in one gathering write. The writes of other threads are not held back (they are queued behind held-back ones, so
-     * the order is kept).
+     * in one gathering write. Writes from other threads queue behind any held writes to preserve their order.
      * <p>
      * The held-back writes are written on the current thread, before READ interest is enabled again, when the READ
      * processing run ends (also by a suspension or an exception), when {@link #flushCorkedWrites()} is called, when more
@@ -904,6 +903,9 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
      * The held-back writes are also written when the READ processing is suspended, when the connection is closed
      * gracefully, before a blocking read or write, and when an HTTP interim response (e.g. 100 Continue) is written.
      * Only one thread at a time can cork a connection.
+     * <p>
+     * Before blocking on an asynchronous write future or waiting for a write completion handler, the corking thread
+     * must call {@link #flushCorkedWrites()} so writes it holds back can complete.
      * <p>
      * Internal API, used by the HTTP server to coalesce the responses to pipelined requests.
      *
@@ -937,6 +939,20 @@ public abstract class NIOConnection implements Connection<SocketAddress> {
     public void flushCorkedWrites() {
         if (corkingThread == Thread.currentThread()) {
             flushHeldWrites();
+        }
+    }
+
+    /**
+     * Flushes held writes on an NIO connection if the calling thread corked it. The connection stays corked.
+     * <p>
+     * Internal API, used by the HTTP server before operations that depend on the held writes being sent.
+     *
+     * @param connection the connection whose held writes to flush
+     * @since 5.0.4
+     */
+    public static void flushCorkedWrites(final Connection<?> connection) {
+        if (connection instanceof NIOConnection) {
+            ((NIOConnection) connection).flushCorkedWrites();
         }
     }
 

@@ -18,6 +18,7 @@ package org.glassfish.grizzly;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -27,10 +28,13 @@ import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
+import java.nio.ByteBuffer;
+import java.nio.channels.WritableByteChannel;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -40,6 +44,7 @@ import org.glassfish.grizzly.filterchain.FilterChainBuilder;
 import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.filterchain.NextAction;
 import org.glassfish.grizzly.filterchain.TransportFilter;
+import org.glassfish.grizzly.impl.SafeFutureImpl;
 import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.nio.NIOTransport;
@@ -320,6 +325,118 @@ public class CorkedWritesTest {
             assertFalse("a connection closed by the flush has no write readiness", canWrite.get());
         } finally {
             transport.shutdownNow();
+        }
+    }
+
+    @Test
+    public void blockingWriteWithZeroTimeoutWaitsForQueuedWrites() throws Exception {
+        blockingWriteBehindQueuedWrites(0);
+    }
+
+    @Test
+    public void blockingWriteWithPositiveTimeoutClosesConnection() throws Exception {
+        blockingWriteBehindQueuedWrites(100);
+    }
+
+    private static void blockingWriteBehindQueuedWrites(final long timeoutMillis) throws Exception {
+        final GatedFileChunk first = new GatedFileChunk();
+        final CountDownLatch writing = new CountDownLatch(1);
+        final CountDownLatch returned = new CountDownLatch(1);
+        final AtomicBoolean corked = new AtomicBoolean();
+        final AtomicBoolean completed = new AtomicBoolean();
+        final AtomicReference<NIOConnection> connectionRef = new AtomicReference<>();
+        final AtomicReference<Thread> worker = new AtomicReference<>();
+        final TCPNIOTransport transport = singleWorkerTransport(new BaseFilter() {
+            @Override
+            public NextAction handleRead(final FilterChainContext ctx) throws IOException {
+                final NIOConnection connection = (NIOConnection) ctx.getConnection();
+                connectionRef.set(connection);
+                worker.set(Thread.currentThread());
+                connection.setWriteTimeout(timeoutMillis, TimeUnit.MILLISECONDS);
+                corked.set(connection.corkWrites());
+                ctx.write(first);
+                writing.countDown();
+                try {
+                    ctx.write(Buffers.wrap(ctx.getMemoryManager(), "B"), new EmptyCompletionHandler<WriteResult>() {
+                        @Override
+                        public void completed(final WriteResult result) {
+                            completed.set(true);
+                        }
+                    }, true);
+                } finally {
+                    returned.countDown();
+                }
+                return ctx.getStopAction();
+            }
+        });
+        final InetSocketAddress address = (InetSocketAddress) transport.bind(new InetSocketAddress("127.0.0.1", 0)).getLocalAddress();
+        transport.start();
+        try (Socket socket = new Socket()) {
+            socket.connect(address, 5000);
+            socket.setSoTimeout(5000);
+            socket.getOutputStream().write('g');
+            assertTrue("the worker did not start the blocking write", writing.await(5, TimeUnit.SECONDS));
+            assertTrue("the connection must be corked", corked.get());
+            final NIOConnection connection = connectionRef.get();
+            if (timeoutMillis == 0) {
+                assertTrue("the worker must wait for the queued write", awaitsQueuedWrite(worker.get(), returned));
+                first.allowWrite.set(true);
+                assertEquals("AB", new String(socket.getInputStream().readNBytes(2), StandardCharsets.US_ASCII));
+                assertTrue("the blocking write did not return", returned.await(5, TimeUnit.SECONDS));
+                assertTrue("the blocking write must complete", completed.get());
+                assertTrue("the connection must stay open", connection.isOpen());
+            } else {
+                assertTrue("the blocking write did not time out", returned.await(5, TimeUnit.SECONDS));
+                final CloseReason closeReason = connection.getCloseReason();
+                assertNotNull("the timeout must close the connection", closeReason);
+                assertTrue("expected a write timeout but got " + closeReason, closeReason.getCause().getCause() instanceof TimeoutException);
+                assertFalse("the blocking write must remain incomplete", completed.get());
+            }
+        } finally {
+            first.allowWrite.set(true);
+            transport.shutdownNow();
+        }
+    }
+
+    private static boolean awaitsQueuedWrite(final Thread worker, final CountDownLatch returned) throws InterruptedException {
+        final long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5);
+        do {
+            if (worker.getState() == Thread.State.WAITING && Arrays.stream(worker.getStackTrace())
+                    .anyMatch(frame -> SafeFutureImpl.class.getName().equals(frame.getClassName()) && "get".equals(frame.getMethodName()))) {
+                return true;
+            }
+        } while (!returned.await(10, TimeUnit.MILLISECONDS) && System.nanoTime() < deadline);
+        return false;
+    }
+
+    private static final class GatedFileChunk implements FileChunk {
+        private final AtomicBoolean allowWrite = new AtomicBoolean();
+        private final ByteBuffer data = ByteBuffer.wrap(new byte[] { 'A' });
+
+        @Override
+        public long writeTo(final WritableByteChannel channel) throws IOException {
+            // Hold the first write in the queue until the test observes the blocking write.
+            return allowWrite.get() ? channel.write(data) : 0;
+        }
+
+        @Override
+        public boolean hasRemaining() {
+            return data.hasRemaining();
+        }
+
+        @Override
+        public int remaining() {
+            return data.remaining();
+        }
+
+        @Override
+        public boolean release() {
+            return true;
+        }
+
+        @Override
+        public boolean isExternal() {
+            return true;
         }
     }
 
