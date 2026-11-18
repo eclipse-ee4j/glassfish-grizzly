@@ -534,10 +534,13 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
                 // if header wasn't parsed - parse
                 if (!decodeHttpPacket(ctx, parsingState, input)) {
                     // if there is not enough data to parse the HTTP header - stop
-                    // filterchain processing
+                    // filterchain processing. The input is kept from its position on and the next read is appended to
+                    // it: at position 0, index 0 of the combined buffer stays index 0 of this one (also when the next
+                    // read is appended in place to a composite), so the parsing indexes stay valid.
+                    input.position(0);
                     return ctx.getStopAction(input);
                 } else {
-                    final int headerSizeInBytes = input.position();
+                    final int headerSizeInBytes = input.position() - parsingState.getHeaderParsingState().messageStart;
 
                     if (httpHeader.isUpgrade()) {
                         onIncomingUpgrade(ctx, httpHeader);
@@ -1996,6 +1999,9 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
         public int arrayOffset;
 
+        /** Index of the message's first byte in the buffer being parsed. */
+        public int messageStart;
+
         public DataChunk headerValueStorage;
         public HttpCodecFilter codecFilter;
 
@@ -2009,6 +2015,9 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
 
         public void initialize(final HttpCodecFilter codecFilter, final int initialOffset, final int maxHeaderSize) {
             this.codecFilter = codecFilter;
+            // the message starts at the buffer's position, e.g. after a prefix consumed by an upstream filter
+            messageStart = initialOffset;
+            start = initialOffset;
             offset = initialOffset;
             packetLimit = offset + maxHeaderSize;
         }
@@ -2025,6 +2034,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
             subState = 0;
             start = 0;
             offset = 0;
+            messageStart = 0;
             checkpoint = -1;
             checkpoint2 = -1;
             headerValueStorage = null;

@@ -386,9 +386,13 @@ public class HttpClientFilter extends HttpCodecFilter {
                     // another initial line which represents the final
                     // response from the server after it has sent a
                     // 100-Continue.
+                    //
+                    // The final response is the message for the size of the header (as for a Buffer): both indexes are
+                    // relative to the start of the buffer, the end is absolute in the array.
                     parsingState.offset += 2;
                     parsingState.start = parsingState.offset;
-                    if (parsingState.start < end) {
+                    parsingState.messageStart = parsingState.offset;
+                    if (parsingState.start < end - arrayOffs) {
                         parsingState.subState = 0;
                         continue;
                     }
@@ -484,11 +488,16 @@ public class HttpClientFilter extends HttpCodecFilter {
                     // another initial line which represents the final
                     // response from the server after it has sent a
                     // 100-Continue.
+                    //
+                    // The indexes stay absolute in the input: the final response starts at the current offset, which is
+                    // not necessarily 0 (the input is not shrunk, as that does nothing for a direct buffer; and bytes
+                    // may precede the position the message was parsed from).
                     parsingState.offset += 2;
-                    parsingState.start = 0;
-                    input.position(parsingState.offset);
-                    input.shrink();
-                    parsingState.offset = 0;
+                    parsingState.start = parsingState.offset;
+                    parsingState.messageStart = parsingState.offset;
+                    if (parsingState.start < input.limit()) {
+                        continue;
+                    }
                     return false;
                 }
                 return true;
