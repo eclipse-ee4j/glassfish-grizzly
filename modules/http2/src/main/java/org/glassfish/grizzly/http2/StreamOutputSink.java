@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -70,6 +71,17 @@ interface StreamOutputSink {
      * the pending writes.
      */
     void terminate(Termination terminationFlag);
+
+    /**
+     * Same as {@link #terminate(Termination)}, but the pending writes and write handlers are failed with an exception
+     * carrying the given cause.
+     *
+     * @param terminationFlag the termination flag
+     * @param cause the cause of the termination, may be <tt>null</tt>
+     */
+    default void terminate(Termination terminationFlag, Throwable cause) {
+        terminate(terminationFlag);
+    }
 
     boolean isClosed();
 }

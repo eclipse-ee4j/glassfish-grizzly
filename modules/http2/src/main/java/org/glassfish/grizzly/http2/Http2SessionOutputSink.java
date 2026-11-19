@@ -341,7 +341,7 @@ public class Http2SessionOutputSink {
     }
 
     public void close() {
-        outputQueue.onClose();
+        outputQueue.onClose(http2Session.getConnectionCloseCause());
     }
 
 }

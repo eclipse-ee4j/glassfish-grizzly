@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2015, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -71,7 +72,7 @@ public class UpgradeOutputSink implements StreamOutputSink {
 
     @Override
     public void close() {
-        terminate(null);
+        terminate(Termination.OUT_FIN_TERMINATION);
     }
 
     @Override
@@ -84,7 +85,9 @@ public class UpgradeOutputSink implements StreamOutputSink {
             isClosed = true;
         }
 
-        termination.doTask();
+        if (termination != null) {
+            termination.doTask();
+        }
     }
 
     @Override

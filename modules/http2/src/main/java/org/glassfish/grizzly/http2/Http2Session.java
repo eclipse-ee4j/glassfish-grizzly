@@ -31,6 +31,7 @@ import java.util.logging.Logger;
 
 import org.glassfish.grizzly.Buffer;
 import org.glassfish.grizzly.CloseListener;
+import org.glassfish.grizzly.CloseReason;
 import org.glassfish.grizzly.CloseType;
 import org.glassfish.grizzly.Closeable;
 import org.glassfish.grizzly.Connection;
@@ -1317,6 +1318,11 @@ public class Http2Session {
         concurrentStreamsCount.decrementAndGet();
     }
 
+    IOException getConnectionCloseCause() {
+        final CloseReason closeReason = connection.getCloseReason();
+        return closeReason != null ? closeReason.getCause() : null;
+    }
+
     private final class ConnectionCloseListener implements CloseListener<Closeable, CloseType> {
 
         @Override
@@ -1332,8 +1338,9 @@ public class Http2Session {
             }
 
             if (isClosing) {
+                final IOException cause = getConnectionCloseCause();
                 for (Http2Stream stream : streamsMap.values()) {
-                    stream.closedRemotely();
+                    stream.closedRemotely(cause);
                 }
             }
         }

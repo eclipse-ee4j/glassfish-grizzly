@@ -353,7 +353,7 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
                 outputSink.close();
             } else {
                 // Terminate the output, discard all the pending data in the output buffer
-                outputSink.terminate(termination);
+                outputSink.terminate(termination, cause);
             }
 
             notifyCloseListeners();
@@ -368,13 +368,22 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
      * Notifies the Http2Stream that it's been closed remotely.
      */
     void closedRemotely() {
+        closedRemotely(null);
+    }
+
+    /**
+     * Notifies the Http2Stream that it's been closed remotely.
+     *
+     * @param cause the cause of the close (e.g. the underlying connection's close reason), may be <tt>null</tt>
+     */
+    void closedRemotely(final IOException cause) {
         // Schedule (add to the stream's input queue) the Termination,
         // which will be invoked once read by the user code.
         // This way we simulate Java Socket behavior
         inputBuffer.terminate(new Termination(TerminationType.PEER_CLOSE, CLOSED_BY_PEER_STRING, true) {
             @Override
             public void doTask() {
-                close0(null, CloseType.REMOTELY, null, false);
+                close0(null, CloseType.REMOTELY, cause, false);
             }
         });
     }
