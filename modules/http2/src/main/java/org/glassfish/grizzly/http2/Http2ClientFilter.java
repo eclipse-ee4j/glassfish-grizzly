@@ -401,10 +401,13 @@ public class Http2ClientFilter extends Http2BaseFilter {
 
         final Connection connection = ctx.getConnection();
 
-        // Create HTTP/2.0 connection for the given Grizzly Connection
-        http2State.setDirectUpgradePhase(); // expecting preface (settings frame)
-
+        // Create HTTP/2.0 connection for the given Grizzly Connection.
+        // Bind the session before leaving the upgrade phase: as soon as the phase is DIRECT_UPGRADE, the completion
+        // listener of the upgrade request write (see checkIfLastHttp11Chunk()) may win tryLockClientPreface() on the
+        // writing thread, and it needs the session to send the preface; otherwise no preface is sent at all.
         final Http2Session http2Session = createClientHttp2Session(connection);
+
+        http2State.setDirectUpgradePhase(); // expecting preface (settings frame)
 
         if (http2State.tryLockClientPreface()) {
             http2Session.sendPreface();
