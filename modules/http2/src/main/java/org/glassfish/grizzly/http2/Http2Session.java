@@ -139,6 +139,11 @@ public class Http2Session {
 
     private final Http2Configuration http2Configuration;
 
+    // Per-connection limits, see
+    // Http2Configuration#setMaxResetBurst(int) and Http2Configuration#setMaxControlFrameBurst(int)
+    private final TokenBucket peerResetBudget;
+    private final TokenBucket controlFrameBudget;
+
     private volatile int streamsHighWaterMark;
     private int checkCount;
 
@@ -201,6 +206,11 @@ public class Http2Session {
                 : getSpecDefaultFramePayloadSize();
 
         this.maxHeaderListSize = handlerFilter.getConfiguration().getMaxHeaderListSize();
+
+        // The reset budget applies to server connections only.
+        this.peerResetBudget = isServer ? new TokenBucket(http2Configuration.getMaxResetBurst(), http2Configuration.getMaxResetsPerSecond())
+                : new TokenBucket(0, 0);
+        this.controlFrameBudget = new TokenBucket(http2Configuration.getMaxControlFrameBurst(), http2Configuration.getMaxControlFramesPerSecond());
 
         if (isServer) {
             this.lastLocalStreamId = 0;
@@ -522,6 +532,30 @@ public class Http2Session {
 
     public boolean isServer() {
         return isServer;
+    }
+
+    /**
+     * Charges a stream reset caused by the peer, either by a {@code RST_STREAM} frame of its own or by a stream error
+     * this endpoint answers with {@code RST_STREAM}, against the peer's reset budget.
+     *
+     * @throws Http2SessionException with {@link ErrorCode#ENHANCE_YOUR_CALM} if the budget is used up.
+     */
+    void onPeerCausedReset() throws Http2SessionException {
+        if (!peerResetBudget.tryAcquire()) {
+            throw new Http2SessionException(ErrorCode.ENHANCE_YOUR_CALM, "Too many stream resets.");
+        }
+    }
+
+    /**
+     * Charges a control frame, one that carries no request or response data but makes this endpoint respond or do work,
+     * against the peer's control frame budget.
+     *
+     * @throws Http2SessionException with {@link ErrorCode#ENHANCE_YOUR_CALM} if the budget is used up.
+     */
+    void onControlFrame() throws Http2SessionException {
+        if (!controlFrameBudget.tryAcquire()) {
+            throw new Http2SessionException(ErrorCode.ENHANCE_YOUR_CALM, "Too many control frames.");
+        }
     }
 
     public boolean isLocallyInitiatedStream(final int streamId) {
