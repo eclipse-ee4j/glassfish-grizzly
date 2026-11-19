@@ -157,6 +157,22 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
                             throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR);
                         }
 
+                        if (e.isOnClosedStream()) {
+                            // A frame on a stream that is closed already, e.g. DATA a well-behaved client sent before it
+                            // learned that the stream was refused or answered, must not get the client disconnected. It
+                            // gets RST_STREAM out of a budget of its own; past it, the frame is ignored without an answer,
+                            // which RFC 9113 (sections 5.1 and 5.4.2) allows for frames on closed streams.
+                            if (!http2Session.onFrameOnClosedStream()) {
+                                if (LOGGER.isLoggable(Level.FINE)) {
+                                    LOGGER.log(Level.FINE, "Ignoring a frame on the closed stream {0} of {1} without RST_STREAM: too many of them",
+                                            new Object[] { streamId, ctx.getConnection() });
+                                }
+                                continue;
+                            }
+                        } else {
+                            // Resets caused by the peer's frames count toward the reset budget, like the peer's own resets.
+                            http2Session.onPeerCausedReset();
+                        }
                         sendRstStream(ctx, http2Session, streamId, e.getErrorCode());
                     }
                 }
@@ -365,7 +381,7 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             break;
         }
         case PriorityFrame.TYPE: {
-            processPriorityFrame(frame);
+            processPriorityFrame(http2Session, frame);
             break;
         }
         case HeadersFrame.TYPE:
@@ -395,14 +411,19 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             break;
         }
         default: {
-            LOGGER.log(Level.WARNING, "Unknown or unhandled frame [type={0} flags={1} length={2} streamId={3}]",
-                    new Object[] { frame.getType(), frame.getFlags(), frame.getLength(), frame.getStreamId() });
+            // Frames of unknown types are ignored (RFC 9113, section 4.1); they count toward the control frame budget,
+            // and are only logged at FINE, as a peer may send any number of them.
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, "Unknown or unhandled frame [type={0} flags={1} length={2} streamId={3}]",
+                        new Object[] { frame.getType(), frame.getFlags(), frame.getLength(), frame.getStreamId() });
+            }
+            http2Session.onControlFrame();
         }
         }
 
     }
 
-    private void processPriorityFrame(final Http2Frame frame) throws Http2SessionException, Http2StreamException {
+    private void processPriorityFrame(final Http2Session http2Session, final Http2Frame frame) throws Http2SessionException, Http2StreamException {
         final int streamId = frame.getStreamId();
         try {
             if (streamId == 0) {
@@ -414,6 +435,7 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             if (streamId == ((PriorityFrame) frame).getStreamDependency()) {
                 throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, "PRIORITY frame dependent on itself.");
             }
+            http2Session.onControlFrame();
         } finally {
             frame.recycle();
         }
@@ -440,8 +462,14 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             // noinspection Duplicates
             if (stream != null) {
                 stream.getOutputSink().onPeerWindowUpdate(delta);
-            } else {
-                throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR);
+            } else if (http2Session.isIdleStream(streamId)) {
+                throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, "WINDOW_UPDATE frame on IDLE stream.");
+            } else if (LOGGER.isLoggable(Level.FINE)) {
+                // A stream that is closed and has been removed already: the peer may have sent the frame before it learned
+                // that the stream was closed, so it is ignored (RFC 9113, section 5.1). Like any WINDOW_UPDATE, it does not
+                // count toward the control frame budget.
+                LOGGER.log(Level.FINE, "Ignoring WINDOW_UPDATE frame on the closed stream {0} of {1}",
+                        new Object[] { streamId, http2Session.getConnection() });
             }
         }
     }
@@ -476,6 +504,7 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             if (settingsFrame.getLength() % 6 != 0) {
                 throw new Http2SessionException(ErrorCode.FRAME_SIZE_ERROR, "SETTINGS frame length not multiple of six.");
             }
+            http2Session.onControlFrame();
             sendSettingsAck(http2Session, context);
             applySettings(http2Session, settingsFrame);
         } finally {
@@ -534,6 +563,12 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
         if (pingFrame.isAckSet()) {
             return;
         }
+        try {
+            http2Session.onControlFrame();
+        } catch (Http2SessionException e) {
+            pingFrame.recycle();
+            throw e;
+        }
 
         // Send the same ping message back, but set the ack flag
         pingFrame.setFlag(PingFrame.ACK_FLAG);
@@ -548,12 +583,21 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, "RST frame on stream ID zero.");
         }
 
+        final Http2Stream stream = http2Session.getStream(streamId);
+        // The peer declining a stream this endpoint has pushed is not charged: the push was this endpoint's choice. Each
+        // push is declined for free once at most, also when its stream has been removed already, so the free resets are
+        // bounded by the pushes. Resets of any other stream are charged, including resets of closed or unknown streams.
+        if (!http2Session.onPushDeclined(streamId, stream)) {
+            http2Session.onPeerCausedReset();
+        }
+
         if (ignoreFrameForStreamId(http2Session, streamId)) {
             return;
         }
-        final Http2Stream stream = http2Session.getStream(streamId);
         if (stream == null) {
-            if (streamId > http2Session.lastPeerStreamId) {
+            // Compared with the last stream ID of whichever side initiates the stream: a pushed stream that has been
+            // removed already is closed, not idle, however far the peer's own stream IDs have got.
+            if (http2Session.isIdleStream(streamId)) {
                 // consider this case an idle stream without creating one
                 throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, "Received RST frame on IDLE stream.");
             }
@@ -594,9 +638,32 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
 
         final HeadersDecoder headersDecoder = http2Session.getHeadersDecoder();
 
+        try {
+            if (frame.getType() == ContinuationFrame.TYPE) {
+                final int maxContinuationFrames = configuration.getMaxContinuationFrames();
+                // Only count while the limit is enabled, so an endless header block cannot overflow the counter.
+                if (maxContinuationFrames > 0 && headersDecoder.incContinuationFrames() > maxContinuationFrames) {
+                    throw http2Session.limitExceeded("Too many CONTINUATION frames in a header block.");
+                }
+            }
+
+            if (!headerBlockFragment.getCompressedHeaders().hasRemaining() && !headerBlockFragment.isEndHeaders()) {
+                http2Session.onControlFrame();
+            }
+        } catch (Http2SessionException e) {
+            headerBlockFragment.recycle();
+            throw e;
+        }
+
         if (headerBlockFragment.getCompressedHeaders().hasRemaining()) {
             if (!headersDecoder.append(headerBlockFragment.takePayload())) {
-                headersDecoder.setFirstHeaderFrame((HeaderBlockHead) headerBlockFragment);
+                // The block may outgrow the size limit in its HEADERS frame or in any CONTINUATION frame; the block
+                // keeps its first frame, a CONTINUATION frame is not a HeaderBlockHead.
+                if (!headersDecoder.isProcessingHeaders()) {
+                    headersDecoder.setFirstHeaderFrame((HeaderBlockHead) headerBlockFragment);
+                } else {
+                    headerBlockFragment.recycle();
+                }
                 final HeaderBlockHead firstHeaderFrame = headersDecoder.finishHeader();
                 firstHeaderFrame.setTruncated();
                 try {
@@ -885,6 +952,10 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             dataFrame.recycle();
         }
 
+        if (!data.hasRemaining() && !fin) {
+            http2Session.onControlFrame();
+        }
+
         // Always ACK the data to maintain flow-control state
         http2Session.ackConsumedData(data.remaining());
 
@@ -904,7 +975,7 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
                 LOGGER.log(Level.FINE, "Data frame received for non-existent stream: connection={0}, frame={1}, stream={2}",
                         new Object[] { context.getConnection(), dataFrame, streamId });
             }
-            throw new Http2StreamException(streamId, ErrorCode.STREAM_CLOSED);
+            throw new Http2StreamException(streamId, ErrorCode.STREAM_CLOSED).onClosedStream(true);
         }
 
         stream.offerInputData(data, fin);

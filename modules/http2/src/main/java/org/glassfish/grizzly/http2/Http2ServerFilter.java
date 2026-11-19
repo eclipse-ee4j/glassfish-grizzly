@@ -602,7 +602,7 @@ public class Http2ServerFilter extends Http2BaseFilter {
                 if (headersFrame.isEndStream()) {
                     throw new Http2SessionException(ErrorCode.STREAM_CLOSED);
                 }
-                throw new Http2StreamException(stream.getId(), ErrorCode.STREAM_CLOSED);
+                throw new Http2StreamException(stream.getId(), ErrorCode.STREAM_CLOSED).onClosedStream(state == Http2Stream.State.CLOSED);
             }
 
             if (!headersFrame.isEndStream()) {
@@ -656,10 +656,18 @@ public class Http2ServerFilter extends Http2BaseFilter {
             if (hde.getErrorType() == HeaderDecodingException.ErrorType.SESSION) {
                 throw new Http2SessionException(hde.getErrorCode(), hde.getMessage());
             } else {
+                // The stream has been accepted already: close it along with the RST_STREAM, or it keeps its slot of the
+                // concurrent streams limit for good, as nothing else is ever going to close it.
+                stream.terminateSilently();
                 throw new Http2StreamException(stream.getId(), hde.getErrorCode(), hde.getMessage());
             }
         }
         if (headersFrame.isTruncated()) {
+            // The request is answered without being processed, so its input is done with: the stream is closed once the
+            // response has been written. Otherwise it keeps its slot of the concurrent streams limit for good, and enough
+            // oversized requests leave the connection refusing every further stream.
+            stream.onRcvHeaders(headersFrame.isEndStream());
+            stream.inputBuffer.terminate(IN_FIN_TERMINATION);
             final HttpResponsePacket response = request.getResponse();
             HttpStatus.REQUEST_HEADER_FIELDS_TOO_LARGE.setValues(response);
             final HttpHeader header = response.getHttpHeader();

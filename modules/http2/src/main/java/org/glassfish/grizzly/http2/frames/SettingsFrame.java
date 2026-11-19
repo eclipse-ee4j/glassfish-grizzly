@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2012, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -302,8 +303,10 @@ public class SettingsFrame extends Http2Frame {
             final Setting storedSetting = settings[numberOfSettings++];
             storedSetting.id = settingId;
             storedSetting.value = value;
-        } else {
-            LOGGER.log(Level.WARNING, "Setting {0} is unknown and will be ignored", settingId);
+        } else if (LOGGER.isLoggable(Level.FINE)) {
+            // Settings received from the peer: unknown ones must be ignored (RFC 9113, section 6.5.2), and a single
+            // SETTINGS frame can carry thousands of them, so they are only logged at FINE.
+            LOGGER.log(Level.FINE, "Setting {0} is unknown and will be ignored", settingId);
         }
     }
 
