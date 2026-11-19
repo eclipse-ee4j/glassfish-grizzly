@@ -217,7 +217,11 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
     /**
      * <p>
      * Invoked when either the request line or status line has been parsed.
-     *
+     * </p>
+     * <p>
+     * The client invokes this hook for each informational response and the final response. It resets the response header
+     * and parsing state after each skipped informational response. A 101 Switching Protocols response is retained for the
+     * upgrade.
      * </p>
      *
      * @param httpHeader {@link HttpHeader}, which represents HTTP packet header
@@ -693,7 +697,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         switch (parsingState.state) {
         case 0: { // parsing initial line
             if (!decodeInitialLineFromBytes(ctx, httpPacket, parsingState, input, end)) {
-                parsingState.checkOverflow(inputBuffer.limit(), "HTTP packet intial line is too large");
+                parsingState.checkOverflow(inputBuffer.limit(), "HTTP packet initial line is too large");
                 return false;
             }
 
@@ -1008,7 +1012,7 @@ public abstract class HttpCodecFilter extends HttpBaseFilter implements Monitori
         switch (parsingState.state) {
         case 0: { // parsing initial line
             if (!decodeInitialLineFromBuffer(ctx, httpPacket, parsingState, input)) {
-                parsingState.checkOverflow(input.limit(), "HTTP packet intial line is too large");
+                parsingState.checkOverflow(input.limit(), "HTTP packet initial line is too large");
                 return false;
             }
 

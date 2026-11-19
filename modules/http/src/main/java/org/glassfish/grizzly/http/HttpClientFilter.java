@@ -669,6 +669,7 @@ public class HttpClientFilter extends HttpCodecFilter {
         }
 
         private void resetForNextResponse() {
+            // Preserve the request and secure flag. Keep this in sync with response initialization in createHttpResponse().
             final HttpRequestPacket request = getRequest();
             final boolean secure = isSecure();
             final int nextResponseStart = headerParsingState.offset;
