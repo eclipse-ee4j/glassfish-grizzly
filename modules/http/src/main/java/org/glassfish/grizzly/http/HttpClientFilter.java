@@ -307,13 +307,20 @@ public class HttpClientFilter extends HttpCodecFilter {
     final boolean decodeInitialLineFromBytes(final FilterChainContext ctx, final HttpPacketParsing httpPacket, final HeaderParsingState parsingState,
             final byte[] input, final int end) {
 
-        final HttpResponsePacket httpResponse = (HttpResponsePacket) httpPacket;
+        final ClientHttpResponseImpl httpResponse = (ClientHttpResponseImpl) httpPacket;
 
         final int arrayOffs = parsingState.arrayOffset;
         final int packetLimit = arrayOffs + parsingState.packetLimit;
 
-        // noinspection LoopStatementThatDoesntLoop
         while (true) {
+            if (httpResponse.parsingInterimHeaders) {
+                if (!parseHeadersFromBytes(httpResponse, httpResponse.getHeaders(), parsingState, input, end)) {
+                    parsingState.checkHeadersOverflow(end - arrayOffs);
+                    return false;
+                }
+                httpResponse.resetForNextResponse();
+            }
+
             int subState = parsingState.subState;
 
             switch (subState) {
@@ -381,22 +388,9 @@ public class HttpClientFilter extends HttpCodecFilter {
                 parsingState.start = -1;
                 parsingState.checkpoint = -1;
                 onInitialLineParsed(httpResponse, ctx);
-                if (httpResponse.getStatus() == 100) {
-                    // reset the parsing state in preparation to parse
-                    // another initial line which represents the final
-                    // response from the server after it has sent a
-                    // 100-Continue.
-                    //
-                    // The final response is the message for the size of the header (as for a Buffer): both indexes are
-                    // relative to the start of the buffer, the end is absolute in the array.
-                    parsingState.offset += 2;
-                    parsingState.start = parsingState.offset;
-                    parsingState.messageStart = parsingState.offset;
-                    if (parsingState.start < end - arrayOffs) {
-                        parsingState.subState = 0;
-                        continue;
-                    }
-                    return false;
+                if (isInterimResponse(httpResponse)) {
+                    httpResponse.parsingInterimHeaders = true;
+                    break;
                 }
                 return true;
             }
@@ -411,12 +405,19 @@ public class HttpClientFilter extends HttpCodecFilter {
     final boolean decodeInitialLineFromBuffer(final FilterChainContext ctx, final HttpPacketParsing httpPacket, final HeaderParsingState parsingState,
             final Buffer input) {
 
-        final HttpResponsePacket httpResponse = (HttpResponsePacket) httpPacket;
+        final ClientHttpResponseImpl httpResponse = (ClientHttpResponseImpl) httpPacket;
 
         final int packetLimit = parsingState.packetLimit;
 
-        // noinspection LoopStatementThatDoesntLoop
         while (true) {
+            if (httpResponse.parsingInterimHeaders) {
+                if (!parseHeadersFromBuffer(httpResponse, httpResponse.getHeaders(), parsingState, input)) {
+                    parsingState.checkHeadersOverflow(input.limit());
+                    return false;
+                }
+                httpResponse.resetForNextResponse();
+            }
+
             int subState = parsingState.subState;
 
             switch (subState) {
@@ -483,22 +484,9 @@ public class HttpClientFilter extends HttpCodecFilter {
                 parsingState.start = -1;
                 parsingState.checkpoint = -1;
                 onInitialLineParsed(httpResponse, ctx);
-                if (httpResponse.getStatus() == 100) {
-                    // reset the parsing state in preparation to parse
-                    // another initial line which represents the final
-                    // response from the server after it has sent a
-                    // 100-Continue.
-                    //
-                    // The indexes stay absolute in the input: the final response starts at the current offset, which is
-                    // not necessarily 0 (the input is not shrunk, as that does nothing for a direct buffer; and bytes
-                    // may precede the position the message was parsed from).
-                    parsingState.offset += 2;
-                    parsingState.start = parsingState.offset;
-                    parsingState.messageStart = parsingState.offset;
-                    if (parsingState.start < input.limit()) {
-                        continue;
-                    }
-                    return false;
+                if (isInterimResponse(httpResponse)) {
+                    httpResponse.parsingInterimHeaders = true;
+                    break;
                 }
                 return true;
             }
@@ -507,6 +495,11 @@ public class HttpClientFilter extends HttpCodecFilter {
                 throw new IllegalStateException();
             }
         }
+    }
+
+    private static boolean isInterimResponse(final HttpResponsePacket response) {
+        final int status = response.getStatus();
+        return status >= 100 && status < 200 && status != 101;
     }
 
     @Override
@@ -591,6 +584,7 @@ public class HttpClientFilter extends HttpCodecFilter {
         private boolean contentTypeParsed;
 
         private boolean isHeaderParsed;
+        private boolean parsingInterimHeaders;
         private final HttpCodecFilter.HeaderParsingState headerParsingState;
         private final HttpCodecFilter.ContentParsingState contentParsingState;
 
@@ -674,6 +668,22 @@ public class HttpClientFilter extends HttpCodecFilter {
             this.isHeaderParsed = isHeaderParsed;
         }
 
+        private void resetForNextResponse() {
+            // Preserve the request and secure flag. Keep this in sync with response initialization in createHttpResponse().
+            final HttpRequestPacket request = getRequest();
+            final boolean secure = isSecure();
+            final int nextResponseStart = headerParsingState.offset;
+
+            reset();
+            setRequest(request);
+            setSecure(secure);
+
+            // Recycling the parsing state leaves packetLimit at the original header boundary.
+            headerParsingState.start = nextResponseStart;
+            headerParsingState.offset = nextResponseStart;
+            headerParsingState.messageStart = nextResponseStart;
+        }
+
         /**
          * {@inheritDoc}
          */
@@ -681,6 +691,7 @@ public class HttpClientFilter extends HttpCodecFilter {
         protected void reset() {
             contentTypeParsed = false;
             isHeaderParsed = false;
+            parsingInterimHeaders = false;
             headerParsingState.recycle();
             contentParsingState.recycle();
             super.reset();

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2011, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -151,7 +152,7 @@ public class HttpCodecUtils {
 
     public static int checkEOL(final HttpCodecFilter.HeaderParsingState parsingState, final Buffer input) {
         final int offset = parsingState.offset;
-        final int avail = input.limit() - offset;
+        final int avail = Math.min(parsingState.packetLimit, input.limit()) - offset;
 
         final byte b1;
         final byte b2;
