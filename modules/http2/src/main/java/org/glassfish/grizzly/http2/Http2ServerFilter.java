@@ -612,8 +612,17 @@ public class Http2ServerFilter extends Http2BaseFilter {
             try {
                 stream.onRcvHeaders(headersFrame.isEndStream());
                 final Map<String, String> capture = NetLogger.isActive() ? new HashMap<>() : null;
-                DecoderUtils.decodeTrailerHeaders(http2Session, stream.getRequest(), capture);
+                if (Http2Stream.getStreamFor(stream.getRequest()) != stream) {
+                    // The request of this stream was recycled after its response was sent, and it may serve another
+                    // stream by now. The trailers have nowhere to go: decode them to keep the compression state in
+                    // sync and drop them.
+                    DecoderUtils.skipHeaders(http2Session);
+                } else {
+                    DecoderUtils.decodeTrailerHeaders(http2Session, stream.getRequest(), capture);
+                }
                 NetLogger.log(Context.RX, http2Session, headersFrame, capture);
+            } catch (Http2SessionException e) {
+                throw e;
             } catch (IOException ioe) {
                 throw new Http2SessionException(ErrorCode.COMPRESSION_ERROR, ioe.getCause().getMessage());
             } catch (HeaderDecodingException hde) {
