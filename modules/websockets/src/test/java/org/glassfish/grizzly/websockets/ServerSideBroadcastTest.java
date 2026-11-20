@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -20,7 +21,9 @@ import java.io.IOException;
 import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
 
 import org.glassfish.grizzly.http.HttpRequestPacket;
 import org.junit.Assert;
@@ -62,7 +65,8 @@ public class ServerSideBroadcastTest extends BaseWebSocketTestUtilities {
         final int websocketsCount = 5;
         final int port = TestUtils.findAvailableTcpPort();
         WebSocketServer server = WebSocketServer.createServer(port);
-        server.register("", "/broadcast", new BroadcastApplication(broadcaster));
+        final CountDownLatch serverSideConnected = new CountDownLatch(websocketsCount);
+        server.register("", "/broadcast", new BroadcastApplication(broadcaster, serverSideConnected));
         server.start();
         List<TrackingWebSocket> clients = new ArrayList<>();
         try {
@@ -75,6 +79,13 @@ public class ServerSideBroadcastTest extends BaseWebSocketTestUtilities {
                 socket.connect();
                 clients.add(socket);
             }
+
+            // The client considers itself connected as soon as it receives the 101 response, but the server
+            // registers the socket with the application (WebSocketApplication.onConnect) only after that
+            // response has been written. Wait until every socket is registered on the server side, otherwise
+            // early broadcasts can miss the last connected client(s).
+            Assert.assertTrue("Not all websockets were registered on the server: " + serverSideConnected,
+                              serverSideConnected.await(WebSocketEngine.DEFAULT_TIMEOUT, TimeUnit.SECONDS));
 
             for (int count = 0; count < ITERATIONS; count++) {
                 for (String message : messages) {
@@ -100,9 +111,17 @@ public class ServerSideBroadcastTest extends BaseWebSocketTestUtilities {
 
     public static class BroadcastApplication extends WebSocketApplication {
         private final Broadcaster broadcaster;
+        private final CountDownLatch connected;
 
-        public BroadcastApplication(Broadcaster broadcaster) {
+        public BroadcastApplication(Broadcaster broadcaster, CountDownLatch connected) {
             this.broadcaster = broadcaster;
+            this.connected = connected;
+        }
+
+        @Override
+        public void onConnect(WebSocket socket) {
+            super.onConnect(socket); // registers the socket, so it is visible to getWebSockets()
+            connected.countDown();
         }
 
         @Override
