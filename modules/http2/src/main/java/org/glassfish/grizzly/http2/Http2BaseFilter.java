@@ -157,6 +157,8 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
                             throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR);
                         }
 
+                        // Resets caused by the peer's frames count toward the reset budget, like the peer's own resets.
+                        http2Session.onPeerCausedReset();
                         sendRstStream(ctx, http2Session, streamId, e.getErrorCode());
                     }
                 }
@@ -365,7 +367,7 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             break;
         }
         case PriorityFrame.TYPE: {
-            processPriorityFrame(frame);
+            processPriorityFrame(http2Session, frame);
             break;
         }
         case HeadersFrame.TYPE:
@@ -395,14 +397,19 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             break;
         }
         default: {
-            LOGGER.log(Level.WARNING, "Unknown or unhandled frame [type={0} flags={1} length={2} streamId={3}]",
-                    new Object[] { frame.getType(), frame.getFlags(), frame.getLength(), frame.getStreamId() });
+            // Frames of unknown types are ignored (RFC 9113, section 4.1); they count toward the control frame budget,
+            // and are only logged at FINE, as a peer may send any number of them.
+            if (LOGGER.isLoggable(Level.FINE)) {
+                LOGGER.log(Level.FINE, "Unknown or unhandled frame [type={0} flags={1} length={2} streamId={3}]",
+                        new Object[] { frame.getType(), frame.getFlags(), frame.getLength(), frame.getStreamId() });
+            }
+            http2Session.onControlFrame();
         }
         }
 
     }
 
-    private void processPriorityFrame(final Http2Frame frame) throws Http2SessionException, Http2StreamException {
+    private void processPriorityFrame(final Http2Session http2Session, final Http2Frame frame) throws Http2SessionException, Http2StreamException {
         final int streamId = frame.getStreamId();
         try {
             if (streamId == 0) {
@@ -414,6 +421,7 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             if (streamId == ((PriorityFrame) frame).getStreamDependency()) {
                 throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, "PRIORITY frame dependent on itself.");
             }
+            http2Session.onControlFrame();
         } finally {
             frame.recycle();
         }
@@ -476,6 +484,7 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             if (settingsFrame.getLength() % 6 != 0) {
                 throw new Http2SessionException(ErrorCode.FRAME_SIZE_ERROR, "SETTINGS frame length not multiple of six.");
             }
+            http2Session.onControlFrame();
             sendSettingsAck(http2Session, context);
             applySettings(http2Session, settingsFrame);
         } finally {
@@ -534,6 +543,12 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
         if (pingFrame.isAckSet()) {
             return;
         }
+        try {
+            http2Session.onControlFrame();
+        } catch (Http2SessionException e) {
+            pingFrame.recycle();
+            throw e;
+        }
 
         // Send the same ping message back, but set the ack flag
         pingFrame.setFlag(PingFrame.ACK_FLAG);
@@ -547,6 +562,8 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
         if (streamId == 0) {
             throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, "RST frame on stream ID zero.");
         }
+
+        http2Session.onPeerCausedReset();
 
         if (ignoreFrameForStreamId(http2Session, streamId)) {
             return;
@@ -594,9 +611,32 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
 
         final HeadersDecoder headersDecoder = http2Session.getHeadersDecoder();
 
+        try {
+            if (frame.getType() == ContinuationFrame.TYPE) {
+                final int maxContinuationFrames = configuration.getMaxContinuationFrames();
+                // Only count while the limit is enabled, so an endless header block cannot overflow the counter.
+                if (maxContinuationFrames > 0 && headersDecoder.incContinuationFrames() > maxContinuationFrames) {
+                    throw new Http2SessionException(ErrorCode.ENHANCE_YOUR_CALM, "Too many CONTINUATION frames in a header block.");
+                }
+            }
+
+            if (!headerBlockFragment.getCompressedHeaders().hasRemaining() && !headerBlockFragment.isEndHeaders()) {
+                http2Session.onControlFrame();
+            }
+        } catch (Http2SessionException e) {
+            headerBlockFragment.recycle();
+            throw e;
+        }
+
         if (headerBlockFragment.getCompressedHeaders().hasRemaining()) {
             if (!headersDecoder.append(headerBlockFragment.takePayload())) {
-                headersDecoder.setFirstHeaderFrame((HeaderBlockHead) headerBlockFragment);
+                // The block may outgrow the size limit in its HEADERS frame or in any CONTINUATION frame; the block
+                // keeps its first frame, a CONTINUATION frame is not a HeaderBlockHead.
+                if (!headersDecoder.isProcessingHeaders()) {
+                    headersDecoder.setFirstHeaderFrame((HeaderBlockHead) headerBlockFragment);
+                } else {
+                    headerBlockFragment.recycle();
+                }
                 final HeaderBlockHead firstHeaderFrame = headersDecoder.finishHeader();
                 firstHeaderFrame.setTruncated();
                 try {
@@ -883,6 +923,10 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
 
         } finally {
             dataFrame.recycle();
+        }
+
+        if (!data.hasRemaining() && !fin) {
+            http2Session.onControlFrame();
         }
 
         // Always ACK the data to maintain flow-control state
