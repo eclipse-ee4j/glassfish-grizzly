@@ -280,6 +280,10 @@ public class Http2ServerFilter extends Http2BaseFilter {
         }
 
         final Http2Session http2Session = obtainHttp2Session(http2State, ctx, true);
+        if (http2Session.isResetStreamBudgetExceeded()) {
+            discardContent(httpContent);
+            return ctx.getSuspendAction();
+        }
 
         if (httpHeader.isSecure() && !getConfiguration().isDisableCipherCheck() && !CIPHER_CHECKED.isSet(connection)) {
             CIPHER_CHECKED.set(connection, connection);

@@ -137,12 +137,16 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
     protected boolean processFrames(final FilterChainContext ctx, final Http2Session http2Session, final List<Http2Frame> framesList) {
 
         if (framesList == null || framesList.isEmpty()) {
-            return true;
+            return !http2Session.isResetStreamBudgetExceeded();
         }
 
         try {
+            int nextFrame = 0;
             try {
-                for (Http2Frame inFrame : framesList) {
+                // The budget is exceeded by an exception thrown while processing a frame; this check also stops
+                // the frames of a later read of a session that is already being closed.
+                while (nextFrame < framesList.size() && !http2Session.isResetStreamBudgetExceeded()) {
+                    final Http2Frame inFrame = framesList.get(nextFrame++);
                     NetLogger.log(NetLogger.Context.RX, http2Session, inFrame);
                     try {
                         processInFrame(http2Session, ctx, inFrame);
@@ -161,8 +165,21 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
                     }
                 }
             } finally {
+                if (http2Session.isResetStreamBudgetExceeded()) {
+                    while (nextFrame < framesList.size()) {
+                        try {
+                            discardFrame(framesList.get(nextFrame++));
+                        } catch (RuntimeException e) {
+                            LOGGER.log(Level.FINE, "Unable to discard an unprocessed HTTP/2 frame", e);
+                        }
+                    }
+                }
                 // Don't forget to clean framesList, because it will be reused
                 framesList.clear();
+            }
+
+            if (http2Session.isResetStreamBudgetExceeded()) {
+                return false;
             }
 
             final List<Http2Stream> streamsToFlushInput = http2Session.streamsToFlushInput;
@@ -176,7 +193,11 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.log(Level.FINE, "Http2SessionException occurred on connection=" + ctx.getConnection() + " during Http2Frame processing", e);
             }
-            http2Session.terminate(e.getErrorCode(), e.getMessage());
+            if (http2Session.isResetStreamBudgetExceeded()) {
+                http2Session.terminateForResetStreamLimit(e);
+            } else {
+                http2Session.terminate(e.getErrorCode(), e.getMessage());
+            }
         } catch (IOException e) {
             if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.log(Level.FINE, "IOException occurred on connection=" + ctx.getConnection() + " during Http2Frame processing", e);
@@ -185,6 +206,35 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
         }
 
         return false;
+    }
+
+    private static void discardFrame(final Http2Frame frame) {
+        // DATA and header blocks store payloads outside the buffer recycled with the frame.
+        try {
+            final Buffer payload;
+            if (frame instanceof DataFrame) {
+                payload = ((DataFrame) frame).getData();
+            } else if (frame instanceof HeaderBlockFragment) {
+                payload = ((HeaderBlockFragment) frame).getCompressedHeaders();
+            } else {
+                return;
+            }
+            if (payload != null) {
+                payload.tryDispose();
+            }
+        } finally {
+            frame.recycle();
+        }
+    }
+
+    static void discardContent(final HttpContent content) {
+        try {
+            if (!HttpContent.isBroken(content)) {
+                content.getContent().tryDispose();
+            }
+        } finally {
+            content.recycle();
+        }
     }
 
     protected boolean checkRequestHeadersOnUpgrade(final HttpRequestPacket httpRequest) {
@@ -552,22 +602,22 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
             return;
         }
         final Http2Stream stream = http2Session.getStream(streamId);
-        if (stream == null) {
-            if (streamId > http2Session.lastPeerStreamId) {
-                // consider this case an idle stream without creating one
-                throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, "Received RST frame on IDLE stream.");
-            }
-            if (LOGGER.isLoggable(Level.FINE)) {
-                LOGGER.fine("Received RST frame on on existent stream.  Ignoring frame.");
-            }
-            return;
-        }
-        if (stream.isIdle()) {
-            throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, "Illegal attempt to RST IDLE stream.");
+        if (stream == null ? streamId > http2Session.lastPeerStreamId : stream.isIdle()) {
+            throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, "Received RST frame on an idle stream.");
         }
 
-        // Notify the stream that it has been reset remotely
-        stream.resetRemotely();
+        if (stream == null && LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.fine("Received RST frame on a closed stream.");
+        }
+
+        // Closed and previously refused streams still consume budget.
+        if (!http2Session.tryConsumeResetStreamBudget()) {
+            throw new Http2SessionException(ErrorCode.ENHANCE_YOUR_CALM, "RST_STREAM rate limit exceeded.");
+        }
+
+        if (stream != null) {
+            stream.resetRemotely();
+        }
     }
 
     private void processHeadersFrame(final Http2Session http2Session, final FilterChainContext context, final Http2Frame frame) throws IOException {

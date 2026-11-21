@@ -70,6 +70,7 @@ import org.glassfish.grizzly.http2.frames.WindowUpdateFrame;
 import org.glassfish.grizzly.impl.FutureImpl;
 import org.glassfish.grizzly.memory.Buffers;
 import org.glassfish.grizzly.memory.MemoryManager;
+import org.glassfish.grizzly.nio.NIOConnection;
 import org.glassfish.grizzly.ssl.SSLBaseFilter;
 import org.glassfish.grizzly.utils.Futures;
 import org.glassfish.grizzly.utils.Holder;
@@ -138,6 +139,7 @@ public class Http2Session {
     private final Http2SessionOutputSink outputSink;
 
     private final Http2Configuration http2Configuration;
+    private final ResetStreamBudget resetStreamBudget;
 
     private volatile int streamsHighWaterMark;
     private int checkCount;
@@ -182,6 +184,10 @@ public class Http2Session {
         this.handlerFilter = handlerFilter;
 
         this.http2Configuration = handlerFilter.getConfiguration();
+        final int resetStreamBurst = http2Configuration.getResetStreamBurst();
+        this.resetStreamBudget = isServer && resetStreamBurst > 0
+                ? new ResetStreamBudget(resetStreamBurst, http2Configuration.getResetStreamsPerSecond(), System.nanoTime())
+                : null;
 
         if (this.http2Configuration.getMaxConcurrentStreams() != -1) {
             this.setLocalMaxConcurrentStreams(this.http2Configuration.getMaxConcurrentStreams());
@@ -584,6 +590,65 @@ public class Http2Session {
      */
     public void terminate(final ErrorCode errorCode, final String detail) {
         sendGoAwayAndClose(setGoAwayLocally(errorCode, detail, false));
+    }
+
+    boolean tryConsumeResetStreamBudget() {
+        return resetStreamBudget == null || resetStreamBudget.tryConsume(System.nanoTime());
+    }
+
+    boolean isResetStreamBudgetExceeded() {
+        return resetStreamBudget != null && resetStreamBudget.isExceeded();
+    }
+
+    /**
+     * Closes the session after the budget of {@code RST_STREAM} frames is exhausted. The GOAWAY frame is sent on a best
+     * effort basis: the connection is closed right after it was handed to the transport, because a peer that does not
+     * read could otherwise keep the connection open indefinitely. The close listeners of the streams run on the calling
+     * thread.
+     */
+    void terminateForResetStreamLimit(final Http2SessionException error) {
+        try {
+            terminate(error.getErrorCode(), error.getMessage());
+            // The current filter-chain dispatch may hold writes for coalescing.
+            NIOConnection.flushCorkedWrites(connection);
+        } finally {
+            // A peer that does not read can leave the GOAWAY write pending indefinitely.
+            try {
+                connection.terminateSilently();
+            } finally {
+                cleanupAfterResetStreamLimit();
+            }
+        }
+    }
+
+    private void cleanupAfterResetStreamLimit() {
+        try {
+            outputSink.close();
+        } catch (RuntimeException e) {
+            LOGGER.log(Level.FINE, "Unable to finish closing HTTP/2 session output", e);
+        }
+
+        for (Http2Stream stream : streamsToFlushInput) {
+            try {
+                stream.discardCachedInput();
+            } catch (RuntimeException e) {
+                LOGGER.log(Level.FINE, "Unable to discard cached HTTP/2 stream input", e);
+            }
+        }
+        streamsToFlushInput.clear();
+
+        final List<Http2Stream> streams;
+        synchronized (sessionLock) {
+            streams = new ArrayList<>(streamsMap.values());
+        }
+        // Local GOAWAY suppresses stream cleanup in the connection's close listener.
+        for (Http2Stream stream : streams) {
+            try {
+                stream.terminateSilently();
+            } catch (RuntimeException e) {
+                LOGGER.log(Level.FINE, "Unable to finish closing HTTP/2 stream " + stream.getId(), e);
+            }
+        }
     }
 
     private void sendGoAwayAndClose(final Http2Frame frame) {
@@ -1170,6 +1235,15 @@ public class Http2Session {
     }
 
     void sendMessageUpstreamWithParseNotify(final Http2Stream stream, final HttpContent httpContent) {
+        if (isResetStreamBudgetExceeded()) {
+            if (HttpContent.isBroken(httpContent)) {
+                // see sendMessageUpstream
+                sendMessageUpstream(stream, httpContent);
+            } else {
+                Http2BaseFilter.discardContent(httpContent);
+            }
+            return;
+        }
         final FilterChainContext upstreamContext = http2StreamChain.obtainFilterChainContext(connection, stream);
 
         final HttpContext httpContext = httpContent.getHttpHeader().getProcessingState().getHttpContext();
@@ -1188,7 +1262,13 @@ public class Http2Session {
         sendMessageUpstream(stream, httpContent, upstreamContext);
     }
 
-    void sendMessageUpstream(final Http2Stream stream, final HttpPacket message) {
+    void sendMessageUpstream(final Http2Stream stream, final HttpContent message) {
+        // Broken content still reaches the stream chain, so that a reader of a stream whose termination is already queued
+        // is told that the stream is gone.
+        if (isResetStreamBudgetExceeded() && !HttpContent.isBroken(message)) {
+            Http2BaseFilter.discardContent(message);
+            return;
+        }
         final FilterChainContext upstreamContext = http2StreamChain.obtainFilterChainContext(connection, stream);
 
         final HttpContext httpContext = message.getHttpHeader().getProcessingState().getHttpContext();
@@ -1254,6 +1334,9 @@ public class Http2Session {
      * @param sz size, in bytes, of the data being acknowledged
      */
     void ackConsumedData(final Http2Stream stream, final int sz) {
+        if (isResetStreamBudgetExceeded()) {
+            return;
+        }
         final int currentUnackedBytes = unackedReadBytes.addAndGet(sz);
 
         if (isPrefaceSent) {

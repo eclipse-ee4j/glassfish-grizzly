@@ -613,11 +613,7 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
                     new Object[] { Thread.currentThread().getName(), getId(), cachedInputBufferLocal != null ? cachedInputBufferLocal.toString() : null });
         }
         if (cachedInputBufferLocal != null) {
-            if (cachedInputBufferLocal.isComposite()) {
-                ((CompositeBuffer) cachedInputBufferLocal).allowInternalBuffersDispose(true);
-                cachedInputBufferLocal.allowBufferDispose(true);
-                ((CompositeBuffer) cachedInputBufferLocal).disposeOrder(DisposeOrder.LAST_TO_FIRST);
-            }
+            prepareCachedInputForDisposal(cachedInputBufferLocal);
 
             final int size = cachedInputBufferLocal.remaining();
             try {
@@ -630,6 +626,26 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
             } catch (final RuntimeException e) {
                 throw new Http2SessionException(ErrorCode.PROTOCOL_ERROR, e.getMessage());
             }
+        }
+    }
+
+    void discardCachedInput() {
+        final Buffer buffer = cachedInputBuffer;
+        cachedInputBuffer = null;
+        cachedIsLast = false;
+
+        if (buffer != null) {
+            prepareCachedInputForDisposal(buffer);
+            buffer.tryDispose();
+        }
+    }
+
+    private static void prepareCachedInputForDisposal(final Buffer buffer) {
+        if (buffer.isComposite()) {
+            final CompositeBuffer composite = (CompositeBuffer) buffer;
+            composite.allowInternalBuffersDispose(true);
+            composite.allowBufferDispose(true);
+            composite.disposeOrder(DisposeOrder.LAST_TO_FIRST);
         }
     }
 

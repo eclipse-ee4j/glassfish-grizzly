@@ -34,6 +34,20 @@ public class Http2Configuration {
     public static final float DEFAULT_STREAMS_CLEAN_PERCENTAGE = 0.5f;
     public static final int DEFAULT_CLEAN_FREQUENCY_CHECK = 50;
 
+    /**
+     * The default number of {@code RST_STREAM} frames allowed in a burst on a server connection.
+     *
+     * @since 5.0.4
+     */
+    public static final int DEFAULT_RESET_STREAM_BURST = 1000;
+
+    /**
+     * The default number of {@code RST_STREAM} allowances restored per second on a server connection.
+     *
+     * @since 5.0.4
+     */
+    public static final int DEFAULT_RESET_STREAMS_PER_SECOND = 33;
+
     private volatile int maxConcurrentStreams;
     private volatile int initialWindowSize;
     private volatile int maxFramePayloadSize;
@@ -44,6 +58,8 @@ public class Http2Configuration {
     private volatile boolean disableCipherCheck;
     private volatile boolean priorKnowledge;
     private volatile boolean pushEnabled;
+    private final int resetStreamBurst;
+    private final int resetStreamsPerSecond;
     private final ExecutorService executorService;
     private final ThreadPoolConfig threadPoolConfig;
 
@@ -62,6 +78,8 @@ public class Http2Configuration {
         streamsHighWaterMark = builder.streamsHighWaterMark;
         cleanPercentage = builder.cleanPercentage;
         cleanFrequencyCheck = builder.cleanFrequencyCheck;
+        resetStreamBurst = builder.resetStreamBurst;
+        resetStreamsPerSecond = builder.resetStreamsPerSecond;
     }
 
     // --------------------------------------------------------- Public Methods
@@ -244,6 +262,22 @@ public class Http2Configuration {
         return executorService;
     }
 
+    /**
+     * @return the number of {@code RST_STREAM} frames allowed in a burst on a server connection, or zero if disabled
+     * @since 5.0.4
+     */
+    public int getResetStreamBurst() {
+        return resetStreamBurst;
+    }
+
+    /**
+     * @return the number of {@code RST_STREAM} allowances restored per second on a server connection
+     * @since 5.0.4
+     */
+    public int getResetStreamsPerSecond() {
+        return resetStreamsPerSecond;
+    }
+
     // --------------------------------------------------------- Nested Classes
 
     public static final class Http2ConfigurationBuilder {
@@ -257,6 +291,8 @@ public class Http2Configuration {
         private float streamsHighWaterMark = DEFAULT_STREAMS_HIGH_WATER_MARK;
         private float cleanPercentage = DEFAULT_STREAMS_CLEAN_PERCENTAGE;
         private int cleanFrequencyCheck = DEFAULT_CLEAN_FREQUENCY_CHECK;
+        private int resetStreamBurst = DEFAULT_RESET_STREAM_BURST;
+        private int resetStreamsPerSecond = DEFAULT_RESET_STREAMS_PER_SECOND;
         private ThreadPoolConfig threadPoolConfig;
         private ExecutorService executorService;
 
@@ -359,6 +395,28 @@ public class Http2Configuration {
          */
         public Http2ConfigurationBuilder cleanFrequencyCheck(final int val) {
             cleanFrequencyCheck = val;
+            return this;
+        }
+
+        /**
+         * Sets the limit for incoming {@code RST_STREAM} frames on each server connection. The budget starts at the
+         * burst size and refills continuously at the given rate up to that size. Exceeding the available budget closes
+         * the connection with a best effort GOAWAY frame. Resets of streams that are already closed are counted too. The
+         * default burst size is {@value Http2Configuration#DEFAULT_RESET_STREAM_BURST} and the default refill rate is
+         * {@value Http2Configuration#DEFAULT_RESET_STREAMS_PER_SECOND} per second.
+         *
+         * @param burst maximum burst size, or zero to disable the limit
+         * @param refillPerSecond number of allowances restored per second, or zero for a budget that never refills
+         * @return this builder
+         * @throws IllegalArgumentException if either value is negative
+         * @since 5.0.4
+         */
+        public Http2ConfigurationBuilder resetStreamRateLimit(final int burst, final int refillPerSecond) {
+            if (burst < 0 || refillPerSecond < 0) {
+                throw new IllegalArgumentException("Reset stream burst and refill rate must be non-negative");
+            }
+            resetStreamBurst = burst;
+            resetStreamsPerSecond = refillPerSecond;
             return this;
         }
 
