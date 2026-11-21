@@ -37,8 +37,8 @@ public class ServletOutputStreamImpl extends ServletOutputStream {
     private NIOOutputStream outputStream;
 
     private WriteHandler writeHandler = null;
-    private boolean hasSetWriteListener = false;
-    private boolean prevIsReady = true;
+    private volatile boolean hasSetWriteListener = false;
+    private volatile boolean prevIsReady = true;
 
     private static final ThreadLocal<Boolean> CAN_WRITE_SCOPE = new ThreadLocal<>();
 
@@ -142,14 +142,13 @@ public class ServletOutputStreamImpl extends ServletOutputStream {
         if (!outputStream.canWrite()) {
             prevIsReady = false;
         }
+        hasSetWriteListener = true;
         CAN_WRITE_SCOPE.set(Boolean.TRUE);
         try {
             outputStream.notifyCanWrite(writeHandler);
         } finally {
             CAN_WRITE_SCOPE.remove();
         }
-
-        hasSetWriteListener = true;
     }
 
     void recycle() {
