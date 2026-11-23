@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -32,6 +33,7 @@ public class HeadersDecoder {
     private final MemoryManager memoryManager;
     private final int maxHeaderSize;
     private int currentHeaderSize;
+    private int continuationFrames;
 
     private HeaderBlockHead firstHeaderFrame;
     private Buffer inBuffer;
@@ -65,7 +67,17 @@ public class HeadersDecoder {
         final HeaderBlockHead firstHeaderFrameLocal = firstHeaderFrame;
         firstHeaderFrame = null;
         currentHeaderSize = 0;
+        continuationFrames = 0;
         return firstHeaderFrameLocal;
+    }
+
+    /**
+     * Counts a {@code CONTINUATION} frame of the current header block.
+     *
+     * @return the number of {@code CONTINUATION} frames of the current header block so far, including this one.
+     */
+    int incContinuationFrames() {
+        return ++continuationFrames;
     }
 
     public void setFirstHeaderFrame(final HeaderBlockHead firstHeaderFrame) {

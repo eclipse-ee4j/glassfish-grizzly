@@ -24,6 +24,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.logging.Level;
@@ -139,6 +140,19 @@ public class Http2Session {
 
     private final Http2Configuration http2Configuration;
 
+    // Per-connection limits, see
+    // Http2Configuration#setMaxResetBurst(int) and Http2Configuration#setMaxControlFrameBurst(int)
+    private final TokenBucket peerResetBudget;
+    private final TokenBucket controlFrameBudget;
+    // RST_STREAM frames this endpoint may still send in answer to frames on closed streams, see onFrameOnClosedStream()
+    private final TokenBucket closedStreamResetBudget;
+    // streams this endpoint has pushed whose decline by the peer has not been seen yet, see onPushDeclined(int, Http2Stream)
+    private final AtomicInteger undeclinedPushes = new AtomicInteger();
+    // a limit has been exceeded and logged, see limitExceeded(String)
+    private final AtomicBoolean limitExceededLogged = new AtomicBoolean();
+    // the streams have been closed along with the connection, see ConnectionCloseListener; guarded by sessionLock
+    private boolean streamsClosedWithConnection;
+
     private volatile int streamsHighWaterMark;
     private int checkCount;
 
@@ -201,6 +215,13 @@ public class Http2Session {
                 : getSpecDefaultFramePayloadSize();
 
         this.maxHeaderListSize = handlerFilter.getConfiguration().getMaxHeaderListSize();
+
+        // The reset budget applies to server connections only.
+        this.peerResetBudget = isServer ? new TokenBucket(http2Configuration.getMaxResetBurst(), http2Configuration.getMaxResetsPerSecond())
+                : new TokenBucket(0, 0);
+        this.closedStreamResetBudget = isServer ? new TokenBucket(http2Configuration.getMaxResetBurst(), http2Configuration.getMaxResetsPerSecond())
+                : new TokenBucket(0, 0);
+        this.controlFrameBudget = new TokenBucket(http2Configuration.getMaxControlFrameBurst(), http2Configuration.getMaxControlFramesPerSecond());
 
         if (isServer) {
             this.lastLocalStreamId = 0;
@@ -522,6 +543,98 @@ public class Http2Session {
 
     public boolean isServer() {
         return isServer;
+    }
+
+    /**
+     * Charges a stream reset caused by the peer, either by a {@code RST_STREAM} frame of its own or by a stream error
+     * this endpoint answers with {@code RST_STREAM}, against the peer's reset budget.
+     *
+     * @throws Http2SessionException with {@link ErrorCode#ENHANCE_YOUR_CALM} if the budget is used up.
+     */
+    void onPeerCausedReset() throws Http2SessionException {
+        if (!peerResetBudget.tryAcquire()) {
+            throw limitExceeded("Too many stream resets.");
+        }
+    }
+
+    /**
+     * Called when the peer resets a stream this endpoint may have pushed, see
+     * {@link Http2Configuration#setMaxResetBurst(int)}.
+     *
+     * @param streamId the ID of the reset stream
+     * @param stream the reset stream, or {@code null} if it is not known (any more): a pushed stream that is closed may
+     * have been removed already, before the peer's RST_STREAM arrived
+     * @return {@code true} if the reset declines a push and is not to be charged to the reset budget. Each push is
+     * declined for free once at most, so the free resets are bounded by the pushes.
+     */
+    boolean onPushDeclined(final int streamId, final Http2Stream stream) {
+        if (!isServer || !isLocallyInitiatedStream(streamId)) {
+            return false;
+        }
+        if (stream != null && !stream.onPushDeclined()) {
+            // this push has been declined already
+            return false;
+        }
+        int undeclined;
+        do {
+            undeclined = undeclinedPushes.get();
+            if (undeclined <= 0) {
+                return false;
+            }
+        } while (!undeclinedPushes.compareAndSet(undeclined, undeclined - 1));
+        return true;
+    }
+
+    /**
+     * @return {@code true} if the stream with the given ID is idle (RFC 9113, section 5.1): neither this endpoint nor
+     * the peer has opened it yet. A stream initiated by this endpoint, e.g. a pushed one, is idle if this endpoint has
+     * not got that far yet; one initiated by the peer, if the peer has not.
+     */
+    boolean isIdleStream(final int streamId) {
+        synchronized (sessionLock) {
+            return streamId > (isLocallyInitiatedStream(streamId) ? lastLocalStreamId : lastPeerStreamId);
+        }
+    }
+
+    /**
+     * Charges a {@code RST_STREAM} this endpoint is about to send in answer to a frame on a stream that is closed
+     * already. Such frames do not count toward the reset budget, as a well-behaved peer may send them, e.g. DATA in flight
+     * when the stream was refused, but answering each one of them would let the peer make this endpoint write without
+     * limit. So they have a budget of their own, of the same size as the reset budget (see
+     * {@link Http2Configuration#setMaxResetBurst(int)}); past it, such frames are ignored without an answer, and the
+     * connection stays open.
+     *
+     * @return {@code false} if the budget is used up and the frame is to be ignored without an answer.
+     */
+    boolean onFrameOnClosedStream() {
+        return closedStreamResetBudget.tryAcquire();
+    }
+
+    /**
+     * Charges a control frame, one that carries no request or response data but makes this endpoint respond or do work,
+     * against the peer's control frame budget.
+     *
+     * @throws Http2SessionException with {@link ErrorCode#ENHANCE_YOUR_CALM} if the budget is used up.
+     */
+    void onControlFrame() throws Http2SessionException {
+        if (!controlFrameBudget.tryAcquire()) {
+            throw limitExceeded("Too many control frames.");
+        }
+    }
+
+    /**
+     * Creates the exception that ends this session with {@link ErrorCode#ENHANCE_YOUR_CALM} because the peer exceeded one
+     * of the per-connection limits of {@link Http2Configuration}. The first time per connection, the reason is logged at
+     * {@link Level#INFO}, so that a connection ended for flooding can be told apart from one closed for any other reason.
+     *
+     * @param reason the limit that was exceeded, also sent as the GOAWAY frame's debug data
+     */
+    Http2SessionException limitExceeded(final String reason) {
+        if (limitExceededLogged.compareAndSet(false, true) && LOGGER.isLoggable(Level.INFO)) {
+            LOGGER.log(Level.INFO, "Closing the HTTP/2 connection with {0} with ENHANCE_YOUR_CALM: {1}",
+                    new Object[] { connection.getPeerAddress(), reason });
+        }
+        return new Http2SessionException(ErrorCode.ENHANCE_YOUR_CALM, reason);
     }
 
     public boolean isLocallyInitiatedStream(final int streamId) {
@@ -1036,6 +1149,10 @@ public class Http2Session {
             lastLocalStreamId = streamId;
         }
 
+        if (isServer) {
+            // a server opens streams for pushes only
+            undeclinedPushes.incrementAndGet();
+        }
         return stream;
     }
 
@@ -1222,7 +1339,9 @@ public class Http2Session {
 
         final SettingsFrameBuilder builder = SettingsFrame.builder();
 
-        if (getLocalMaxConcurrentStreams() != getDefaultMaxConcurrentStreams()) {
+        // A server always advertises its limit, the default one included: without the setting, the peer may assume there is
+        // no limit (RFC 9113, section 6.5.2), while streams over it are refused and charged to the reset budget.
+        if (isServer || getLocalMaxConcurrentStreams() != getDefaultMaxConcurrentStreams()) {
             builder.setting(SETTINGS_MAX_CONCURRENT_STREAMS, getLocalMaxConcurrentStreams());
         }
 
@@ -1323,18 +1442,23 @@ public class Http2Session {
         public void onClosed(final Closeable closeable, final CloseType type) throws IOException {
 
             NetLogger.logClose(Http2Session.this);
-            final boolean isClosing;
+            final List<Http2Stream> streams;
             synchronized (sessionLock) {
-                isClosing = !isClosed();
-                if (isClosing) {
+                if (!isClosed()) {
                     closeFlag = type;
                 }
+                // The streams have to be closed whether the session was closed already or not: once this endpoint has sent
+                // GOAWAY, the session is closed, but the streams up to the GOAWAY's last stream ID are still open, and
+                // nothing else closes them once the connection is gone.
+                if (streamsClosedWithConnection) {
+                    return;
+                }
+                streamsClosedWithConnection = true;
+                streams = new ArrayList<>(streamsMap.values());
             }
 
-            if (isClosing) {
-                for (Http2Stream stream : streamsMap.values()) {
-                    stream.closedRemotely();
-                }
+            for (final Http2Stream stream : streams) {
+                stream.closedRemotely();
             }
         }
     }

@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2013, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -28,6 +29,8 @@ import org.glassfish.grizzly.http2.frames.ErrorCode;
 public final class Http2StreamException extends IOException {
     private final int streamId;
     private final ErrorCode errorCode;
+    // the frame causing the error was sent on a stream that was already closed on this side, see isOnClosedStream()
+    private boolean onClosedStream;
 
     public Http2StreamException(final int streamId, final ErrorCode errorCode) {
         this.streamId = streamId;
@@ -61,6 +64,21 @@ public final class Http2StreamException extends IOException {
 
     public ErrorCode getErrorCode() {
         return errorCode;
+    }
+
+    /**
+     * @return {@code true} if the error is about a frame the peer sent on a stream that was already closed on this side,
+     * e.g. DATA the peer had sent before it learned that the stream was refused or answered. Such a frame costs this
+     * endpoint nothing but the RST_STREAM in answer, so it does not count toward the peer's reset budget, see
+     * {@link Http2Session#onFrameOnClosedStream()}.
+     */
+    boolean isOnClosedStream() {
+        return onClosedStream;
+    }
+
+    Http2StreamException onClosedStream(final boolean onClosedStream) {
+        this.onClosedStream = onClosedStream;
+        return this;
     }
 
     @Override

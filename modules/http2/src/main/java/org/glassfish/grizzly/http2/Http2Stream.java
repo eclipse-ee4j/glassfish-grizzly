@@ -126,6 +126,9 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
     // the counter for inbound HeaderFrames
     private int inboundHeaderFramesCounter;
 
+    // the peer has reset this stream, which this endpoint has pushed, see onPushDeclined(); only used by the read thread
+    private boolean pushDeclined;
+
     public static Http2Stream getStreamFor(final HttpHeader httpHeader) {
         final HttpRequestPacket request;
 
@@ -396,6 +399,19 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
 //        rstAssociatedStreams();
     }
 
+    /**
+     * Called when the peer resets this stream, which this endpoint has pushed.
+     *
+     * @return {@code true} the first time only: a further RST_STREAM does not decline the push again.
+     */
+    boolean onPushDeclined() {
+        if (pushDeclined) {
+            return false;
+        }
+        pushDeclined = true;
+        return true;
+    }
+
     void onProcessingComplete() {
         isProcessingComplete = true;
         close();
@@ -562,9 +578,12 @@ public class Http2Stream implements AttributeStorage, OutputSink, Closeable {
         final Http2Stream.State state = getState();
         if (state == State.HALF_CLOSED_REMOTE || getState() == State.CLOSED) {
 
+            // A stream that is still being served (half-closed by the peer) is closed now because of the peer's error;
+            // a stream that was closed already only gets the RST_STREAM in answer.
+            final boolean wasClosed = state == State.CLOSED || closeReason != null;
             close0(null, CloseType.LOCALLY, new IOException("Received DATA frame on " + state + " stream."), false);
             return fin ? new Http2SessionException(ErrorCode.STREAM_CLOSED)
-                    : new Http2StreamException(getId(), ErrorCode.STREAM_CLOSED, "Received DATA frame on " + state + " stream.");
+                    : new Http2StreamException(getId(), ErrorCode.STREAM_CLOSED, "Received DATA frame on " + state + " stream.").onClosedStream(wasClosed);
         }
 
         if (inboundHeaderFramesCounter != 1) { // we accept data only if we received one HeadersFrame

@@ -19,6 +19,7 @@ package org.glassfish.grizzly.http2;
 import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -187,6 +188,84 @@ public class Http2SessionTest {
     @Test
     public void testCtorInitializesLocalStreamWindowSize() {
         assertThat("Http2Sessions LocalStreamWindowSize supposed to be taken from configuration.", session.getLocalStreamWindowSize(), is(2));
+    }
+
+    @Test
+    public void testServerSessionEnforcesResetBudget() throws Exception {
+        final Http2Session serverSession = new Http2Session(newConnectionMock(newFilterChain()), true,
+                new Http2ServerFilter(resetBudgetOfTwo()));
+
+        serverSession.onPeerCausedReset();
+        serverSession.onPeerCausedReset();
+        try {
+            serverSession.onPeerCausedReset();
+            fail("The third reset exceeds a budget of two that is never refilled.");
+        } catch (Http2SessionException e) {
+            assertThat(e.getErrorCode(), is(ErrorCode.ENHANCE_YOUR_CALM));
+        }
+    }
+
+    /**
+     * The reset budget applies to server sessions only.
+     */
+    @Test
+    public void testClientSessionIgnoresResetBudget() throws Exception {
+        final Http2Session clientSession = new Http2Session(newConnectionMock(newFilterChain()), false,
+                new Http2ClientFilter(resetBudgetOfTwo()));
+
+        for (int i = 0; i < 100; i++) {
+            clientSession.onPeerCausedReset();
+        }
+    }
+
+    /**
+     * However often a connection exceeds its limits, it is logged once.
+     */
+    @Test
+    public void testExceededLimitIsLoggedOnce() throws Exception {
+        final Http2Session serverSession = new Http2Session(newConnectionMock(newFilterChain()), true,
+                new Http2ServerFilter(resetBudgetOfTwo()));
+        final List<LogRecord> records = new CopyOnWriteArrayList<>();
+        final Handler handler = new Handler() {
+            @Override
+            public void publish(final LogRecord record) {
+                if (record.getLevel() == Level.INFO) {
+                    records.add(record);
+                }
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        final Logger logger = Logger.getLogger(Http2Session.class.getName());
+        logger.addHandler(handler);
+        try {
+            serverSession.onPeerCausedReset();
+            serverSession.onPeerCausedReset();
+            for (int i = 0; i < 3; i++) {
+                try {
+                    serverSession.onPeerCausedReset();
+                    fail("The budget of two is used up.");
+                } catch (Http2SessionException e) {
+                    assertThat(e.getErrorCode(), is(ErrorCode.ENHANCE_YOUR_CALM));
+                }
+            }
+            assertThat(serverSession.limitExceeded("Too many CONTINUATION frames in a header block.").getErrorCode(), is(ErrorCode.ENHANCE_YOUR_CALM));
+
+            assertThat("INFO records", records.size(), is(1));
+            assertThat(records.get(0).getParameters()[1], is((Object) "Too many stream resets."));
+        } finally {
+            logger.removeHandler(handler);
+        }
+    }
+
+    private static Http2Configuration resetBudgetOfTwo() {
+        return Http2Configuration.builder().maxResetBurst(2).maxResetsPerSecond(0).build();
     }
 
 }
