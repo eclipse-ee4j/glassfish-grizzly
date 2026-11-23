@@ -83,6 +83,8 @@ class DefaultOutputSink implements StreamOutputSink {
     private volatile boolean isLastFrameQueued;
     // not null if last output frame has been sent or forcibly terminated
     private Termination terminationFlag;
+    // the cause the stream has been closed with, if any, when the output sink has been forcibly terminated
+    private IOException terminationCause;
 
     // associated HTTP/2 session
     private final Http2Session http2Session;
@@ -123,7 +125,7 @@ class DefaultOutputSink implements StreamOutputSink {
             if (LOGGER.isLoggable(FINE)) {
                 LOGGER.log(FINE, "Terminated!!! id={0} description={1}", new Object[] { stream.getId(), terminationFlag.getDescription() });
             }
-            throw new IOException(terminationFlag.getDescription());
+            throw new IOException(terminationFlag.getDescription(), terminationCause);
         } else if (isLastFrameQueued) {
             throw new IOException("Write beyond end of stream");
         }
@@ -559,8 +561,11 @@ class DefaultOutputSink implements StreamOutputSink {
     @Override
     public synchronized void terminate(final Termination terminationFlag) {
         if (!isTerminated()) {
+            // fail the pending writes and the writes after the termination with the cause the stream was closed with, if any
+            final IOException cause = stream.getCloseCause();
+            this.terminationCause = cause;
             this.terminationFlag = terminationFlag;
-            outputQueue.onClose();
+            outputQueue.onClose(cause);
             // NOTIFY STREAM
             stream.onOutputClosed();
         }
