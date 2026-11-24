@@ -611,6 +611,7 @@ public class Http2ClientFilter extends Http2BaseFilter {
         final int refStreamId = pushPromiseFrame.getStreamId();
         final Http2Stream refStream = http2Session.getStream(refStreamId);
         if (refStream == null) {
+            request.recycle();
             throw new Http2StreamException(refStreamId, ErrorCode.REFUSED_STREAM, "PushPromise is sent over unknown stream: " + refStreamId);
         }
 
@@ -619,7 +620,6 @@ public class Http2ClientFilter extends Http2BaseFilter {
             stream = http2Session.acceptStream(request, pushPromiseFrame.getPromisedStreamId(), refStreamId, false, 0);
         } catch (Http2StreamException e) {
             request.recycle();
-            DecoderUtils.skipHeaders(http2Session);
             throw e;
         }
 

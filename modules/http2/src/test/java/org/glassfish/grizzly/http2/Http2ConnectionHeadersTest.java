@@ -18,20 +18,8 @@ package org.glassfish.grizzly.http2;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.fail;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.mock;
-
-import java.util.function.Supplier;
 
 import org.glassfish.grizzly.Buffer;
-import org.glassfish.grizzly.Connection;
-import org.glassfish.grizzly.Processor;
-import org.glassfish.grizzly.filterchain.DefaultFilterChain;
-import org.glassfish.grizzly.filterchain.Filter;
-import org.glassfish.grizzly.filterchain.FilterChain;
-import org.glassfish.grizzly.filterchain.FilterChainContext;
 import org.glassfish.grizzly.http2.frames.ErrorCode;
 import org.glassfish.grizzly.memory.ByteBufferManager;
 import org.glassfish.grizzly.memory.MemoryManager;
@@ -42,8 +30,6 @@ import org.junit.Test;
  * HTTP/2 request, as required by RFC 9113, section 8.2.2.
  */
 public class Http2ConnectionHeadersTest {
-
-    private final Http2Configuration configuration = Http2Configuration.builder().build();
 
     @Test
     public void connectionHeaderRejected() throws Exception {
@@ -72,7 +58,7 @@ public class Http2ConnectionHeadersTest {
 
     private void assertRejected(final String name, final String value) throws Exception {
         final MemoryManager<?> memoryManager = new ByteBufferManager();
-        final Http2Session session = newSession(memoryManager);
+        final Http2Session session = TestUtils.newServerSession(memoryManager);
 
         final HeadersEncoder encoder = new HeadersEncoder(memoryManager, 4096);
         encoder.encodeHeader(":method", "POST", null);
@@ -91,30 +77,5 @@ public class Http2ConnectionHeadersTest {
             assertEquals("Wrong error code for header: " + name, ErrorCode.PROTOCOL_ERROR, e.getErrorCode());
             assertEquals("Wrong error type for header: " + name, HeaderDecodingException.ErrorType.STREAM, e.getErrorType());
         }
-    }
-
-    private Http2Session newSession(final MemoryManager<?> memoryManager) throws Exception {
-        final FilterChain filterChain = new DefaultFilterChain();
-        final Filter sessionChainFilter = mock(Filter.class);
-        doAnswer(invocation -> ((FilterChainContext) invocation.getArgument(0)).getInvokeAction()).when(sessionChainFilter)
-                .handleWrite(any(FilterChainContext.class));
-        filterChain.add(sessionChainFilter);
-        filterChain.add(mock(Filter.class));
-
-        final Connection<?> connection = mock(Connection.class);
-        doReturn(filterChain).when(connection).getProcessor();
-        doReturn(memoryManager).when(connection).getMemoryManager();
-        doAnswer(invocation -> ((Supplier<?>) invocation.getArgument(1)).get()).when(connection).obtainProcessorState(any(Processor.class),
-                any(Supplier.class));
-
-        final Http2Session session = new Http2Session(connection, true, new Http2ServerFilter(configuration));
-
-        final FilterChainContext context = FilterChainContext.create(connection);
-        context.getInternalContext().setProcessor(filterChain);
-        context.setFilterIdx(1);
-        context.setEndIdx(-1);
-        session.setupFilterChains(context, false);
-
-        return session;
     }
 }

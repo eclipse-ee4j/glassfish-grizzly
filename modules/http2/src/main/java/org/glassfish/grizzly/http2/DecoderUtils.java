@@ -30,6 +30,8 @@ import org.glassfish.grizzly.http.HttpHeader;
 import org.glassfish.grizzly.http.HttpRequestPacket;
 import org.glassfish.grizzly.http.HttpResponsePacket;
 import org.glassfish.grizzly.http.Protocol;
+import org.glassfish.grizzly.http.util.Ascii;
+import org.glassfish.grizzly.http.util.Constants;
 import org.glassfish.grizzly.http.util.DataChunk;
 import org.glassfish.grizzly.http.util.Header;
 import org.glassfish.grizzly.http.util.MimeHeaders;
@@ -52,31 +54,32 @@ class DecoderUtils extends EncoderDecoderUtilsBase {
 
         final Set<String> serviceHeaders = new HashSet<>();
         final AtomicBoolean noMoreServiceHeaders = new AtomicBoolean();
+        // A malformed request is a stream error, but the HPACK dynamic table is shared by all the streams of the
+        // session: the rest of the header block still has to be decoded, otherwise the entries it adds to the table are
+        // lost and the header blocks of the following streams are decoded against a wrong table.
+        final HeaderDecodingException[] streamError = new HeaderDecodingException[1];
         try {
             http2Session.getHeadersDecoder().decode(new DecodingCallback() {
 
                 @Override
                 public void onDecoded(CharSequence name, CharSequence value) {
-                    if (capture != null) {
-                        capture.put(name.toString(), value.toString());
+                    if (streamError[0] != null) {
+                        return;
                     }
-                    for (int i = 0, len = name.length(); i < len; i++) {
-                        if (Character.isUpperCase(name.charAt(i))) {
-                            throw new HeaderDecodingException(ErrorCode.PROTOCOL_ERROR, ErrorType.STREAM);
+                    try {
+                        processRequestHeader(request, serviceHeaders, noMoreServiceHeaders, name, value, capture);
+                    } catch (HeaderDecodingException hde) {
+                        if (hde.getErrorType() != ErrorType.STREAM) {
+                            throw hde;
                         }
-                    }
-                    if (name.charAt(0) == ':') {
-                        if (noMoreServiceHeaders.get()) {
-                            throw new HeaderDecodingException(ErrorCode.PROTOCOL_ERROR, ErrorType.STREAM);
-                        }
-                        processServiceRequestHeader(request, serviceHeaders, name.toString(), value.toString());
-                    } else {
-                        noMoreServiceHeaders.compareAndSet(false, true);
-                        processNormalHeader(request, name.toString(), value.toString());
+                        streamError[0] = hde;
                     }
                 }
 
             });
+            if (streamError[0] != null) {
+                throw streamError[0];
+            }
             if (serviceHeaders.size() != 3) {
                 throw new HeaderDecodingException(ErrorCode.PROTOCOL_ERROR, ErrorType.STREAM);
             }
@@ -91,10 +94,31 @@ class DecoderUtils extends EncoderDecoderUtilsBase {
         }
     }
 
+    private static void processRequestHeader(final HttpRequestPacket request, final Set<String> serviceHeaders, final AtomicBoolean noMoreServiceHeaders,
+            final CharSequence name, final CharSequence value, final Map<String, String> capture) {
+        if (capture != null) {
+            capture.put(name.toString(), value.toString());
+        }
+        if (name.length() == 0) {
+            throw new HeaderDecodingException(ErrorCode.PROTOCOL_ERROR, ErrorType.STREAM, "Empty header name");
+        }
+        // the characters of the name, upper case ones included, are validated by validateHeaderCharacters()
+        if (name.charAt(0) == ':') {
+            if (noMoreServiceHeaders.get()) {
+                throw new HeaderDecodingException(ErrorCode.PROTOCOL_ERROR, ErrorType.STREAM);
+            }
+            processServiceRequestHeader(request, serviceHeaders, name.toString(), value.toString());
+        } else {
+            noMoreServiceHeaders.compareAndSet(false, true);
+            processNormalHeader(request, name.toString(), value.toString());
+        }
+    }
+
     /**
      * Decodes the pending header block and discards the headers. HPACK decoding updates the dynamic table shared by
-     * all the streams of the session, so the header block of a refused stream still has to be decoded, otherwise the
-     * header blocks of the following streams are decoded against a wrong table.
+     * all the streams of the session, so a header block that is not processed (a refused stream, a stream that is
+     * unknown or ignored after GOAWAY) still has to be decoded (RFC 9113, section 4.3), otherwise the header blocks of
+     * the following streams are decoded against a wrong table.
      *
      * @param http2Session the {@link Http2Session} which received the header block
      * @throws Http2SessionException if the header block cannot be decoded
@@ -162,6 +186,7 @@ class DecoderUtils extends EncoderDecoderUtilsBase {
     }
 
     private static void processServiceRequestHeader(final HttpRequestPacket request, final Set<String> serviceHeaders, final String name, final String value) {
+        validateHeaderCharacters(name, value);
 
         final int valueLen = value.length();
 
@@ -219,13 +244,16 @@ class DecoderUtils extends EncoderDecoderUtilsBase {
             }
 
             response.setStatus(Integer.parseInt(value));
+            return;
         }
         }
 
-        LOGGER.log(Level.FINE, "Skipping unknown service header[{0}={1}", new Object[] { name, value });
+        LOGGER.log(Level.FINE, "Skipping unknown service header[{0}={1}]", new Object[] { name, value });
     }
 
     private static void processNormalHeader(final HttpHeader httpHeader, final String name, final String value) {
+        // a field that is dropped still makes the message malformed (RFC 9113, section 8.2.1)
+        validateHeaderCharacters(name, value);
         if (name.equals(Header.Host.getLowerCase())) {
             return;
         }
@@ -233,7 +261,6 @@ class DecoderUtils extends EncoderDecoderUtilsBase {
 
         final DataChunk valueChunk = mimeHeaders.addValue(name);
 
-        validateHeaderCharacters(name, value);
         valueChunk.setString(value);
         finalizeKnownHeader(httpHeader, name, value);
     }
@@ -242,7 +269,13 @@ class DecoderUtils extends EncoderDecoderUtilsBase {
 
         switch (name) {
         case "content-length": {
-            httpHeader.setContentLengthLong(Long.parseLong(value));
+            // Content-Length = 1*DIGIT (RFC 9110, section 8.6); an invalid value makes the message malformed, which is a
+            // stream error (RFC 9113, section 8.1.1)
+            try {
+                httpHeader.setContentLengthLong(Ascii.parseLong(value, 0, value.length()));
+            } catch (NumberFormatException e) {
+                throw new HeaderDecodingException(ErrorCode.PROTOCOL_ERROR, ErrorType.STREAM, "Invalid content-length: " + value);
+            }
             return;
         }
 
@@ -276,26 +309,63 @@ class DecoderUtils extends EncoderDecoderUtilsBase {
     private static void validateHeaderCharacters(final CharSequence name, final CharSequence value) {
         assert name != null;
         assert value != null;
-        int idx = ensureRange(name);
+        int idx = indexOfInvalidNameChar(name);
         if (idx != -1) {
             final String msg = String.format(INVALID_CHARACTER_MESSAGE, (int) name.charAt(idx), idx, "name", name, value);
             throw new HeaderDecodingException(ErrorCode.PROTOCOL_ERROR, ErrorType.STREAM, msg);
         }
-        idx = ensureRange(value);
+        idx = indexOfInvalidValueChar(value);
         if (idx != -1) {
-            final String msg = String.format(INVALID_CHARACTER_MESSAGE, (int) name.charAt(idx), idx, "value", name, value);
+            final String msg = String.format(INVALID_CHARACTER_MESSAGE, (int) value.charAt(idx), idx, "value", name, value);
             throw new HeaderDecodingException(ErrorCode.PROTOCOL_ERROR, ErrorType.STREAM, msg);
         }
     }
 
-    private static int ensureRange(final CharSequence cs) {
-        for (int i = 0, len = cs.length(); i < len; i++) {
-            final char c = cs.charAt(i);
-            if (c < 0x20 || c > 0xFF) {
+    /**
+     * RFC 9113, section 8.2.1: a field name must not contain 0x00-0x20, 0x41-0x5a ('A' to 'Z') or 0x7f-0xff, nor a
+     * colon other than the one that starts the name of a pseudo-header field.
+     *
+     * @return the index of the first invalid character, or {@code -1}
+     */
+    private static int indexOfInvalidNameChar(final CharSequence name) {
+        for (int i = 0, len = name.length(); i < len; i++) {
+            final char c = name.charAt(i);
+            if (c <= Constants.SP || c >= 0x7F || (c >= Constants.A && c <= Constants.Z) || (c == Constants.COLON && i > 0)) {
                 return i;
             }
         }
         return -1;
+    }
+
+    /**
+     * RFC 9113, section 8.2.1: a field value must not contain NUL, LF or CR, nor start or end with SP or HTAB. The
+     * other control characters (0x01-0x1f and DEL) are rejected too, as in Section 5.5 of RFC 9110; HTAB is allowed
+     * inside the value.
+     *
+     * @return the index of the first invalid character, or {@code -1}
+     */
+    private static int indexOfInvalidValueChar(final CharSequence value) {
+        final int len = value.length();
+        if (len == 0) {
+            return -1;
+        }
+        if (isSpaceOrTab(value.charAt(0))) {
+            return 0;
+        }
+        if (isSpaceOrTab(value.charAt(len - 1))) {
+            return len - 1;
+        }
+        for (int i = 0; i < len; i++) {
+            final char c = value.charAt(i);
+            if ((c < Constants.SP && c != Constants.HT) || c == 0x7F || c > 0xFF) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static boolean isSpaceOrTab(final char c) {
+        return c == Constants.SP || c == Constants.HT;
     }
 
 }
