@@ -596,15 +596,15 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
 
         if (headerBlockFragment.getCompressedHeaders().hasRemaining()) {
             if (!headersDecoder.append(headerBlockFragment.takePayload())) {
-                headersDecoder.setFirstHeaderFrame((HeaderBlockHead) headerBlockFragment);
+                // the fragment over the limit may be a CONTINUATION frame, the head of the block is then already set
+                if (!headersDecoder.isProcessingHeaders()) {
+                    headersDecoder.setFirstHeaderFrame((HeaderBlockHead) headerBlockFragment);
+                } else {
+                    headerBlockFragment.recycle();
+                }
                 final HeaderBlockHead firstHeaderFrame = headersDecoder.finishHeader();
                 firstHeaderFrame.setTruncated();
-                try {
-                    processCompleteHeader(http2Session, context, firstHeaderFrame);
-                } finally {
-                    firstHeaderFrame.recycle();
-                }
-
+                processHeaderBlock(http2Session, context, firstHeaderFrame);
                 return;
             }
         }
@@ -622,11 +622,32 @@ public abstract class Http2BaseFilter extends HttpBaseFilter {
         }
 
         final HeaderBlockHead firstHeaderFrame = headersDecoder.finishHeader();
+        processHeaderBlock(http2Session, context, firstHeaderFrame);
+    }
 
+    /**
+     * Processes a complete header block and makes sure it has been decoded afterwards. The HPACK dynamic table is
+     * shared by all the streams of the session, so a header block left undecoded by a stream error, or by any path
+     * that does not process it, would make the header blocks of the following streams be decoded against a wrong
+     * table (RFC 9113, section 4.3).
+     */
+    private void processHeaderBlock(final Http2Session http2Session, final FilterChainContext context, final HeaderBlockHead firstHeaderFrame)
+            throws IOException {
         try {
             processCompleteHeader(http2Session, context, firstHeaderFrame);
+        } catch (Http2StreamException e) {
+            // the stream is reset, but the connection goes on
+            skipPendingHeaders(http2Session);
+            throw e;
         } finally {
             firstHeaderFrame.recycle();
+        }
+        skipPendingHeaders(http2Session);
+    }
+
+    private static void skipPendingHeaders(final Http2Session http2Session) throws Http2SessionException {
+        if (http2Session.getHeadersDecoder().hasPendingHeaders()) {
+            DecoderUtils.skipHeaders(http2Session);
         }
     }
 

@@ -638,7 +638,6 @@ public class Http2ServerFilter extends Http2BaseFilter {
             stream = http2Session.acceptStream(request, headersFrame.getStreamId(), headersFrame.getStreamDependency(), headersFrame.isExclusive(), 0);
         } catch (Http2StreamException e) {
             request.recycle();
-            DecoderUtils.skipHeaders(http2Session);
             throw e;
         }
         if (stream == null) { // GOAWAY has been sent, so ignoring this request

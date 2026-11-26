@@ -1,4 +1,5 @@
 /*
+ * Copyright (c) 2026 Contributors to the Eclipse Foundation.
  * Copyright (c) 2014, 2020 Oracle and/or its affiliates. All rights reserved.
  *
  * This program and the accompanying materials are made available under the
@@ -43,13 +44,19 @@ public class HeadersDecoder {
         this.hpackDecoder = new Decoder(maxHeaderTableSize);
     }
 
+    /**
+     * Appends a fragment of the header block being received.
+     * <p>
+     * The fragment that makes the block larger than the limit is kept as well: the block still has to be decoded to
+     * keep the HPACK state of the connection consistent (RFC 9113, section 10.5.1), and the caller stops collecting the
+     * block once this method returns {@code false}, so at most one fragment over the limit is kept.
+     *
+     * @return {@code false} if the header block is larger than the limit
+     */
     public boolean append(final Buffer buffer) {
         currentHeaderSize += buffer.remaining();
-        if (currentHeaderSize <= maxHeaderSize) {
-            inBuffer = Buffers.appendBuffers(memoryManager, inBuffer, buffer, true);
-            return true;
-        }
-        return false;
+        inBuffer = Buffers.appendBuffers(memoryManager, inBuffer, buffer, true);
+        return currentHeaderSize <= maxHeaderSize;
     }
 
     public void decode(final DecodingCallback callback) {
@@ -74,5 +81,12 @@ public class HeadersDecoder {
 
     public boolean isProcessingHeaders() {
         return firstHeaderFrame != null;
+    }
+
+    /**
+     * @return {@code true} if a received header block, or what is left of it, has not been decoded
+     */
+    boolean hasPendingHeaders() {
+        return inBuffer != null;
     }
 }
