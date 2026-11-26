@@ -466,6 +466,7 @@ public class CompositeBufferTest extends AbstractMemoryManagerTest {
         }
     }
 
+    @Test
     public void testToStringContent() {
         final CompositeBuffer composite = CompositeBuffer.newBuffer(mm, Buffers.wrap(mm, "hello"), Buffers.wrap(mm, " world"));
 
